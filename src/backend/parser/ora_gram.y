@@ -153,6 +153,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	OraclePartitionSpec *orapartspec;
 	PartitionBoundSpec	*partboundspec;
 	OracleConnectBy		*connectby;
+	RoleSpec			*rolespec;
 	SelectSortClause	*select_order_by;
 /* ADB_BEGIN */
 	PartitionSpec		*partspec;
@@ -202,7 +203,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <boolean>	opt_all opt_byte_char opt_restart_seqs opt_verbose opt_no_inherit
 				opt_unique opt_concurrently opt_with_data opt_or_replace
-				connect_by_opt_nocycle opt_nowait
+				connect_by_opt_nocycle opt_nowait opt_grant_admin_option
 
 %type <dbehavior>	opt_drop_behavior
 
@@ -291,11 +292,13 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	FetchStmt fetch_args
 	func_application func_application_normal func_expr_common_subexpr func_arg_expr
 	func_expr func_table for_locking_item func_expr_windowless
+	GrantRoleStmt
 	having_clause
 	indirection_el InsertStmt IndexStmt CreateOracleConvertStmt OracleCast
 	join_outer
 	limit_clause LockStmt 
-	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt 
+	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt
+	RevokeRoleStmt
 	SelectStmt select_clause select_no_parens select_with_parens set_expr
 	simple_select select_limit_value select_offset_value start_with_clause
 	TableElement TableFuncElement TypedTableElement table_ref TruncateStmt
@@ -305,6 +308,10 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	values_clause VariableResetStmt VariableSetStmt var_value VariableShowStmt
 	where_clause where_or_current_clause
 	zone_value
+
+%type <rolespec> RoleSpec opt_granted_by
+%type <accesspriv> privilege
+%type <list>	privilege_list pg_role_list
 
 %type <range> OptTempTableName qualified_name relation_expr relation_expr_opt_alias
 
@@ -386,7 +393,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	ELSE END_P ESCAPE EXCLUSIVE EXECUTE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
 	FALSE_P FAMILY FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
-	GLOBAL GRANT GREATEST GROUP_P GROUPING HAVING
+	GLOBAL GRANT GRANTED GREATEST GROUP_P GROUPING HAVING
 	HOLD HOUR_P
 	IDENTIFIED IF_P IMMEDIATE IN_P INOUT INCREMENT INDEX INITIAL_P INSERT INHERIT INITIALLY
 	INHERITS INCLUDING INDEXES INNER_P INSENSITIVE
@@ -402,13 +409,13 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	/* PGXC add NODE token */
 	NODE NULLS_P
 	OBJECT_P OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
-	OWNER OIDS OPTIONS OVER OWNED
+	OWNER OIDS OPTIONS OVER OWNED PASSWORD_LIFE_TIME
 	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PUBLICATION PURGE
-	PARTITION PRECEDING PROCEDURAL PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
+	PARTITION PRECEDING PROCEDURAL PROCEDURE PROFILE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
 	RANGE RAW READ REAL RECURSIVE REFRESH RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
-	SCHEMA SECOND_P SEED SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
+	SCHEMA SECOND_P SEED SELECT SERIALIZABLE SERVER SESSION SESSION_PER_USER SESSION_USER SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT SPECIAL START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE SAMPLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
@@ -548,11 +555,13 @@ stmt:
 	| ExecuteStmt
 	| ExplainStmt
 	| FetchStmt
+	| GrantRoleStmt
 	| InsertStmt
 	| IndexStmt
 	| LockStmt
 	| RefreshMatViewStmt
 	| RenameStmt
+	| RevokeRoleStmt
 	| SelectStmt
 	| TruncateStmt
 	| TransactionStmt
@@ -645,6 +654,14 @@ CreateRoleStmt:
 					n->options = $5;
 					$$ = (Node *)n;
 				}
+			| CREATE PROFILE RoleId LIMIT OptRoleList
+				{
+					CreateRoleStmt *n = makeNode(CreateRoleStmt);
+					n->stmt_type = ROLESTMT_ROLE;
+					n->role = $3;
+					n->options = $5;
+					$$ = (Node *)n;
+				}
 		;
 
 OptRoleList:
@@ -714,9 +731,17 @@ AlterOptRoleElem:
 				{
 					$$ = makeDefElem("connectionlimit", (Node *)makeInteger($3), @1);
 				}
+			| SESSION_PER_USER SignedIconst
+				{
+					$$ = makeDefElem("connectionlimit", (Node *)makeInteger($2), @1);
+				}
 			| VALID UNTIL Sconst
 				{
 					$$ = makeDefElem("validUntil", (Node *)makeString($3), @1);
+				}
+			| PASSWORD_LIFE_TIME Sconst
+				{
+					$$ = makeDefElem("validUntil", (Node *)makeString($2), @1);
 				}
 		/*	Supported but not documented for roles, for use by ALTER GROUP. */
 			| USER role_list
@@ -8352,6 +8377,134 @@ OracleCoerceContext:
 					}
 				;
 
+/*****************************************************************************
+ *
+ * GRANT and REVOKE ROLE statements
+ *
+ *****************************************************************************/
+
+GrantRoleStmt:
+			GRANT privilege_list TO pg_role_list opt_grant_admin_option opt_granted_by
+				{
+					GrantRoleStmt *n = makeNode(GrantRoleStmt);
+					n->is_grant = true;
+					n->granted_roles = $2;
+					n->grantee_roles = $4;
+					n->admin_opt = $5;
+					n->grantor = $6;
+					$$ = (Node*)n;
+				}
+		;
+
+RevokeRoleStmt:
+			REVOKE privilege_list FROM pg_role_list opt_granted_by opt_drop_behavior
+				{
+					GrantRoleStmt *n = makeNode(GrantRoleStmt);
+					n->is_grant = false;
+					n->admin_opt = false;
+					n->granted_roles = $2;
+					n->grantee_roles = $4;
+					n->behavior = $6;
+					$$ = (Node*)n;
+				}
+			| REVOKE ADMIN OPTION FOR privilege_list FROM pg_role_list opt_granted_by opt_drop_behavior
+				{
+					GrantRoleStmt *n = makeNode(GrantRoleStmt);
+					n->is_grant = false;
+					n->admin_opt = true;
+					n->granted_roles = $5;
+					n->grantee_roles = $7;
+					n->behavior = $9;
+					$$ = (Node*)n;
+				}
+		;
+
+opt_grant_admin_option: WITH ADMIN OPTION				{ $$ = true; }
+			| /*EMPTY*/									{ $$ = false; }
+		;
+
+opt_granted_by: GRANTED BY RoleSpec						{ $$ = $3; }
+			| /*EMPTY*/									{ $$ = NULL; }
+		;
+
+privilege_list:	privilege							{ $$ = list_make1($1); }
+			| privilege_list ',' privilege			{ $$ = lappend($1, $3); }
+		;
+
+privilege:	SELECT opt_column_list
+			{
+				AccessPriv *n = makeNode(AccessPriv);
+				n->priv_name = pstrdup($1);
+				n->cols = $2;
+				$$ = n;
+			}
+		| REFERENCES opt_column_list
+			{
+				AccessPriv *n = makeNode(AccessPriv);
+				n->priv_name = pstrdup($1);
+				n->cols = $2;
+				$$ = n;
+			}
+		| CREATE opt_column_list
+			{
+				AccessPriv *n = makeNode(AccessPriv);
+				n->priv_name = pstrdup($1);
+				n->cols = $2;
+				$$ = n;
+			}
+		| ColId opt_column_list
+			{
+				AccessPriv *n = makeNode(AccessPriv);
+				n->priv_name = $1;
+				n->cols = $2;
+				$$ = n;
+			}
+		;
+
+pg_role_list:	RoleSpec
+					{ $$ = list_make1($1); }
+			| pg_role_list ',' RoleSpec
+					{ $$ = lappend($1, $3); }
+		;
+
+RoleSpec:	NonReservedWord
+					{
+						/*
+						 * "public" and "none" are not keywords, but they must
+						 * be treated specially here.
+						 */
+						RoleSpec *n;
+						if (strcmp($1, "current_user") == 0)
+						{
+							n = makeRoleSpec(ROLESPEC_CURRENT_USER, @1);
+						}
+						else if(strcmp($1, "session_user") == 0)
+						{
+							n = makeRoleSpec(ROLESPEC_SESSION_USER, @1);
+						}
+						else if (strcmp($1, "public") == 0)
+						{
+							n = (RoleSpec *) makeRoleSpec(ROLESPEC_PUBLIC, @1);
+							n->roletype = ROLESPEC_PUBLIC;
+						}
+						else if (strcmp($1, "none") == 0)
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_RESERVED_NAME),
+									 errmsg("role name \"%s\" is reserved",
+											"none"),
+									 parser_errposition(@1)));
+						}
+						else
+						{
+							n = makeRoleSpec(ROLESPEC_CSTRING, @1);
+							n->rolename = pstrdup($1);
+						}
+						$$ = n;
+					}
+		;
+
+
 
 /* object types taking any_name */
 comment_type_any_name:
@@ -8716,6 +8869,7 @@ unreserved_keyword:
 	| FORWARD
 	| FUNCTION
 	| GLOBAL
+	| GRANTED
 	| HOLD
 	| HOUR_P
 	| IDENTITY_P
@@ -8770,14 +8924,16 @@ unreserved_keyword:
 	| PARTIAL
 	| PARTITION
 	| PASSWORD
+	| PASSWORD_LIFE_TIME
 	| POLICY
 	| PRECISION
 	| PRECEDING
 	| PREPARE
 	| PREPARED
 	| PRESERVE
-	| PRIMARY
 	| PROCEDURE
+	| PROFILE
+	| PRIMARY
 	| PRIVILEGES
 	| PUBLICATION
 	| PURGE
@@ -8808,6 +8964,8 @@ unreserved_keyword:
 	| SEED
 	| SEQUENCE
 	| SERVER
+	| SESSION_PER_USER
+	| SESSION_USER
 	| SETS
 	| SHARE
 	| STATISTICS

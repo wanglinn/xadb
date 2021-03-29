@@ -1110,6 +1110,9 @@ IndexScanOK(CatCache *cache, ScanKey cur_skey)
 		case AUTHNAME:
 		case AUTHOID:
 		case AUTHMEMMEMROLE:
+#ifdef ADB_GRAM_ORA
+		case AUTHMEMROLEMEM:
+#endif	/* ADB_GRAM_ORA */
 
 			/*
 			 * Protect authentication lookups occurring before relcache has

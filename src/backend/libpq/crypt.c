@@ -27,6 +27,11 @@
 #include "utils/builtins.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
+#ifdef ADB_GRAM_ORA
+#include "access/htup_details.h"
+#include "catalog/pg_auth_members.h"
+#include "utils/catcache.h"
+#endif	/* ADB_GRAM_ORA */
 
 
 /*
@@ -69,6 +74,48 @@ get_role_password(const char *role, char **logdetail)
 							Anum_pg_authid_rolvaliduntil, &isnull);
 	if (!isnull)
 		vuntil = DatumGetTimestampTz(datum);
+#ifdef ADB_GRAM_ORA
+	/**
+	 * Oracle compatible,
+	 * limit the user's password validity through role configuration.
+	 */
+	else
+	{
+		CatCList   *memlist;
+		int			i;
+		HeapTuple	temp_roleTup;
+		Oid			auth_oid;
+
+		auth_oid = GetSysCacheOid1(AUTHNAME, Anum_pg_authid_oid,
+								   CStringGetDatum(role));
+
+		if (OidIsValid(auth_oid))
+		{
+			/* Find roles that memberid is directly a member of */
+			memlist = SearchSysCacheList1(AUTHMEMROLEMEM, ObjectIdGetDatum(auth_oid));
+
+			for (i = 0; i < memlist->n_members; i++)
+			{
+				HeapTuple	tup = &memlist->members[i]->tuple;
+				Oid			roleid = ((Form_pg_auth_members) GETSTRUCT(tup))->member;
+
+				temp_roleTup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(roleid));
+
+				datum = SysCacheGetAttr(AUTHNAME, temp_roleTup,
+										Anum_pg_authid_rolvaliduntil, &isnull);
+				if (isnull)
+					continue;
+
+				vuntil = DatumGetTimestampTz(datum);
+				ReleaseSysCache(temp_roleTup);
+				if (vuntil < GetCurrentTimestamp())
+					break;
+			}
+
+			ReleaseSysCacheList(memlist);
+		}
+	}
+#endif	/* ADB_GRAM_ORA */
 
 	ReleaseSysCache(roleTup);
 

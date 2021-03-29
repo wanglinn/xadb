@@ -56,6 +56,10 @@
 #include "utils/pidfile.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
+#ifdef ADB_GRAM_ORA
+#include "catalog/pg_auth_members.h"
+#include "utils/catcache.h"
+#endif	/* ADB_GRAM_ORA */
 
 
 #define DIRECTORY_LOCK_FILE		"postmaster.pid"
@@ -665,6 +669,59 @@ InitializeSessionUserId(const char *rolename, Oid roleid)
 					(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
 					 errmsg("too many connections for role \"%s\"",
 							rname)));
+#ifdef ADB_GRAM_ORA
+		/**
+		 * Oracle compatible,
+		 * limit the maximum number of connections by role configuration.
+		 */
+		else if (!AuthenticatedUserIsSuperuser)
+		{
+			CatCList   *memlist;
+			int			rolconnlimit = -1;
+			int			i;
+			HeapTuple	temp_roleTup;
+			Oid			auth_oid;
+			Datum		datum;
+			bool		isnull;
+
+			auth_oid = GetSysCacheOid1(AUTHNAME, Anum_pg_authid_oid,
+									CStringGetDatum(rolename));
+
+			if (OidIsValid(auth_oid))
+			{
+				/* Find roles that memberid is directly a member of */
+				memlist = SearchSysCacheList1(AUTHMEMROLEMEM, ObjectIdGetDatum(auth_oid));
+
+				for (i = 0; i < memlist->n_members; i++)
+				{
+					HeapTuple	tup = &memlist->members[i]->tuple;
+					Oid			memb_roleid = ((Form_pg_auth_members) GETSTRUCT(tup))->member;
+
+					temp_roleTup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(memb_roleid));
+
+					datum = SysCacheGetAttr(AUTHNAME, temp_roleTup,
+											Anum_pg_authid_rolconnlimit, &isnull);
+					if (isnull)
+						continue;
+
+					if (rolconnlimit < 0 ||
+						rolconnlimit > DatumGetInt32(datum))
+						rolconnlimit = DatumGetInt32(datum);
+
+					ReleaseSysCache(temp_roleTup);
+				}
+				ReleaseSysCacheList(memlist);
+
+				if (rolconnlimit >= 0 &&
+					CountUserBackends(roleid) > rolconnlimit)
+					ereport(FATAL,
+							(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
+							errmsg("too many connections for role \"%s\"",
+									rname)));
+			}
+		}
+#endif	/* ADB_GRAM_ORA */
+
 	}
 
 	/* Record username and superuser status as GUC settings too */
