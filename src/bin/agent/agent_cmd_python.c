@@ -16,13 +16,12 @@
 #include "get_uptime.h"
 #include "hba_scan.h"
 #include "utils/memutils.h"
+#include <sys/statvfs.h>
 
 #undef _POSIX_C_SOURCE
 #undef _XOPEN_SOURCE
 #undef HAVE_STRERROR
 #undef HAVE_TZNAME
-
-#include <Python.h>
 
 #ifdef USE_REPL_SNPRINTF
 #undef snprintf
@@ -40,6 +39,11 @@ bool get_platform_type_info(StringInfo hostinfostring);
 bool get_cpu_freq(StringInfo hostinfostring);
 bool get_filesystem_info(StringInfo filesystemstring);
 
+bool get_filesystem_infos(StringInfo hostinfostring, char* filesysteminfo);
+bool get_cpu_usage_info(int64 *total_values, int64 *use_values);
+bool append_timestamp(StringInfo hostinfostring);
+bool get_net_io_info(int64 *recv, int64 *sent);
+
 static void monitor_append_str(StringInfo hostinfostring, char *str);
 static void monitor_append_int64(StringInfo hostinfostring, int64 i);
 static void monitor_append_float(StringInfo hostinfostring, float f);
@@ -53,56 +57,227 @@ static void monitor_append_float(StringInfo hostinfostring, float f);
  */
 bool get_cpu_info(StringInfo hostinfostring)
 {
-    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
-    float cpu_Usage;
-    int result;
-    char *time_Stamp = NULL;
-    char my_exec_path[MAXPGPATH];
-    char pghome[MAXPGPATH];
+    int64 first_total_values = 0;
+    int64 first_use_values = 0;
+    int64 last_total_values = 0;
+    int64 last_use_values = 0;
+    float usage_percent;
 
-    memset(pghome, 0, MAXPGPATH);
+    /*cacumlate cpu usage */
+    get_cpu_usage_info(&first_total_values, &first_use_values);
+    sleep(5);
+    get_cpu_usage_info(&last_total_values, &last_use_values); 
 
-    if (find_my_exec(agent_argv0, my_exec_path) < 0)
-        ereport(ERROR, (errmsg("%s: could not locate my own executable path", agent_argv0)));
-    get_share_path(my_exec_path, pghome);
+    if(last_total_values < first_total_values)
+        ereport(ERROR, (errmsg("cacumlate cpu usage fails")));
+    
+    if(last_use_values < first_use_values)
+        last_use_values = first_use_values;
+    
+    usage_percent = (float)(last_use_values - first_use_values) / (last_total_values - first_total_values);
 
-    Py_Initialize();
-    if (!Py_IsInitialized())
-        return false;
-
-    PyRun_SimpleString("import sys");
-    PyRun_SimpleString("import psutil");
-    PyRun_SimpleString("import time");
-    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
-
-    sysPath = PySys_GetObject("path");
-    path = PyString_FromString(pghome);
-    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
-        ereport(ERROR, (errmsg("can't insert path %s to sysPath", pghome)));
-
-    pModule = PyImport_ImportModule("host_info");
-    if (!pModule)
-        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s", pghome)));
-
-    pDict = PyModule_GetDict(pModule);
-    if (!pDict)
-        ereport(ERROR, (errmsg("can't get path for host_info.py")));
-
-    pFunc = PyDict_GetItemString(pDict, "get_cpu_info");
-    if (!pFunc || !PyCallable_Check(pFunc))
-        ereport(ERROR, (errmsg("can't find function get_cpu_info in file host_info.py")));
-
-    pRetValue = PyObject_CallObject(pFunc, NULL);
-    PyArg_ParseTuple(pRetValue, "sf", &time_Stamp,&cpu_Usage);
-    monitor_append_str(hostinfostring, time_Stamp);
-    monitor_append_float(hostinfostring, cpu_Usage);
+    append_timestamp(hostinfostring);
+	monitor_append_float(hostinfostring, usage_percent);
     get_cpu_freq(hostinfostring);
 
-    Py_DECREF(pModule);
-    Py_DECREF(pRetValue);
-    Py_DECREF(pFunc);
-    Py_Finalize();
+    return true;
+}
 
+/*
+ * append_timestamp: timestamp
+ * timestamp: string type, for example:201606130951
+ */
+bool append_timestamp(StringInfo hostinfostring)
+{
+    char time_Stamp[100];
+    struct tm   *p;
+    time_t	ntime;
+
+    time(&ntime);
+	p = localtime(&ntime);
+	sprintf(time_Stamp, "%d-%d-%d %02d:%02d:%02d GMT", 1900 + p->tm_year, 1+ p->tm_mon, p->tm_mday,p->tm_hour, p->tm_min, p->tm_sec);
+
+    monitor_append_str(hostinfostring, time_Stamp);
+    return true;
+}
+
+bool get_cpu_usage_info(int64 *total_values, int64 *use_values)
+{
+    FILE *fd;
+    char buffs[1024];
+    char *info_list[1024];
+    int i;
+    int num;
+
+    if((fd = fopen("/proc/stat", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/stat")));
+
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
+        num = 0;
+        info_list[num] = strtok(buffs, " ");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, " ");
+        }
+        
+        if(strcmp(info_list[0],"cpu") == 0 && num > 7)
+        {
+            for(i = 1 ; i < 8; i++)
+            {
+                if(i < 4)
+                    *use_values += strtol(info_list[i],NULL,10);
+                *total_values += strtol(info_list[i],NULL,10);
+            }
+            break;
+        } 
+    }
+
+    if(fd != NULL)
+        fclose(fd);    
+
+    return true;
+}
+
+bool get_filesystem_infos(StringInfo hostinfostring, char* filesysteminfo)
+{
+    int num = 0;
+    char *info_list[1024];
+    int state;
+    int64 disk_Total,disk_Used, disk_free;
+    float percent;
+    struct statvfs vfs;
+
+    info_list[num] = strtok(filesysteminfo, " ");
+    while(info_list[num])
+    {
+        num++;
+        info_list[num] = strtok(NULL, " ");
+    }
+
+    state = statvfs(info_list[1],&vfs);
+    if(state < 0)
+        ereport(ERROR, (errmsg("read statvfs() system function error !!!")));
+    disk_Total = vfs.f_blocks * vfs.f_frsize;
+    disk_Used = disk_Total - vfs.f_bfree * vfs.f_frsize;
+    disk_free = vfs.f_bavail * vfs.f_frsize;
+    percent = (float)disk_Used / disk_Total;
+
+    append_timestamp(hostinfostring);                        /*timestamp*/
+    monitor_append_str(hostinfostring, info_list[0]);        /*device*/
+    monitor_append_str(hostinfostring, info_list[1]);        /*mountpoint*/
+    monitor_append_str(hostinfostring, info_list[2]);        /*fstype*/
+    monitor_append_int64(hostinfostring, disk_Total);
+    monitor_append_int64(hostinfostring, disk_Used);
+    monitor_append_int64(hostinfostring, disk_free);
+    monitor_append_float(hostinfostring, percent);
+    appendStringInfoCharMacro(hostinfostring, '\n');
+
+    return true;
+}
+
+bool get_filesystem_info(StringInfo filesystemstring)
+{
+  FILE *fd;
+    char buffs[1024];
+    char *info_list[1024];
+    char *disk_fstypes[1024];
+    int disk_num = 0;
+    int num, i;
+
+    if((fd = fopen("/proc/filesystems", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/filesystems")));
+    
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
+        num = 0;
+        info_list[num] = strtok(buffs, "\t\n");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, "\t\n");
+        }
+
+        if(strcmp(info_list[0],"nodev") != 0)
+        {
+            // find non-system disk file info
+            disk_fstypes[disk_num] = pstrdup(info_list[0]);
+            disk_num++;
+        }
+    }
+
+    if(fd != NULL)
+        fclose(fd);
+    
+    /*open /proc/self/mounts and get the devie, mountpoint, fstype. */
+    if((fd = fopen("/proc/self/mounts", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/self/mounts")));
+    
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
+        num = 0;
+        info_list[num] = strtok(buffs, ",");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, ",");
+        }
+
+        for(i = 0; i < disk_num; i++)
+        {
+            if(strstr(info_list[0],disk_fstypes[i]))
+            {
+                get_filesystem_infos(filesystemstring, info_list[0]);
+                continue;
+            }
+        }
+    }
+
+    if(fd != NULL)
+        fclose(fd);
+    return true;
+}
+
+bool get_net_io_info(int64 *recv, int64 *sent)
+{
+    FILE *fd;
+    char buffs[1024];
+    char *info_list[1024];
+    int num;
+
+    if((fd = fopen("/proc/net/dev", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/net/dev")));
+    
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
+        num = 0;
+        info_list[num] = strtok(buffs, " ");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, " ");
+        }
+
+        if(strchr(info_list[0],':') != NULL)
+        {
+            *recv += strtol(info_list[1],NULL,10);
+
+            *sent += strtol(info_list[9],NULL,10);
+        }
+    }
+
+    if(fd != NULL)
+        fclose(fd);
+    
     return true;
 }
 
@@ -116,58 +291,85 @@ bool get_cpu_info(StringInfo hostinfostring)
  */
 bool get_mem_info(StringInfo hostinfostring)
 {
-    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
-    char *time_Stamp = NULL;
-    float mem_Usage;
-    int64 mem_Total, mem_Used;
-    int result;
-    char my_exec_path[MAXPGPATH];
-    char pghome[MAXPGPATH];
+    FILE *fd;
+    char buffs[1024];
+    char *info_list[1024];
+    int64 total_mem = 0;
+    int64 used_mem = 0;
+    int64 free_mem = 0;
+    int64 buffer_mem = 0;
+    int64 cached = 0;
+    int64 avail_mem = 0;
+    float percent_mem = 0;
+    int num;
 
-    memset(pghome, 0, MAXPGPATH);
+    if((fd = fopen("/proc/meminfo", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/meminfo")));
+    
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
 
-    if (find_my_exec(agent_argv0, my_exec_path) < 0)
-        ereport(ERROR, (errmsg("%s: could not locate my own executable path", agent_argv0)));
-    get_share_path(my_exec_path, pghome);
+        num = 0;
+        info_list[num] = strtok(buffs, " ");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, " ");
+        }
 
-    Py_Initialize();
-    if (!Py_IsInitialized())
-        return false;
+        if(strcmp(info_list[0], "MemTotal:") == 0)
+        {
+            total_mem = strtol(info_list[1],NULL,10);
+            continue;
+        }
 
-    PyRun_SimpleString("import sys");
-    PyRun_SimpleString("import psutil");
-    PyRun_SimpleString("import time");
-    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
+       if(strcmp(info_list[0], "MemFree:") == 0)
+        {
+            free_mem = strtol(info_list[1],NULL,10);
+            continue;
+        }
 
-    sysPath = PySys_GetObject("path");
-    path = PyString_FromString(pghome);
-    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
-        ereport(ERROR, (errmsg("can't insert path %s to sysPath", pghome)));
+        if(strcmp(info_list[0], "Buffers:") == 0)
+        {
+            buffer_mem = strtol(info_list[1],NULL,10);
+            continue;
+        }
 
-    pModule = PyImport_ImportModule("host_info");
-    if (!pModule)
-        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s", pghome)));
+        if(strcmp(info_list[0], "Cached:") == 0)
+        {
+            cached = strtol(info_list[1],NULL,10);
+            continue;
+        }
 
-    pDict = PyModule_GetDict(pModule);
-    if (!pDict)
-        ereport(ERROR, (errmsg("can't get path for host_info.py")));
+        if(strcmp(info_list[0], "MemAvailable:") == 0)
+        {
+            avail_mem = strtol(info_list[1],NULL,10);
+            continue;
+        }
+    }
 
-    pFunc = PyDict_GetItemString(pDict, "get_mem_info");
-    if (!pFunc || !PyCallable_Check(pFunc))
-        ereport(ERROR, (errmsg("can't find function get_mem_info in file host_info.py")));
+    used_mem = total_mem - free_mem - cached - buffer_mem;
 
-    pRetValue = PyObject_CallObject(pFunc, NULL);
-    PyArg_ParseTuple(pRetValue, "sllf", &time_Stamp,&mem_Total,&mem_Used,&mem_Usage);
-    monitor_append_str(hostinfostring, time_Stamp);
-    monitor_append_int64(hostinfostring, mem_Total);
-    monitor_append_int64(hostinfostring, mem_Used);
-    monitor_append_float(hostinfostring, mem_Usage);
+    if(used_mem < 0)
+        used_mem = total_mem - free_mem;
 
-    Py_DECREF(pModule);
-    Py_DECREF(pRetValue);
-    Py_DECREF(pFunc);
-    Py_Finalize();
+    if(avail_mem < 0)
+        avail_mem = 0;
+    
+    if(avail_mem > total_mem)
+        avail_mem = free_mem;
+    
+    percent_mem =(float)(total_mem - avail_mem) / total_mem;
 
+    if(fd != NULL)
+        fclose(fd);
+    
+    append_timestamp(hostinfostring);
+    monitor_append_int64(hostinfostring, total_mem*1024);
+    monitor_append_int64(hostinfostring, used_mem*1024);
+    monitor_append_float(hostinfostring, percent_mem);
     return true;
 }
 
@@ -184,64 +386,79 @@ bool get_mem_info(StringInfo hostinfostring)
  */
 bool get_disk_info(StringInfo hostinfostring)
 {
-    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
-    char *time_Stamp = NULL;
-    int64 disk_Read_Bytes, disk_Read_Time,
-          disk_Write_Bytes, disk_Write_Time,
-          disk_Total, disk_Used;
-    int result;
-    char my_exec_path[MAXPGPATH];
-    char pghome[MAXPGPATH];
+    FILE *fd;
+    char buffs[1024];
+    char *info_list[1024];
+    int64   disk_io_read_bytes = 0;
+    int64   disk_io_read_time = 0;
+    int64   disk_io_write_bytes = 0;
+    int64   disk_io_write_time = 0;
+    int state;
+    struct statvfs vfs;
+    int64 disk_Total,disk_Used;
+    int num;
 
-    memset(pghome, 0, MAXPGPATH);
+    if((fd = fopen("/proc/diskstats", "r")) == NULL)
+        ereport(ERROR, (errmsg("can't open file /proc/diskstats")));
+    
+    while (!feof(fd) && !ferror(fd))
+    {
+        if (fgets(buffs, sizeof(buffs), fd) == NULL)
+            break;
 
-    if (find_my_exec(agent_argv0, my_exec_path) < 0)
-        ereport(ERROR, (errmsg("%s: could not locate my own executable path", agent_argv0)));
-    get_share_path(my_exec_path, pghome);
+        num = 0;
+        info_list[num] = strtok(buffs, " ");
+        while(info_list[num])
+        {
+            num++;
+            info_list[num] = strtok(NULL, " ");
+        }
 
-    Py_Initialize();
-    if (!Py_IsInitialized())
-        return false;
+        if(num == 15)
+        {
+            /*Linux 2.4*/
+            disk_io_read_bytes += atoi(info_list[2]);
+            disk_io_write_bytes += atoi(info_list[7]); 
+            disk_io_read_time += atoi(info_list[6]);
+            disk_io_write_time += atoi(info_list[10]);
 
-    PyRun_SimpleString("import sys");
-    PyRun_SimpleString("import psutil");
-    PyRun_SimpleString("import time");
-    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
+        }
+        else if(num == 14 || num > 17)
+        {
+            /*Linux 2.6+*/
+            disk_io_read_bytes += atoi(info_list[3]);
+            disk_io_write_bytes += atoi(info_list[7]); 
+            disk_io_read_time += atoi(info_list[6]);
+            disk_io_write_time += atoi(info_list[10]);
+        }
+        else if(num == 7)
+        {
+            /*Linux 2.6+, line referring to a partition*/
+            disk_io_read_bytes += atoi(info_list[3]);
+            disk_io_write_bytes += atoi(info_list[3]);             
+        }
+        else
+        {
+            ereport(ERROR, (errmsg("not sure how to interpret this line")));
+        }
+    }
 
-    sysPath = PySys_GetObject("path");
-    path = PyString_FromString(pghome);
-    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
-        ereport(ERROR, (errmsg("can't insert path %s to sysPath", pghome)));
+    if(fd != NULL)
+        fclose(fd);
 
-    pModule = PyImport_ImportModule("host_info");
-    if (!pModule)
-        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s", pghome)));
+    state = statvfs("/",&vfs);
+    if(state < 0)
+        ereport(ERROR, (errmsg("read statvfs() system function error !!!")));
+    disk_Total = vfs.f_blocks * vfs.f_frsize;
+    disk_Used = disk_Total - vfs.f_bfree * vfs.f_frsize;
 
-    pDict = PyModule_GetDict(pModule);
-    if (!pDict)
-        ereport(ERROR, (errmsg("can't get path for host_info.py")));
-
-    pFunc = PyDict_GetItemString(pDict, "get_disk_info");
-    if (!pFunc || !PyCallable_Check(pFunc))
-        ereport(ERROR, (errmsg("can't find function get_disk_info in file host_info.py.")));
-
-    pRetValue = PyObject_CallObject(pFunc, NULL);
-    PyArg_ParseTuple(pRetValue, "sllllll", &time_Stamp, &disk_Read_Bytes, &disk_Read_Time,
-                                           &disk_Write_Bytes, &disk_Write_Time,
-                                           &disk_Total, &disk_Used);
-
-    monitor_append_str(hostinfostring, time_Stamp);
-    monitor_append_int64(hostinfostring, disk_Read_Bytes);
-    monitor_append_int64(hostinfostring, disk_Read_Time);
-    monitor_append_int64(hostinfostring, disk_Write_Bytes);
-    monitor_append_int64(hostinfostring, disk_Write_Time);
+    append_timestamp(hostinfostring);
+    monitor_append_int64(hostinfostring, disk_io_read_bytes);
+    monitor_append_int64(hostinfostring, disk_io_read_time);
+    monitor_append_int64(hostinfostring, disk_io_write_bytes);
+    monitor_append_int64(hostinfostring, disk_io_write_time);
     monitor_append_int64(hostinfostring, disk_Total);
     monitor_append_int64(hostinfostring, disk_Used);
-
-    Py_DECREF(pModule);
-    Py_DECREF(pRetValue);
-    Py_DECREF(pFunc);
-    Py_Finalize();
 
     return true;
 }
@@ -255,55 +472,22 @@ bool get_disk_info(StringInfo hostinfostring)
  */
 bool get_net_info(StringInfo hostinfostring)
 {
-    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
-    int64 sent_Speed,recv_Speed;
-    int result;
-    char *time_Stamp = NULL;
-    char my_exec_path[MAXPGPATH];
-    char pghome[MAXPGPATH];
-    
-    memset(pghome, 0, MAXPGPATH);
-    
-    if (find_my_exec(agent_argv0, my_exec_path) < 0)
-        ereport(ERROR, (errmsg("%s: could not locate my own executable path.", agent_argv0)));
-    get_share_path(my_exec_path, pghome);
+    int64 recv_first = 0;
+    int64 sent_first = 0;
+    int64 recv_last = 0;
+    int64 sent_last = 0;
+    int  recv, sent;
 
-    Py_Initialize();
-    if (!Py_IsInitialized())
-        return false;
+    get_net_io_info(&recv_first, &sent_first);
+    sleep(3);
+    get_net_io_info(&recv_last, &sent_last);
+    recv = (recv_last - recv_first)/3;
+    sent = (sent_last - sent_first)/3;
 
-    PyRun_SimpleString("import sys");
-    PyRun_SimpleString("import psutil");
-    PyRun_SimpleString("import time");
-    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
-
-    sysPath = PySys_GetObject("path");
-    path = PyString_FromString(pghome);
-    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
-        ereport(ERROR, (errmsg("can't insert path %s to sysPath.", pghome)));
-
-    pModule = PyImport_ImportModule("host_info");
-    if (!pModule)
-        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s.", pghome)));
-
-    pDict = PyModule_GetDict(pModule);
-    if ( !pDict )
-        ereport(ERROR, (errmsg("can't get path for host_info.py")));
-
-    pFunc = PyDict_GetItemString(pDict, "get_net_info");
-    if (!pFunc || !PyCallable_Check(pFunc))
-        ereport(ERROR, (errmsg("can't find function get_net_info in file host_info.py.")));
-
-    pRetValue = PyObject_CallObject(pFunc, NULL);
-    PyArg_ParseTuple(pRetValue, "sll", &time_Stamp,&sent_Speed,&recv_Speed);
-    monitor_append_str(hostinfostring, time_Stamp);
-    monitor_append_int64(hostinfostring,sent_Speed);
-    monitor_append_int64(hostinfostring,recv_Speed);
-
-    Py_DECREF(pModule);
-    Py_DECREF(pRetValue);
-    Py_DECREF(pFunc);
-    Py_Finalize();
+    /*print "%s %d %d" % (time_stamp, sent, recv)*/
+	append_timestamp(hostinfostring);
+    monitor_append_int64(hostinfostring,sent);
+    monitor_append_int64(hostinfostring,recv);
 
     return true;
 }
@@ -432,79 +616,6 @@ bool get_cpu_freq(StringInfo hostinfostring)
         return false;
     }
     pclose(fstream);
-    return true;
-}
-
-bool get_filesystem_info(StringInfo filesystemstring)
-{
-    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
-    char *time_Stamp = NULL;
-    char *file_system, *mount_point, *fs_type;
-    float used_percent;
-    int64 disk_Total, disk_Used, disk_Free;
-    int result;
-    char my_exec_path[MAXPGPATH];
-    char pghome[MAXPGPATH];
-
-    memset(pghome, 0, MAXPGPATH);
-
-    if (find_my_exec(agent_argv0, my_exec_path) < 0)
-        ereport(ERROR, (errmsg("%s: could not locate my own executable path", agent_argv0)));
-    get_share_path(my_exec_path, pghome);
-
-    Py_Initialize();
-    if (!Py_IsInitialized())
-        return false;
-
-    PyRun_SimpleString("import sys");
-    PyRun_SimpleString("import psutil");
-    PyRun_SimpleString("import time");
-    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
-
-    sysPath = PySys_GetObject("path");
-    path = PyString_FromString(pghome);
-    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
-        ereport(ERROR, (errmsg("can't insert path %s to sysPath", pghome)));
-
-    pModule = PyImport_ImportModule("host_info");
-    if (!pModule)
-        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s", pghome)));
-
-    pDict = PyModule_GetDict(pModule);
-    if (!pDict)
-        ereport(ERROR, (errmsg("can't get path for host_info.py")));
-
-    pFunc = PyDict_GetItemString(pDict, "get_filesystem_info");
-    if (!pFunc || !PyCallable_Check(pFunc))
-        ereport(ERROR, (errmsg("can't find function get_filesystem_info() in file host_info.py.")));
-
-    pRetValue = PyObject_CallObject(pFunc, NULL);
-    if (PyList_Check(pRetValue))
-    {
-        int SizeOfList = PyList_Size(pRetValue);
-        int i = 0;
-        for(i = 0; i < SizeOfList; i++){
-			PyObject *Item = PyList_GetItem(pRetValue, i);
-            PyArg_ParseTuple(Item, "sssslllf", &time_Stamp, &file_system, &mount_point,
-                                           &fs_type, &disk_Total, &disk_Used, &disk_Free, &used_percent);
-            monitor_append_str(filesystemstring, time_Stamp);
-            monitor_append_str(filesystemstring, file_system);
-            monitor_append_str(filesystemstring, mount_point);
-            monitor_append_str(filesystemstring, fs_type);
-            monitor_append_int64(filesystemstring, disk_Total);
-            monitor_append_int64(filesystemstring, disk_Used);
-            monitor_append_int64(filesystemstring, disk_Free);
-            monitor_append_float(filesystemstring, used_percent);
-            appendStringInfoCharMacro(filesystemstring, '\n');
-			Py_DECREF(Item); //释放空间
-        }
-    }
-
-    Py_DECREF(pModule);
-    Py_DECREF(pRetValue);
-    Py_DECREF(pFunc);
-    Py_Finalize();
-
     return true;
 }
 
