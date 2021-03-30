@@ -783,7 +783,7 @@ AlterOptRoleElem:
 						$$ = makeDefElem("createdb", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nocreatedb") == 0)
 						$$ = makeDefElem("createdb", (Node *)makeInteger(false), @1);
-					else if (strcmp($1, "login") == 0)
+					else if (strcmp($1, "login") == 0 || strcmp($1, "unlock") == 0)
 						$$ = makeDefElem("canlogin", (Node *)makeInteger(true), @1);
 					else if (strcmp($1, "nologin") == 0)
 						$$ = makeDefElem("canlogin", (Node *)makeInteger(false), @1);
@@ -800,6 +800,10 @@ AlterOptRoleElem:
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("unrecognized role option \"%s\"", $1),
 									 parser_errposition(@1)));
+				}
+			| LOCK_P
+				{
+					$$ = makeDefElem("canlogin", (Node *)makeInteger(false), @1);
 				}
 		;
 
