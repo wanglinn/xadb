@@ -1294,38 +1294,6 @@ Datum mgr_set_init_cluster(PG_FUNCTION_ARGS)
 
 }
 
-
-/*
-* promote the gtm or datanode node
-*
-*/
-
-bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo strinfo)
-{
-	bool res = false;
-	StringInfoData infosendmsg;
-
-	/*check the cmdtype*/
-	if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
-	{
-		appendStringInfo(strinfo, "the cmdtype is \"%d\", not for gtm promote or datanode promote", cmdtype);
-		return false;
-	}
-	/*check the path*/
-	if (!path || path[0] != '/')
-	{
-		appendStringInfoString(strinfo, "the path is not absolute path");
-		return false;
-	}
-
-	initStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg, " promote -w -D %s", path);
-	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, strinfo);
-	pfree(infosendmsg.data);
-
-	return res;
-}
-
 /*
 * wait the new master accept connect
 *

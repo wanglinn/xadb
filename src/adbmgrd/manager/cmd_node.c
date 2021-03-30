@@ -7252,9 +7252,9 @@ void mgr_refresh_standby(char *cndnPath, Oid hostOid, GetAgentCmdRst *getAgentCm
 /*
 * add key value to infosendmsg, use '\0' to interval, both the key value the type are char*
 */
-void mgr_append_pgconf_paras_str_str(char *key, char *value, StringInfo infosendmsg)
+void mgr_append_pgconf_paras_str_str(const char *key, const char *value, StringInfo infosendmsg)
 {
-	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
+	Assert(key != NULL && value != NULL && infosendmsg->data != NULL);
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
 	appendStringInfoString(infosendmsg, value);
@@ -7264,9 +7264,9 @@ void mgr_append_pgconf_paras_str_str(char *key, char *value, StringInfo infosend
 /*
 * add key value to infosendmsg, use '\0' to interval, the type of key is char*, the type of value is int
 */
-void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendmsg)
+void mgr_append_pgconf_paras_str_int(const char *key, int value, StringInfo infosendmsg)
 {
-	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
+	Assert(key != NULL && infosendmsg->data != NULL);
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
 	appendStringInfo(infosendmsg, "%d", value);
@@ -7276,21 +7276,21 @@ void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendms
 /*
 * add key value to infosendmsg, use '\0' to interval, both the key value the type are char* and need in quota
 */
-void mgr_append_pgconf_paras_str_quotastr(char *key, char *value, StringInfo infosendmsg)
+void mgr_append_pgconf_paras_str_quotastr(const char *key, const char *value, StringInfo infosendmsg)
 {
-	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
+	Assert(key != NULL && value != NULL && infosendmsg->data != NULL);
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
 	appendStringInfo(infosendmsg, "'%s'", value);
 	appendStringInfoCharMacro(infosendmsg, '\0');
 }
 
-void mgr_append_paras_standby(char *key, char *value, StringInfo infosendmsg)
+void mgr_append_paras_standby(const char *key, const char *value, StringInfo infosendmsg)
 {
 	if (mgr_is_recovery_guc_supported())
 		return;
 
-	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
+	Assert(key != NULL && value != NULL && infosendmsg->data != NULL);
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
 	appendStringInfo(infosendmsg, "'%s'", value);
@@ -12732,18 +12732,18 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		else
 			appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") \
 				'select pgxc_pool_reload();'", NameStr(mgr_node_out->nodename));
-			pg_usleep(100000L);
-			ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
-			try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-			if (try < 0)
-			{
-				result = false;
-				ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data
-						, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-				appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
-					, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-			}
+		pg_usleep(100000L);
+		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", cnnamedata.data, cmdstring.data)));
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try < 0)
+		{
+			result = false;
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data
+					, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
+				, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+		}
 	}
 
 	if (recorderr.len > 0)

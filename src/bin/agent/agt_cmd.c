@@ -587,7 +587,7 @@ static void cmd_node_refresh_pghba_parse(AgentCommand cmd_type, StringInfo msg)
 	/*get the pg_hba.conf content*/
 	infohead = parse_hba_file(pgconffile.data);
 	newinfo = (HbaInfo *)palloc(sizeof(HbaInfo));
-	while((ptmp = &infoparastr.data[infoparastr.cursor]) != '\0' && (infoparastr.cursor < infoparastr.len))
+	while((ptmp = &infoparastr.data[infoparastr.cursor]) != NULL && (infoparastr.cursor < infoparastr.len))
 	{
 		ptmp = pghba_info_parse(ptmp, newinfo, &infoparastr);
 		infohead = cmd_refresh_pghba_confinfo(cmd_type, newinfo, infohead, &err_msg);
@@ -882,23 +882,23 @@ static char *pghba_info_parse(char *ptmp, HbaInfo *newinfo, StringInfo infoparas
 	newinfo->type = infoparastr->data[infoparastr->cursor];
 	infoparastr->cursor = infoparastr->cursor + sizeof(char) + 1;
 	/*database*/
-	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != '\0' && (infoparastr->cursor < infoparastr->len));
+	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != NULL && (infoparastr->cursor < infoparastr->len));
 	newinfo->database = &(infoparastr->data[infoparastr->cursor]);
 	infoparastr->cursor = infoparastr->cursor + strlen(newinfo->database) + 1;
 	/*user*/
-	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != '\0' && (infoparastr->cursor < infoparastr->len));
+	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != NULL && (infoparastr->cursor < infoparastr->len));
 	newinfo->user = &(infoparastr->data[infoparastr->cursor]);
 	infoparastr->cursor = infoparastr->cursor + strlen(newinfo->user) + 1;
 	/*ip*/
-	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != '\0' && (infoparastr->cursor < infoparastr->len));
+	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != NULL && (infoparastr->cursor < infoparastr->len));
 	newinfo->addr = &(infoparastr->data[infoparastr->cursor]);
 	infoparastr->cursor = infoparastr->cursor + strlen(newinfo->addr) + 1;
 	/*mark*/
-	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != '\0' && (infoparastr->cursor < infoparastr->len));
+	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != NULL && (infoparastr->cursor < infoparastr->len));
 	newinfo->addr_mark = atoi(&(infoparastr->data[infoparastr->cursor]));
 	infoparastr->cursor = infoparastr->cursor + strlen(&(infoparastr->data[infoparastr->cursor])) + 1;
 	/*method*/
-	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != '\0' && (infoparastr->cursor < infoparastr->len));
+	Assert((ptmp = &infoparastr->data[infoparastr->cursor]) != NULL && (infoparastr->cursor < infoparastr->len));
 	newinfo->auth_method = &(infoparastr->data[infoparastr->cursor]);
 	infoparastr->cursor = infoparastr->cursor + strlen(newinfo->auth_method) + 1;
 	return ptmp;
@@ -1045,12 +1045,12 @@ static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg)
 	}
 	infohead = info;
 
-	while((ptmp = &infoparastr.data[infoparastr.cursor]) != '\0' && (infoparastr.cursor < infoparastr.len))
+	while((ptmp = &infoparastr.data[infoparastr.cursor]) != NULL && (infoparastr.cursor < infoparastr.len))
 	{
 		key = &(infoparastr.data[infoparastr.cursor]);
 		/*refresh the infoparastr.cursor*/
 		infoparastr.cursor = infoparastr.cursor + strlen(key) + 1;
-		Assert((ptmp = &infoparastr.data[infoparastr.cursor]) != '\0' && (infoparastr.cursor < infoparastr.len));
+		Assert((ptmp = &infoparastr.data[infoparastr.cursor]) != NULL && (infoparastr.cursor < infoparastr.len));
 		value = &(infoparastr.data[infoparastr.cursor]);
 		/*refresh the infoparastr.cursor*/
 		infoparastr.cursor = infoparastr.cursor + strlen(value) + 1;
@@ -1113,7 +1113,7 @@ static void cmd_refresh_confinfo(char *key, char *value, ConfInfo *info, bool bf
 	/*use (key, value) to refresh info list*/
 	while(info)
 	{
-		if(info->name != '\0' && strcmp(key, info->name) == 0 && !bforce)
+		if(info->name != NULL && strcmp(key, info->name) == 0 && !bforce)
 		{
 			getkey = true;
 			diffvalue = strlen(value) - info->value_len;
@@ -1138,7 +1138,7 @@ static void cmd_refresh_confinfo(char *key, char *value, ConfInfo *info, bool bf
 			//break;
 		}
 		/*delete the parameter*/
-		else if (bforce && info->name != '\0' && strcmp(key, info->name) == 0)
+		else if (bforce && info->name != NULL && strcmp(key, info->name) == 0)
 		{
 			getkey = true;
 			infopre->next = info->next;
