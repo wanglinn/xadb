@@ -105,8 +105,9 @@ static bool pgxc_collect_RTE_walker(Node *node, collect_RTE_context *crte_contex
 
 static void pgxc_add_returning_list(RemoteQuery *rq,
 									List *ret_list,
+									TupleDesc rel_desc,
 									int rel_index,
-									bool need_ctid_xcid);
+									List *need_attno);
 static void pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 									Index resultRelationIndex,
 									RemoteQuery *rqplan,
@@ -833,51 +834,57 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
  * rq             : The remote query node to whom the returning
  *                  list is to be added
  * ret_list       : The returning list
+ * rel_desc       : relation desc
  * rel_index      : The index of the concerned relation in RTE list
- * need_ctid_xcid : Try add ctid and xc_node_id for returning if TRUE
+ * need_attno     : must include attrubute number
  */
 static void
 pgxc_add_returning_list(RemoteQuery *rq,
 						List *ret_list,
+						TupleDesc rel_desc,
 						int rel_index,
-						bool need_ctid_xcid)
+						List *need_attno)
 {
-	List		*shipableReturningList = NIL;
-	List		*varlist;
-	ListCell	*lc;
+	List	   *shipableReturningList = NIL;
+	ListCell   *lc;
 	TargetEntry *tle;
-	Var			*var;
-	bool		found_ctid = false;
-	bool		found_xcid = false;
+	Var		   *var;
+	Bitmapset  *varattnos = NULL;
+	const FormData_pg_attribute *attr;
+	int			x,resno;
 
 	if (ret_list != NIL)
+		pull_varattnos((Node*)ret_list, rel_index, &varattnos);
+
+	foreach (lc, need_attno)
+		varattnos = bms_add_member(varattnos, lfirst_int(lc) - FirstLowInvalidHeapAttributeNumber);
+
+	resno = 0;
+	while ((x = bms_first_member(varattnos)) >= 0)
 	{
-		/*
-		 * Returning lists cannot contain aggregates and
-		 * we are not supporting place holders for now
-		 */
-		varlist = pull_var_clause((Node *)ret_list, 0);
+		int attno = x + FirstLowInvalidHeapAttributeNumber;
+		Assert(attno != InvalidAttrNumber);
 
-		/*
-		 * For every entry in the returning list if the entry belongs to the
-		 * same table as the one whose index is passed then add it to the
-		 * shippable returning list
-		 */
-		foreach (lc, varlist)
-		{
-			Var *var = lfirst(lc);
+		if (attno < 0)
+			attr = SystemAttributeDefinition(attno);
+		else
+			attr = TupleDescAttr(rel_desc, attno-1);
+		
+		var = makeVar(rel_index,
+					  (AttrNumber)attno,
+					  attr->atttypid,
+					  attr->atttypmod,
+					  attr->attcollation,
+					  0);
+		tle = makeTargetEntry((Expr*)var,
+							  ++resno,
+							  pstrdup(NameStr(attr->attname)),
+							  false);
+		shipableReturningList = lappend(shipableReturningList, tle);
+	}
 
-			if (var->varno == rel_index)
-			{
-				if (var->varattno == SelfItemPointerAttributeNumber)
-					found_ctid = true;
-				if (var->varattno == XC_NodeIdAttributeNumber)
-					found_xcid = true;
-				shipableReturningList = add_to_flat_tlist(shipableReturningList,
-															list_make1(var));
-			}
-		}
-
+	if (shipableReturningList == NIL)
+	{
 		/*
 		 * If the user query had RETURNING clause and here we find that
 		 * none of the items in the returning list are shippable
@@ -886,52 +893,20 @@ pgxc_add_returning_list(RemoteQuery *rq,
 		 * and no rows will be projected to the upper nodes in the
 		 * execution tree.
 		 */
-		if ((shipableReturningList == NIL ||
-			list_length(shipableReturningList) <= 0) &&
-			list_length(ret_list) > 0)
-		{
-			Expr *null_const = (Expr *)makeNullConst(INT4OID, -1, InvalidOid);
+		Expr *null_const = (Expr *)makeNullConst(INT4OID, -1, InvalidOid);
 
-			shipableReturningList = add_to_flat_tlist(shipableReturningList,
-													list_make1(null_const));
-		}
-	}
-
-	if (need_ctid_xcid && !found_ctid)
-	{
-		var = makeVar(rel_index,
-					  SelfItemPointerAttributeNumber,
-					  TIDOID,
-					  -1,
-					  InvalidOid,
-					  0);
-		tle = makeTargetEntry((Expr *) var,
-							  list_length(shipableReturningList) + 1,
-							  pstrdup("ctid"),
-							  false);
-		shipableReturningList = lappend(shipableReturningList, tle);
-	}
-
-	if (need_ctid_xcid && !found_xcid)
-	{
-		var = makeVar(rel_index,
-					  XC_NodeIdAttributeNumber,
-					  INT4OID,
-					  -1,
-					  InvalidOid,
-					  0);
-		tle = makeTargetEntry((Expr *) var,
-							  list_length(shipableReturningList) + 1,
-							  pstrdup("xc_node_id"),
-							  false);
-		shipableReturningList = lappend(shipableReturningList, tle);
+		shipableReturningList = lappend(shipableReturningList,
+										makeTargetEntry(null_const,
+														1,
+														NULL,
+														false));
 	}
 
 	/*
 	 * Copy the refined var list in plan target list as well as
 	 * base_tlist of the remote query node
 	 */
-	rq->scan.plan.targetlist = list_copy(shipableReturningList);
+	rq->scan.plan.targetlist = shipableReturningList;
 	rq->base_tlist = list_copy(shipableReturningList);
 }
 
@@ -1510,11 +1485,10 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		if (mt->returningLists ||
 			(res_rel->rd_auxlist && (cmdtyp == CMD_UPDATE || cmdtyp == CMD_INSERT)))
 			pgxc_add_returning_list(fstep,
-									mt->returningLists ?
-									list_nth(mt->returningLists, relcount) :
-									NIL,
+									mt->returningLists ? list_nth(mt->returningLists, relcount) : NIL,
+									RelationGetDescr(res_rel),
 									resultRelationIndex,
-									res_rel->rd_auxlist != NIL);
+									mt->resultAttnos ? list_nth(mt->resultAttnos, relcount) : NIL);
 
 		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
 									sourceDataPlan->targetlist);

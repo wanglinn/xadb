@@ -510,8 +510,10 @@ typedef struct ResultRelInfo
 #ifdef ADB
 	Tuplestorestate *ts_new;
 	Tuplestorestate *ts_old;
-	ProjectionInfo *ri_projectTuplestore;
+	ProjectionInfo *ri_old_proj_ts;
+	ProjectionInfo *ri_new_proj_ts;
 	TupleTableSlot *ri_ttsTuplestore;
+	TupleTableSlot *ri_old_tts;
 #endif /* ADB */
 } ResultRelInfo;
 

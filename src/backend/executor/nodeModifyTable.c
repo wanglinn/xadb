@@ -582,12 +582,10 @@ ExecInsert(ModifyTableState *mtstate,
 				slot = saveSlot;
 			else
 			{
-#if 0
 				Form_pg_attribute  atts = slot->tts_tupleDescriptor->attrs;
 				int					natts = slot->tts_tupleDescriptor->natts;
-				bool				mark_ctid = false,
-									mark_xcid = false;
 
+				ItemPointerSetInvalid(&slot->tts_tid);
 				/* Make sure the tuple is fully deconstructed */
 				slot_getallattrs(slot);
 
@@ -599,24 +597,10 @@ ExecInsert(ModifyTableState *mtstate,
 						!slot->tts_isnull[natts])
 					{
 						ItemPointerCopy(DatumGetItemPointer(slot->tts_values[natts]),
-										&(tuple->t_self));
-						mark_ctid = true;
-					} else
-					/* mark "xc_node_id" of tuple */
-					if (namestrcmp(&(atts[natts].attname), "xc_node_id") == 0 &&
-						!slot->tts_isnull[natts])
-					{
-						tuple->t_xc_node_id = DatumGetUInt32(slot->tts_values[natts]);
-						mark_xcid = true;
-					}
-
-					/* we need all done! */
-					if (mark_ctid && mark_xcid)
+										&(slot->tts_tid));
 						break;
+					}
 				}
-#else
-#warning TODO find and save ctid and xc_node_id for modify auxiliary table
-#endif
 
 				if (saveSlot)
 					ExecDropSingleTupleTableSlot(saveSlot);
@@ -769,13 +753,13 @@ ExecInsert(ModifyTableState *mtstate,
 	}
 
 #ifdef ADB
-	if (resultRelInfo->ri_projectTuplestore)
+	if (resultRelInfo->ri_new_proj_ts)
 	{
 		ExprContext *econtext = mtstate->ps.ps_ExprContext;
 		TupleTableSlot *tts_ts;
 		econtext->ecxt_scantuple = slot;
 		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
-		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore);
+		tts_ts = ExecProject(resultRelInfo->ri_new_proj_ts);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_new, tts_ts);
 	}
@@ -1161,7 +1145,7 @@ ldelete:;
 #endif
 
 #ifdef ADB
-	if (resultRelInfo->ri_projectTuplestore)
+	if (resultRelInfo->ri_old_proj_ts)
 	{
 		ExprContext *econtext = mtstate->ps.ps_ExprContext;
 		TupleTableSlot *tts_ts;
@@ -1169,18 +1153,19 @@ ldelete:;
 		Assert(econtext != NULL);
 
 		/* extract old slot from local if oldtuple is null */
-		econtext->ecxt_scantuple = ExecGetReturningSlot(estate, resultRelInfo);
 		if (oldtuple == NULL)
 		{
+			econtext->ecxt_scantuple = ExecGetReturningSlot(estate, resultRelInfo);
 			if (!table_tuple_fetch_row_version(resultRelationDesc, tupleid, SnapshotAny, econtext->ecxt_scantuple))
 				elog(ERROR, "failed to fetch old tuple for AUX STORE");
 		}else
 		{
-			ExecForceStoreHeapTuple(oldtuple, econtext->ecxt_scantuple, false);
+			econtext->ecxt_scantuple = resultRelInfo->ri_old_tts;
+			ExecStoreHeapTuple(oldtuple, econtext->ecxt_scantuple, false);
 		}
 
 		/* old tuple */
-		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore);
+		tts_ts = ExecProject(resultRelInfo->ri_old_proj_ts);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
 	}
@@ -1609,44 +1594,8 @@ lreplace:;
 				slot = saveSlot;
 			else
 			{
-#if 0
-				Form_pg_attribute  atts = slot->tts_tupleDescriptor->attrs;
-				int					natts = slot->tts_tupleDescriptor->natts;
-				bool				mark_ctid = false,
-									mark_xcid = false;
-
-				/* Make sure the tuple is fully deconstructed */
-				slot_getallattrs(slot);
-
-				/* we have returning slot, try to find "ctid" and "xc_node_id" */
-				while (natts-- > 0)
-				{
-					/* mark "ctid" of tuple */
-					if (namestrcmp(&(atts[natts].attname), "ctid") == 0 &&
-						!slot->tts_isnull[natts])
-					{
-						ItemPointerCopy(DatumGetItemPointer(slot->tts_values[natts]),
-										&(tuple->t_self));
-						mark_ctid = true;
-					} else
-					/* mark "xc_node_id" of tuple */
-					if (namestrcmp(&(atts[natts].attname), "xc_node_id") == 0 &&
-						!slot->tts_isnull[natts])
-					{
-						tuple->t_xc_node_id = DatumGetUInt32(slot->tts_values[natts]);
-						mark_xcid = true;
-					}
-
-					/* we need all done! */
-					if (mark_ctid && mark_xcid)
-						break;
-				}
-
 				if (saveSlot)
 					ExecDropSingleTupleTableSlot(saveSlot);
-#else
-#warning TODO find and save ctid and xc_node_id for modify auxiliary table
-#endif
 			}
 		}
 		else
@@ -1817,26 +1766,27 @@ lreplace:;
 #endif
 
 #ifdef ADB
-	if (resultRelInfo->ri_projectTuplestore)
+	if (resultRelInfo->ri_old_proj_ts)
 	{
 		ExprContext *econtext = mtstate->ps.ps_ExprContext;
 		TupleTableSlot *tts_ts;
 
-		Assert(econtext != NULL);
+		Assert(econtext != NULL && resultRelInfo->ri_new_proj_ts != NULL);
 
 		/* extract old tuple from local if oldtuple is null */
-		econtext->ecxt_scantuple = ExecGetReturningSlot(estate, resultRelInfo);
 		if (oldtuple == NULL)
 		{
+			econtext->ecxt_scantuple = ExecGetReturningSlot(estate, resultRelInfo);
 			if (!table_tuple_fetch_row_version(resultRelationDesc, tupleid, SnapshotAny, econtext->ecxt_scantuple))
 				elog(ERROR, "failed to fetch old tuple for AUX STORE");
 		}else
 		{
-			ExecForceStoreHeapTuple(oldtuple, econtext->ecxt_scantuple, false);
+			econtext->ecxt_scantuple = resultRelInfo->ri_old_tts;
+			ExecStoreHeapTuple(oldtuple, econtext->ecxt_scantuple, false);
 		}
 
 		/* old tuple */
-		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore);
+		tts_ts = ExecProject(resultRelInfo->ri_old_proj_ts);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
 
@@ -1845,7 +1795,7 @@ lreplace:;
 
 		/* new tuple */
 		econtext->ecxt_scantuple = slot;
-		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore);
+		tts_ts = ExecProject(resultRelInfo->ri_new_proj_ts);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_new, tts_ts);
 	}
@@ -2754,6 +2704,26 @@ ExecModifyTable(PlanState *pstate)
 	return NULL;
 }
 
+#ifdef ADB
+static inline List*
+appendVarTargetEntry(List *tlist,
+					 const FormData_pg_attribute *attr,
+					 Index varno, AttrNumber attno)
+{
+	Var *var = makeVar(varno,
+					   attno,
+					   attr->atttypid,
+					   attr->atttypmod,
+					   attr->attcollation,
+					   0);
+	TargetEntry *te = makeTargetEntry((Expr*)var,
+									  list_length(tlist)+1,
+									  pstrdup(NameStr(attr->attname)),
+									  false);
+	return lappend(tlist, te);
+}
+#endif /* ADB */
+
 /* ----------------------------------------------------------------
  *		ExecInitModifyTable
  * ----------------------------------------------------------------
@@ -2836,6 +2806,18 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 
 		subplan = (Plan *) lfirst(l);
 #ifdef ADB
+		if (node->remote_plans &&
+			(remoteplan = list_nth(node->remote_plans, i)) != NULL)
+		{
+			/*
+			* Init the plan for the remote execution for this result rel. This is
+			* used to execute data modification queries on the remote nodes
+			*/
+			mtstate->mt_remoterels[i] = ExecInitNode(remoteplan,
+													 estate,
+													 eflags);
+		}
+
 		if (resultRelInfo->ri_RelationDesc == NULL)
 		{
 			/* when resultRelInfo->ri_RelationDesc is NULL, not run at this node */
@@ -2847,19 +2829,23 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		}else if((list_result = list_nth(node->resultAttnos, i)) != NULL)
 		{
 			const FormData_pg_attribute *attr;
-			ExprContext *econtext;
-			ListCell *lc;
-			List *targetList = NIL;
-			TupleDesc rel_desc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
-			TupleDesc res_desc = CreateTemplateTupleDesc(list_length(list_result));
-			AttrNumber attno = 0;
-			int paramid;
+			ExprContext	   *econtext;
+			ListCell	   *lc;
+			List		   *old_tlist = NIL;
+			List		   *new_tlist = NIL;
+			TupleDesc		rel_desc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
+			TupleDesc		res_desc = CreateTemplateTupleDesc(list_length(list_result));
+			AttrNumber		attno = 0;
+			int				paramid;
+
 			foreach(lc, list_result)
 			{
-				if (lfirst_int(lc) < 0)
-					attr = SystemAttributeDefinition(lfirst_int(lc));
+				AttrNumber result_attno = (AttrNumber)lfirst_int(lc);
+				if (result_attno < 0)
+					attr = SystemAttributeDefinition(result_attno);
 				else
-					attr = TupleDescAttr(rel_desc, lfirst_int(lc) - 1);
+					attr = TupleDescAttr(rel_desc, result_attno - 1);
+
 				TupleDescInitEntry(res_desc,
 								   ++attno,
 								   NULL,
@@ -2867,30 +2853,75 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 								   attr->atttypmod,
 								   attr->attndims);
 				TupleDescInitEntryCollation(res_desc, attno, attr->attcollation);
-				targetList = lappend(targetList,
-									 makeTargetEntry((Expr*)makeVar(resultRelInfo->ri_RangeTableIndex,
-									 								(AttrNumber)lfirst_int(lc),
-																	attr->atttypid,
-																	attr->atttypmod,
-																	attr->attcollation,
-																	0),
-													 attno,
-													 pstrdup(NameStr(attr->attname)),
-													 false));
+
+				if (node->operation != CMD_INSERT ||
+					mtstate->mt_remoterels[i] == NULL)
+				{
+					/* need deleted columns */
+					old_tlist = appendVarTargetEntry(old_tlist,
+													 attr,
+													 resultRelInfo->ri_RangeTableIndex,
+													 result_attno);
+				}
+
+				if (mtstate->mt_remoterels[i] != NULL &&
+					node->operation != CMD_DELETE)
+				{
+					/* remote query */
+					bool found = false;
+					TupleDesc desc = ExecGetResultType(mtstate->mt_remoterels[i]);
+					for (int idx=desc->natts;--idx>=0;)
+					{
+						if (strcmp(NameStr(TupleDescAttr(desc, idx)->attname),
+								   NameStr(attr->attname)) == 0)
+						{
+							found = true;
+							attr = TupleDescAttr(desc, idx);
+							result_attno = (AttrNumber)(idx+1);
+							break;
+						}
+					}
+					if (found == false)
+					{
+						ereport(ERROR,
+								errcode(ERRCODE_INTERNAL_ERROR),
+								errmsg("Can not found \"%s\" from remote query",
+									   NameStr(attr->attname)));
+					}
+
+					new_tlist = appendVarTargetEntry(new_tlist,
+													 attr,
+													 resultRelInfo->ri_RangeTableIndex,
+													 result_attno);
+				}
 			}
 
 			resultRelInfo->ri_ttsTuplestore = ExecAllocTableSlot(&estate->es_tupleTable, res_desc, &TTSOpsVirtual);
+			resultRelInfo->ri_old_tts = ExecAllocTableSlot(&estate->es_tupleTable, rel_desc, &TTSOpsHeapTuple);
 
 			if (mtstate->ps.ps_ExprContext)
 				econtext = mtstate->ps.ps_ExprContext;
 			else
 				econtext = mtstate->ps.ps_ExprContext = CreateExprContext(estate);
 
-			resultRelInfo->ri_projectTuplestore = ExecBuildProjectionInfo(targetList,
-																 econtext,
-																 resultRelInfo->ri_ttsTuplestore,
-																 NULL,
-																 rel_desc);
+			if (old_tlist)
+				resultRelInfo->ri_old_proj_ts = ExecBuildProjectionInfo(old_tlist,
+																		econtext,
+																		resultRelInfo->ri_ttsTuplestore,
+																		&mtstate->ps,
+																		rel_desc);
+			if (new_tlist)
+				resultRelInfo->ri_new_proj_ts = ExecBuildProjectionInfo(new_tlist,
+																		econtext,
+																		resultRelInfo->ri_ttsTuplestore,
+																		&mtstate->ps,
+																		ExecGetResultType(mtstate->mt_remoterels[i]));
+			if (node->operation != CMD_DELETE &&
+				mtstate->mt_remoterels[i] == NULL)
+			{
+				Assert(resultRelInfo->ri_new_proj_ts == NULL);
+				resultRelInfo->ri_new_proj_ts = resultRelInfo->ri_old_proj_ts;
+			}
 
 			if ((paramid=list_nth_int(node->param_new, i)) >= 0)
 			{
@@ -2912,8 +2943,6 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 				resultRelInfo->ts_old = ts;
 			}
 		}
-		if (node->remote_plans)
-			remoteplan = list_nth(node->remote_plans, i);
 #endif
 
 		/* Initialize the usesFdwDirectModify flag */
@@ -2970,17 +2999,6 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 															 i,
 															 eflags);
 		}
-
-#ifdef ADB
-		if (remoteplan)
-		{
-			/*
-			* Init the plan for the remote execution for this result rel. This is
-			* used to execute data modification queries on the remote nodes
-			*/
-			mtstate->mt_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
-		}
-#endif
 
 		resultRelInfo++;
 		i++;
@@ -3292,7 +3310,7 @@ not_exists_rel_:
 
 				junkresslot =
 					ExecInitExtraTupleSlot(estate, NULL,
-										    ADB_ONLY_CODE((mtstate->mt_remoterels) ? &TTSOpsMinimalTuple :)table_slot_callbacks(resultRelInfo->ri_RelationDesc));
+										   ADB_ONLY_CODE((mtstate->mt_remoterels[i]) ? &TTSOpsMinimalTuple :)table_slot_callbacks(resultRelInfo->ri_RelationDesc));
 				j = ExecInitJunkFilter(subplan->targetlist,
 									   junkresslot);
 
