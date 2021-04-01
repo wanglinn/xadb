@@ -119,15 +119,15 @@ select to_date('2020-02-02 23:59:59','yyyy-mm-dd HH24:Mi:ss') from dual;
  2020-02-02 23:59:59
 (1 row)
 
-select to_date( '20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
- TO_DATE( '20201031235959', 'YYYY-MM-DD HH24:MI:SS' ) 
-------------------------------------------------------
+select to_date('20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE('20201031235959', 'YYYY-MM-DD HH24:MI:SS' ) 
+-----------------------------------------------------
  2020-10-31 23:59:59
 (1 row)
 
-select to_date( '2020:11:03','yyyy-mm-dd') from dual;
- TO_DATE( '2020:11:03','YYYY-MM-DD') 
--------------------------------------
+select to_date('2020:11:03','yyyy-mm-dd') from dual;
+ TO_DATE('2020:11:03','YYYY-MM-DD') 
+------------------------------------
  2020-11-03 00:00:00
 (1 row)
 

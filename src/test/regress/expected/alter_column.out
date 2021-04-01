@@ -4,9 +4,6 @@ create table altercoltbl(tid int,name varchar(2));
 insert into altercoltbl values(1, 'a');
 alter table altercoltbl add(dct1 varchar(10));
 alter table altercoltbl add dct2 varchar(10);
-ERROR:  syntax error at or near "dct2"
-LINE 1: alter table altercoltbl add dct2 varchar(10);
-                                    ^
 alter table altercoltbl add column dct3 varchar(10);
 drop table altercoltbl;
 --删除单列
