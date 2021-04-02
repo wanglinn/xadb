@@ -19,9 +19,9 @@ select * from tt order by id;
 select name from tt where sal IN(5000,6000.98) order by name;
  NAME 
 ------
+ Tom
+ Tom
  mike
- Tom
- Tom
 (3 rows)
 
 select name from tt where sal IN(6000.98,6000.98) order by name;
@@ -52,25 +52,25 @@ select name from tt where sal IN('') order by name;
 select name from tt where sal IN(to_char(5000),to_char(6000.98)) order by name;
  NAME 
 ------
+ Tom
+ Tom
  mike
- Tom
- Tom
 (3 rows)
 
 select name from tt where id IN(to_char(1),to_char(2),to_char(3)) order by name;
  NAME 
 ------
  Jhon
- mike
  Tom
+ mike
 (3 rows)
 
 select name from tt where id IN(to_char(1.00),to_char(2.0),to_char(03)) order by name;
  NAME 
 ------
  Jhon
- mike
  Tom
+ mike
 (3 rows)
 
 drop table tt;
@@ -621,16 +621,16 @@ select distinct id from tt order by id;
 select distinct name from tt order by name;
  NAME  
 -------
- Jack
   Jack
+ Jack
  Jack 
 (3 rows)
 
 select distinct addr from tt order by addr;
  ADDR  
 -------
- 1    
      1
+ 1    
 (2 rows)
 
 select count(distinct id) from tt;
@@ -733,25 +733,25 @@ select id,count(*) from tt group by id,name order by id;
 select name,count(*) from tt group by name having count(*)>1 order by name;
  NAME | COUNT(*) 
 ------+----------
- rose |        2
  Tom  |        2
+ rose |        2
 (2 rows)
 
 select name,count(*) from tt group by name having name !='Tom' order by name;
   NAME  | COUNT(*) 
 --------+----------
  Jack   |        1
- rose   |        2
  Steven |        1
+ rose   |        2
 (3 rows)
 
 select name,count(*) from tt group by name order by name;
   NAME  | COUNT(*) 
 --------+----------
  Jack   |        1
- rose   |        2
  Steven |        1
  Tom    |        2
+ rose   |        2
 (4 rows)
 
 select name,count(*) from tt group by name order by count(*);

@@ -93,8 +93,8 @@ select * from tt order by name, sal;
  Jack  |  5000.3
  Jhon  | 567.389
  Lili  |     1.1
- lucy  |  0.0006
  Rose  | 5000.07
+ lucy  |  0.0006
        |  4500.8
        |        
 (8 rows)
@@ -232,21 +232,21 @@ insert into tt values('a',123);
 select * from tt order by id;
   ID   |  SAL  
 -------+-------
- a     |   123
  Jack  | 123.9
  Tom   | 123.9
+ a     |   123
 (3 rows)
 
 select max(id) from tt;
  MAX(ID) 
 ---------
- Tom  
+ a    
 (1 row)
 
 select min(id) from tt;
  MIN(ID) 
 ---------
- a    
+ Jack 
 (1 row)
 
 select max(sal) from tt group by sal;
