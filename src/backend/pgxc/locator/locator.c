@@ -37,6 +37,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
+#include "catalog/pg_collation.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
 #include "intercomm/inter-node.h"
@@ -437,7 +438,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 					{
 						int32 hashVal = execHashValue(dist_col_values[0],
 													  dist_col_types[0],
-													  InvalidOid);
+													  DEFAULT_COLLATION_OID);
 						modulo = (uint32)hashVal % (uint32)list_length(rel_loc_info->nodeids);
 					}else
 					{
@@ -1086,7 +1087,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 				{
 					if(rel_loc->locatorType == LOCATOR_TYPE_HASH)
 					{
-						int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
+						int32 hashVal = execHashValue(dist_values[0], dist_types[0], DEFAULT_COLLATION_OID);
 						modulo = (uint32)hashVal % (uint32)nnodes;
 					}else
 						modulo = execModuloValue(dist_values[0], dist_types[0], nnodes);
