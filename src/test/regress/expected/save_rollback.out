@@ -1,12 +1,12 @@
 set grammar to oracle;
-create table tt(id int,name varchar(10));
-insert into tt(id,name) values(1, 'mike');
-insert into tt(id,name) values(2, 'Jack');
-delete  from tt where id =2;
+create table saverollbacktbl(id int,name varchar(10));
+insert into saverollbacktbl(id,name) values(1, 'mike');
+insert into saverollbacktbl(id,name) values(2, 'Jack');
+delete  from saverollbacktbl where id =2;
 savepoint tep;
 ERROR:  SAVEPOINT can only be used in transaction blocks
-insert into tt(id,name) values(2, 'Jack');
-select * from tt;
+insert into saverollbacktbl(id,name) values(2, 'Jack');
+select * from saverollbacktbl;
  ID | NAME 
 ----+------
   1 | mike
@@ -15,11 +15,11 @@ select * from tt;
 
 rollback to savepoint tep;
 ERROR:  ROLLBACK TO SAVEPOINT can only be used in transaction blocks
-select * from tt;
+select * from saverollbacktbl;
  ID | NAME 
 ----+------
   1 | mike
   2 | Jack
 (2 rows)
 
-drop table tt;
+drop table saverollbacktbl;

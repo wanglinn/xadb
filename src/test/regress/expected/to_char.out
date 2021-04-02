@@ -1,11 +1,11 @@
 set grammar to oracle;
-create table aa(id int, dt timestamp);
-insert into aa values(1,to_date('2000-4-30','YYYY-MM-DD'));
-insert into aa values(2,to_date('1500-1-1 15:23:1','YYYY-MM-DD hh24:mi:ss'));
-insert into aa values(3,to_date('9999-12-30','YYYY-MM-DD'));
-insert into aa values(4,to_date('2001-4-8 BC','YYYY-MM-DD BC'));
-insert into aa values(5,to_date('2100-7-15 22:24:55','YYYY-MM-DD hh24:mi:ss'));
-select id, to_char(dt) from aa order by id;
+create table to_char_tbl(id int, dt timestamp);
+insert into to_char_tbl values(1,to_date('2000-4-30','YYYY-MM-DD'));
+insert into to_char_tbl values(2,to_date('1500-1-1 15:23:1','YYYY-MM-DD hh24:mi:ss'));
+insert into to_char_tbl values(3,to_date('9999-12-30','YYYY-MM-DD'));
+insert into to_char_tbl values(4,to_date('2001-4-8 BC','YYYY-MM-DD BC'));
+insert into to_char_tbl values(5,to_date('2100-7-15 22:24:55','YYYY-MM-DD hh24:mi:ss'));
+select id, to_char(dt) from to_char_tbl order by id;
  ID |        TO_CHAR(DT)         
 ----+----------------------------
   1 | 2000-04-30 00:00:00.000000
@@ -15,7 +15,7 @@ select id, to_char(dt) from aa order by id;
   5 | 2100-07-15 22:24:55.000000
 (5 rows)
 
-select id, to_char(dt,'MM-DD-YYYY AD') from aa order by id;
+select id, to_char(dt,'MM-DD-YYYY AD') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'MM-DD-YYYY AD') 
 ----+-----------------------------
   1 | 04-30-2000 AD
@@ -25,7 +25,7 @@ select id, to_char(dt,'MM-DD-YYYY AD') from aa order by id;
   5 | 07-15-2100 AD
 (5 rows)
 
-select id, to_char(dt,'Month D YEAR hh:mi:ss') from aa order by id;
+select id, to_char(dt,'Month D YEAR hh:mi:ss') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'MONTH D YEAR HH:MI:SS') 
 ----+-------------------------------------
   1 | April     1 0EAR 12:00:00
@@ -35,7 +35,7 @@ select id, to_char(dt,'Month D YEAR hh:mi:ss') from aa order by id;
   5 | July      5 0EAR 10:24:55
 (5 rows)
 
-select id, to_char(dt,'Month DD SYEAR') from aa order by id;
+select id, to_char(dt,'Month DD SYEAR') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'MONTH DD SYEAR') 
 ----+------------------------------
   1 | April     30 S0EAR
@@ -45,7 +45,7 @@ select id, to_char(dt,'Month DD SYEAR') from aa order by id;
   5 | July      15 S0EAR
 (5 rows)
 
-select id, to_char(dt,'DY') from aa order by id;
+select id, to_char(dt,'DY') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'DY') 
 ----+------------------
   1 | SUN
@@ -55,7 +55,7 @@ select id, to_char(dt,'DY') from aa order by id;
   5 | THU
 (5 rows)
 
-select id, to_char(dt,'DDD') from aa order by id;
+select id, to_char(dt,'DDD') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'DDD') 
 ----+-------------------
   1 | 121
@@ -65,7 +65,7 @@ select id, to_char(dt,'DDD') from aa order by id;
   5 | 196
 (5 rows)
 
-select id, to_char(dt,'Mon D Y hh:mi:ss') from aa order by id;
+select id, to_char(dt,'Mon D Y hh:mi:ss') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'MON D Y HH:MI:SS') 
 ----+--------------------------------
   1 | Apr 1 0 12:00:00
@@ -75,7 +75,7 @@ select id, to_char(dt,'Mon D Y hh:mi:ss') from aa order by id;
   5 | Jul 5 0 10:24:55
 (5 rows)
 
-select id, to_char(dt,'WW') from aa order by id;
+select id, to_char(dt,'WW') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'WW') 
 ----+------------------
   1 | 18
@@ -85,7 +85,7 @@ select id, to_char(dt,'WW') from aa order by id;
   5 | 28
 (5 rows)
 
-select id, to_char(dt,'Q') from aa order by id;
+select id, to_char(dt,'Q') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'Q') 
 ----+-----------------
   1 | 2
@@ -95,7 +95,7 @@ select id, to_char(dt,'Q') from aa order by id;
   5 | 3
 (5 rows)
 
-select id, to_char(dt,'SS') from aa order by id;
+select id, to_char(dt,'SS') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'SS') 
 ----+------------------
   1 | 00
@@ -105,7 +105,7 @@ select id, to_char(dt,'SS') from aa order by id;
   5 | 55
 (5 rows)
 
-select id, to_char(dt,'SSSS') from aa order by id;
+select id, to_char(dt,'SSSS') from to_char_tbl order by id;
  ID | TO_CHAR(DT,'SSSS') 
 ----+--------------------
   1 | 0
@@ -217,4 +217,4 @@ select to_char(to_timestamp('2016-04-12 07:53:56.6259','yyyy-mm-dd hh24:mi:ssxff
  20160412 07:53:56.6259
 (1 row)
 
-drop table aa;
+drop table to_char_tbl;

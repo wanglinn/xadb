@@ -118,12 +118,12 @@ select instr('abc','') from dual;
                 
 (1 row)
 
-create table tt (name varchar2(10));
-insert into tt values('1bd2');
-insert into tt values('3cd');
-insert into tt values('mmd');
-insert into tt values('ccd');
-select * from tt where instr(name,'d')  >0 order by name;
+create table instrtbl2 (name varchar2(10));
+insert into instrtbl2 values('1bd2');
+insert into instrtbl2 values('3cd');
+insert into instrtbl2 values('mmd');
+insert into instrtbl2 values('ccd');
+select * from instrtbl2 where instr(name,'d')  >0 order by name;
  NAME 
 ------
  1bd2
@@ -132,4 +132,4 @@ select * from tt where instr(name,'d')  >0 order by name;
  mmd
 (4 rows)
 
-drop table tt;
+drop table instrtbl2;

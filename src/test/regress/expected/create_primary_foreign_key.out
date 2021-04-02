@@ -1,73 +1,73 @@
 set grammar to oracle;
 --1、integer类型是主键
-create table tt(id integer primary key,name char(10));
-insert into tt values(1,'a');
-insert into tt values(1,'b');
-ERROR:  duplicate key value violates unique constraint "tt_pkey"
+create table cpfktbl1(id integer primary key,name char(10));
+insert into cpfktbl1 values(1,'a');
+insert into cpfktbl1 values(1,'b');
+ERROR:  duplicate key value violates unique constraint "cpfktbl1_pkey"
 DETAIL:  Key (id)=(1) already exists.
-drop table tt;
+drop table cpfktbl1;
 --2、varchar2类型是主键
-create table tt(id integer ,name varchar2(10) primary key);
-insert into tt values(1,'a');
-insert into tt values(2,'a');
-ERROR:  duplicate key value violates unique constraint "tt_pkey"
+create table cpfktbl1(id integer ,name varchar2(10) primary key);
+insert into cpfktbl1 values(1,'a');
+insert into cpfktbl1 values(2,'a');
+ERROR:  duplicate key value violates unique constraint "cpfktbl1_pkey"
 DETAIL:  Key (name)=(a) already exists.
-drop table tt;
+drop table cpfktbl1;
 --3、表约束方式创建主键
-create table tt(id integer,name char(10),constraint pkk primary key(id));
-drop table tt;
+create table cpfktbl1(id integer,name char(10),constraint pkk primary key(id));
+drop table cpfktbl1;
 --4、联合主键
-create table tt(id integer ,name varchar2(10), primary key(id,name));
-insert into tt values(1,'b');
-insert into tt values(1,'b');
-ERROR:  duplicate key value violates unique constraint "tt_pkey"
+create table cpfktbl1(id integer ,name varchar2(10), primary key(id,name));
+insert into cpfktbl1 values(1,'b');
+insert into cpfktbl1 values(1,'b');
+ERROR:  duplicate key value violates unique constraint "cpfktbl1_pkey"
 DETAIL:  Key (id, name)=(1, b) already exists.
-drop table tt;
+drop table cpfktbl1;
 --5、创建外键
-create table tt(id integer unique,name char(10));
-insert into tt values(1,'a');
-insert into tt values(2,'b');
-create table aa(id int, sname char(10),constraint fk FOREIGN KEY(id) REFERENCES tt(id));
-insert into aa values(1,'s1');
-insert into aa values(2,'s2');
-insert into aa values(3,'s2');
-ERROR:  insert or update on table "aa" violates foreign key constraint "fk"
-DETAIL:  Key (id)=(3) is not present in table "tt".
-drop table aa;
-drop table tt;
+create table cpfktbl1(id integer unique,name char(10));
+insert into cpfktbl1 values(1,'a');
+insert into cpfktbl1 values(2,'b');
+create table cpfktbl2(id int, sname char(10),constraint fk FOREIGN KEY(id) REFERENCES cpfktbl1(id));
+insert into cpfktbl2 values(1,'s1');
+insert into cpfktbl2 values(2,'s2');
+insert into cpfktbl2 values(3,'s2');
+ERROR:  insert or update on table "cpfktbl2" violates foreign key constraint "fk"
+DETAIL:  Key (id)=(3) is not present in table "cpfktbl1".
+drop table cpfktbl2;
+drop table cpfktbl1;
 --6、主键与外键数据类型不同
-create table tt(id integer unique,name char(10));
-create table aa(fid number(10),sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES tt(id));
+create table cpfktbl1(id integer unique,name char(10));
+create table cpfktbl2(fid number(10),sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES cpfktbl1(id));
 ERROR:  foreign key constraint "fk" cannot be implemented
 DETAIL:  Key columns "fid" and "id" are of incompatible types: numeric and integer.
-drop table aa;
-ERROR:  table "aa" does not exist
-drop table tt;
-create table tt(id number unique,name char(10));
-create table aa(fid integer,sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES tt(id));
-drop table aa;
-drop table tt;
-create table tt(id float unique,name char(10));
-create table aa(fid number,sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES tt(id));
-drop table aa;
-drop table tt;
+drop table cpfktbl2;
+ERROR:  table "cpfktbl2" does not exist
+drop table cpfktbl1;
+create table cpfktbl1(id number unique,name char(10));
+create table cpfktbl2(fid integer,sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES cpfktbl1(id));
+drop table cpfktbl2;
+drop table cpfktbl1;
+create table cpfktbl1(id float unique,name char(10));
+create table cpfktbl2(fid number,sname char(10), constraint fk FOREIGN KEY(fid) REFERENCES cpfktbl1(id));
+drop table cpfktbl2;
+drop table cpfktbl1;
 --7、联动删除
-create table tt(id number(4) primary key,name char(10));
-create table aa(id number(3) primary key,name varchar(20));
-ALTER TABLE aa ADD CONSTRAINT FK_ID FOREIGN KEY(id) REFERENCES tt(id) ON DELETE CASCADE;  
-insert into tt values(1,'Mike');
-insert into aa values(1,'Jack');
-select * from aa;
+create table cpfktbl1(id number(4) primary key,name char(10));
+create table cpfktbl2(id number(3) primary key,name varchar(20));
+ALTER TABLE cpfktbl2 ADD CONSTRAINT FK_ID FOREIGN KEY(id) REFERENCES cpfktbl1(id) ON DELETE CASCADE;  
+insert into cpfktbl1 values(1,'Mike');
+insert into cpfktbl2 values(1,'Jack');
+select * from cpfktbl2;
  ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
-delete from tt where id=1;
-select * from aa;
+delete from cpfktbl1 where id=1;
+select * from cpfktbl2;
  ID | NAME 
 ----+------
 (0 rows)
 
-drop table aa;
-drop table tt;
+drop table cpfktbl2;
+drop table cpfktbl1;

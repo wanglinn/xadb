@@ -1,10 +1,10 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
-create table aa(id int, dt timestamp);
-insert into aa values(1,to_date('2000-3-31','YYYY-MM-DD'));
-insert into aa values(2,to_date('1-1-1','YYYY-MM-DD'));
-insert into aa values(3,to_date('9999-12-30','YYYY-MM-DD'));
-insert into aa values(4,to_date('2001-2-1','YYYY-MM-DD'));
-insert into aa values(5,to_date('2000-2-1','YYYY-MM-DD'));
-select id, last_day(dt) from aa order by id;
-drop table aa;
+create table lastdaytbl(id int, dt timestamp);
+insert into lastdaytbl values(1,to_date('2000-3-31','YYYY-MM-DD'));
+insert into lastdaytbl values(2,to_date('1-1-1','YYYY-MM-DD'));
+insert into lastdaytbl values(3,to_date('9999-12-30','YYYY-MM-DD'));
+insert into lastdaytbl values(4,to_date('2001-2-1','YYYY-MM-DD'));
+insert into lastdaytbl values(5,to_date('2000-2-1','YYYY-MM-DD'));
+select id, last_day(dt) from lastdaytbl order by id;
+drop table lastdaytbl;

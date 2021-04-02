@@ -1,15 +1,15 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
-create table aa(id int, dt timestamp);
-insert into aa values(1,to_date('2000-3-31','YYYY-MM-DD'));
-insert into aa values(2,to_date('2000-2-29','YYYY-MM-DD'));
+create table addmonthstbl(id int, dt timestamp);
+insert into addmonthstbl values(1,to_date('2000-3-31','YYYY-MM-DD'));
+insert into addmonthstbl values(2,to_date('2000-2-29','YYYY-MM-DD'));
 select add_months(to_date('2000-3-31','YYYY-MM-DD'),1) from dual; 
  ADD_MONTHS(TO_DATE('2000-3-31','YYYY-MM-DD'),1) 
 -------------------------------------------------
  2000-04-30 00:00:00
 (1 row)
 
-select id, add_months(dt,1) from aa where id=1;
+select id, add_months(dt,1) from addmonthstbl where id=1;
  ID |  ADD_MONTHS(DT,1)   
 ----+---------------------
   1 | 2000-04-30 00:00:00
@@ -21,7 +21,7 @@ select add_months(to_date('2000-3-31','YYYY-MM-DD'),-1) from dual;
  2000-02-29 00:00:00
 (1 row)
 
-select id, add_months(dt,1) from aa where id=1;
+select id, add_months(dt,1) from addmonthstbl where id=1;
  ID |  ADD_MONTHS(DT,1)   
 ----+---------------------
   1 | 2000-04-30 00:00:00
@@ -33,7 +33,7 @@ select add_months(to_date('2000-3-31','YYYY-MM-DD'),0) from dual;
  2000-03-31 00:00:00
 (1 row)
 
-select id, add_months(dt,0) from aa where id=1;
+select id, add_months(dt,0) from addmonthstbl where id=1;
  ID |  ADD_MONTHS(DT,0)   
 ----+---------------------
   1 | 2000-03-31 00:00:00
@@ -45,7 +45,7 @@ select add_months(to_date('2000-2-29','YYYY-MM-DD'),12) from dual;
  2001-02-28 00:00:00
 (1 row)
 
-select id, add_months(dt,12) from aa where id=2;
+select id, add_months(dt,12) from addmonthstbl where id=2;
  ID |  ADD_MONTHS(DT,12)  
 ----+---------------------
   2 | 2001-02-28 00:00:00
@@ -57,7 +57,7 @@ select add_months(to_date('2000-2-29','YYYY-MM-DD'),-12) from dual;
  1999-02-28 00:00:00
 (1 row)
 
-select id, add_months(dt,-12) from aa where id=2;
+select id, add_months(dt,-12) from addmonthstbl where id=2;
  ID | ADD_MONTHS(DT,-12)  
 ----+---------------------
   2 | 1999-02-28 00:00:00
@@ -135,4 +135,4 @@ select add_months('',3) from dual;
  
 (1 row)
 
-drop table aa;
+drop table addmonthstbl;

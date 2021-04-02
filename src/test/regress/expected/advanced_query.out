@@ -2,12 +2,12 @@ set grammar to oracle;
 set datestyle='ISO,YMD';
 set timezone to 'PRC';
 --IN、NOT IN
-create table tt(id int,name varchar(10),sal number(7,2));
-insert into tt(id,name,sal) values(1, 'mike',5000);
-insert into tt(id,name,sal) values(2, 'Tom',6000.98);
-insert into tt(id,name,sal) values(4, 'Tom','6000.98');
-insert into tt(id,name,sal) values(3, 'Jhon',null);
-select * from tt order by id;
+create table adv_query_1(id int,name varchar(10),sal number(7,2));
+insert into adv_query_1(id,name,sal) values(1, 'mike',5000);
+insert into adv_query_1(id,name,sal) values(2, 'Tom',6000.98);
+insert into adv_query_1(id,name,sal) values(4, 'Tom','6000.98');
+insert into adv_query_1(id,name,sal) values(3, 'Jhon',null);
+select * from adv_query_1 order by id;
  ID | NAME |   SAL   
 ----+------+---------
   1 | mike |    5000
@@ -16,7 +16,7 @@ select * from tt order by id;
   4 | Tom  | 6000.98
 (4 rows)
 
-select name from tt where sal IN(5000,6000.98) order by name;
+select name from adv_query_1 where sal IN(5000,6000.98) order by name;
  NAME 
 ------
  Tom
@@ -24,32 +24,32 @@ select name from tt where sal IN(5000,6000.98) order by name;
  mike
 (3 rows)
 
-select name from tt where sal IN(6000.98,6000.98) order by name;
+select name from adv_query_1 where sal IN(6000.98,6000.98) order by name;
  NAME 
 ------
  Tom
  Tom
 (2 rows)
 
-select name from tt where sal IN('6000.98','6000.98') order by name;
+select name from adv_query_1 where sal IN('6000.98','6000.98') order by name;
  NAME 
 ------
  Tom
  Tom
 (2 rows)
 
-select name from tt where sal IN(5000) order by name;
+select name from adv_query_1 where sal IN(5000) order by name;
  NAME 
 ------
  mike
 (1 row)
 
-select name from tt where sal IN('') order by name;
+select name from adv_query_1 where sal IN('') order by name;
  NAME 
 ------
 (0 rows)
 
-select name from tt where sal IN(to_char(5000),to_char(6000.98)) order by name;
+select name from adv_query_1 where sal IN(to_char(5000),to_char(6000.98)) order by name;
  NAME 
 ------
  Tom
@@ -57,15 +57,7 @@ select name from tt where sal IN(to_char(5000),to_char(6000.98)) order by name;
  mike
 (3 rows)
 
-select name from tt where id IN(to_char(1),to_char(2),to_char(3)) order by name;
- NAME 
-------
- Jhon
- Tom
- mike
-(3 rows)
-
-select name from tt where id IN(to_char(1.00),to_char(2.0),to_char(03)) order by name;
+select name from adv_query_1 where id IN(to_char(1),to_char(2),to_char(3)) order by name;
  NAME 
 ------
  Jhon
@@ -73,105 +65,113 @@ select name from tt where id IN(to_char(1.00),to_char(2.0),to_char(03)) order by
  mike
 (3 rows)
 
-drop table tt;
+select name from adv_query_1 where id IN(to_char(1.00),to_char(2.0),to_char(03)) order by name;
+ NAME 
+------
+ Jhon
+ Tom
+ mike
+(3 rows)
+
+drop table adv_query_1;
 --in后面跟子查询
-create table tt(id smallint,name varchar(10));
-insert into tt(id,name) values(1, '1');
-insert into tt(id,name) values(2, '2');
-create table aa(id int,job varchar(20));
-insert into aa(id,job) values(1,'doctor assistant');
-insert into aa(id,job) values(2,'nurse');
-select id,name from tt where id IN(select id from aa) order by id;
+create table adv_query_1(id smallint,name varchar(10));
+insert into adv_query_1(id,name) values(1, '1');
+insert into adv_query_1(id,name) values(2, '2');
+create table adv_query_2(id int,job varchar(20));
+insert into adv_query_2(id,job) values(1,'doctor assistant');
+insert into adv_query_2(id,job) values(2,'nurse');
+select id,name from adv_query_1 where id IN(select id from adv_query_2) order by id;
  ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
-select id,name from tt where id IN(select name from tt) order by id;
+select id,name from adv_query_1 where id IN(select name from adv_query_1) order by id;
  ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
-select id,name from tt where name IN(select id from aa) order by id;
+select id,name from adv_query_1 where name IN(select id from adv_query_2) order by id;
  ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
-select id,job from aa where id IN(select name from tt) order by id;
+select id,job from adv_query_2 where id IN(select name from adv_query_1) order by id;
  ID |       JOB        
 ----+------------------
   1 | doctor assistant
   2 | nurse
 (2 rows)
 
-select id,job from aa where id NOT IN(select name from tt where id=3) order by id;
+select id,job from adv_query_2 where id NOT IN(select name from adv_query_1 where id=3) order by id;
  ID |       JOB        
 ----+------------------
   1 | doctor assistant
   2 | nurse
 (2 rows)
 
-select id,job from aa where id IN(select name from tt where id=1) order by id;
+select id,job from adv_query_2 where id IN(select name from adv_query_1 where id=1) order by id;
  ID |       JOB        
 ----+------------------
   1 | doctor assistant
 (1 row)
 
-drop table tt;
-drop table aa;
+drop table adv_query_1;
+drop table adv_query_2;
 --between and	
-create table tt(id number,name varchar(10));
-insert into tt(id,name) values(221292, 'Sherry');
-insert into tt(id,name) values(6789, 'Steven');
-select * from tt where id between 6789 and 221292 order by id;
+create table adv_query_1(id number,name varchar(10));
+insert into adv_query_1(id,name) values(221292, 'Sherry');
+insert into adv_query_1(id,name) values(6789, 'Steven');
+select * from adv_query_1 where id between 6789 and 221292 order by id;
    ID   |  NAME  
 --------+--------
    6789 | Steven
  221292 | Sherry
 (2 rows)
 
-select * from tt where id between '6789' and '221292' order by id;
+select * from adv_query_1 where id between '6789' and '221292' order by id;
    ID   |  NAME  
 --------+--------
    6789 | Steven
  221292 | Sherry
 (2 rows)
 
-select * from tt where id between 221293 and 6788 order by id;
+select * from adv_query_1 where id between 221293 and 6788 order by id;
  ID | NAME 
 ----+------
 (0 rows)
 
-select * from tt where id between to_char(2) and to_char(5) order by id;
+select * from adv_query_1 where id between to_char(2) and to_char(5) order by id;
  ID | NAME 
 ----+------
 (0 rows)
 
-drop table tt;
+drop table adv_query_1;
 --日期	
-create table tt(id smallint,indt date,outdt date);
-insert into tt values(1, to_date('20151230','yyyymmdd'),to_date('20171230','yyyymmdd'));
-insert into tt values(2, to_date('20161125','yyyymmdd'),to_date('20161225','yyyymmdd'));
-insert into tt values(3, to_date('20160101','yyyymmdd'),to_date('20160801','yyyymmdd'));
-select * from tt where to_char(indt,'yyyymmdd') between '20151230' and '20160101' order by id;
+create table adv_query_1(id smallint,indt date,outdt date);
+insert into adv_query_1 values(1, to_date('20151230','yyyymmdd'),to_date('20171230','yyyymmdd'));
+insert into adv_query_1 values(2, to_date('20161125','yyyymmdd'),to_date('20161225','yyyymmdd'));
+insert into adv_query_1 values(3, to_date('20160101','yyyymmdd'),to_date('20160801','yyyymmdd'));
+select * from adv_query_1 where to_char(indt,'yyyymmdd') between '20151230' and '20160101' order by id;
  ID |        INDT         |        OUTDT        
 ----+---------------------+---------------------
   1 | 2015-12-30 00:00:00 | 2017-12-30 00:00:00
   3 | 2016-01-01 00:00:00 | 2016-08-01 00:00:00
 (2 rows)
 
-select * from tt where months_between(outdt,indt) between 12 and 24 order by id;
+select * from adv_query_1 where months_between(outdt,indt) between 12 and 24 order by id;
  ID |        INDT         |        OUTDT        
 ----+---------------------+---------------------
   1 | 2015-12-30 00:00:00 | 2017-12-30 00:00:00
 (1 row)
 
-select id, to_char(numtodsinterval(to_number(outdt-indt),'day'), 'dd') itv from tt where numtodsinterval(to_number(outdt-indt),'day') between numtodsinterval(1,'day') and numtodsinterval(25000,'hour') order by id;
+select id, to_char(numtodsinterval(to_number(outdt-indt),'day'), 'dd') itv from adv_query_1 where numtodsinterval(to_number(outdt-indt),'day') between numtodsinterval(1,'day') and numtodsinterval(25000,'hour') order by id;
  ID | ITV 
 ----+-----
   1 | 731
@@ -179,84 +179,84 @@ select id, to_char(numtodsinterval(to_number(outdt-indt),'day'), 'dd') itv from 
   3 | 213
 (3 rows)
 
-drop table tt;
+drop table adv_query_1;
 --LIKE	number
-create table tt(id number(6,2),name char(20), dt date);
-insert into tt values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-insert into tt values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-select * from tt  order by id;;
+create table adv_query_1(id number(6,2),name char(20), dt date);
+insert into adv_query_1 values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+insert into adv_query_1 values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+select * from adv_query_1  order by id;;
   ID   |         NAME         |         DT          
 -------+----------------------+---------------------
    980 | apple#America        | 2015-10-01 10:30:59
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (2 rows)
 
-select * from tt where id like '%.%' order by id;;
+select * from adv_query_1 where id like '%.%' order by id;;
   ID   |         NAME         |         DT          
 -------+----------------------+---------------------
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (1 row)
 
-select * from tt where id like '980' order by id;;
+select * from adv_query_1 where id like '980' order by id;;
  ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
-select * from tt where id like 980 order by id;
+select * from adv_query_1 where id like 980 order by id;
  ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
-select * from tt where id like 980.00 order by id;
+select * from adv_query_1 where id like 980.00 order by id;
  ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
-select * from tt where id like '980.00' order by id;
+select * from adv_query_1 where id like '980.00' order by id;
  ID | NAME | DT 
 ----+------+----
 (0 rows)
 
-drop table tt;
+drop table adv_query_1;
 --float	
-create table tt(id binary_float,name char(20), dt date);
-insert into tt values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-insert into tt values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-select * from tt order by id;
+create table adv_query_1(id binary_float,name char(20), dt date);
+insert into adv_query_1 values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+insert into adv_query_1 values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+select * from adv_query_1 order by id;
   ID   |         NAME         |         DT          
 -------+----------------------+---------------------
    980 | apple#America        | 2015-10-01 10:30:59
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (2 rows)
 
-select * from tt where id like '%.%' order by id;
+select * from adv_query_1 where id like '%.%' order by id;
   ID   |         NAME         |         DT          
 -------+----------------------+---------------------
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (1 row)
 
-select * from tt where id like '980' order by id;
+select * from adv_query_1 where id like '980' order by id;
  ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
-select * from tt where id like 980 order by id;
+select * from adv_query_1 where id like 980 order by id;
  ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
-drop table tt;
+drop table adv_query_1;
 --date、char
-create table tt(id number(6,2),name char(13), dt timestamp);
-insert into tt values(1,'apple#America',to_timestamp('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-insert into tt values(2,'apple#UK',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-insert into tt values(3,'apple',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
-select * from tt order by id;
+create table adv_query_1(id number(6,2),name char(13), dt timestamp);
+insert into adv_query_1 values(1,'apple#America',to_timestamp('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+insert into adv_query_1 values(2,'apple#UK',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+insert into adv_query_1 values(3,'apple',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
+select * from adv_query_1 order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
@@ -264,20 +264,20 @@ select * from tt order by id;
   3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
-select * from tt where name like '%#%' order by id;
+select * from adv_query_1 where name like '%#%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
   2 | apple#UK      | 2015-11-01 10:30:59
 (2 rows)
 
-select * from tt where name like '%ca' order by id;
+select * from adv_query_1 where name like '%ca' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
 (1 row)
 
-select * from tt where name like 'apple%' order by id;
+select * from adv_query_1 where name like 'apple%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
@@ -285,32 +285,32 @@ select * from tt where name like 'apple%' order by id;
   3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
-select * from tt where name like '% ' order by id;
+select * from adv_query_1 where name like '% ' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   2 | apple#UK      | 2015-11-01 10:30:59
   3 | apple         | 2015-11-01 10:30:59
 (2 rows)
 
-select * from tt where name like 'apple' order by id;
+select * from adv_query_1 where name like 'apple' order by id;
  ID | NAME | DT 
 ----+------+----
 (0 rows)
 
-select * from tt where name like 'apple        ' order by id;
+select * from adv_query_1 where name like 'apple        ' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   3 | apple         | 2015-11-01 10:30:59
 (1 row)
 
-select * from tt where name like to_char('apple% ') order by id;
+select * from adv_query_1 where name like to_char('apple% ') order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   2 | apple#UK      | 2015-11-01 10:30:59
   3 | apple         | 2015-11-01 10:30:59
 (2 rows)
 
-select * from tt where dt like '%10:30:59%' order by id;
+select * from adv_query_1 where dt like '%10:30:59%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
@@ -318,7 +318,7 @@ select * from tt where dt like '%10:30:59%' order by id;
   3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
-select * from tt where dt like '%' order by id;
+select * from adv_query_1 where dt like '%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
@@ -326,7 +326,7 @@ select * from tt where dt like '%' order by id;
   3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
-select * from tt where dt like '%%%%%%%%' order by id;
+select * from adv_query_1 where dt like '%%%%%%%%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 10:30:59
@@ -334,13 +334,13 @@ select * from tt where dt like '%%%%%%%%' order by id;
   3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
-drop table tt;
+drop table adv_query_1;
 --varchar、date	
-create table tt(id int,name varchar(20), dt date);
-insert into tt values(1,'apple#America',to_date('2015-10-01','yyyy-mm-dd hh24:mi:ss'));
-insert into tt values(2,'apple#UK',to_date('2015-11-01','yyyy-mm-dd'));
-insert into tt values(3,'apple',to_date('2015-11-01','yyyy-mm-dd'));
-select * from tt order by id;
+create table adv_query_1(id int,name varchar(20), dt date);
+insert into adv_query_1 values(1,'apple#America',to_date('2015-10-01','yyyy-mm-dd hh24:mi:ss'));
+insert into adv_query_1 values(2,'apple#UK',to_date('2015-11-01','yyyy-mm-dd'));
+insert into adv_query_1 values(3,'apple',to_date('2015-11-01','yyyy-mm-dd'));
+select * from adv_query_1 order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
@@ -348,13 +348,13 @@ select * from tt order by id;
   3 | apple         | 2015-11-01 00:00:00
 (3 rows)
 
-select * from tt where name like '%ca' order by id;
+select * from adv_query_1 where name like '%ca' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
 (1 row)
 
-select * from tt where name like 'apple%' order by id;
+select * from adv_query_1 where name like 'apple%' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
@@ -362,18 +362,18 @@ select * from tt where name like 'apple%' order by id;
   3 | apple         | 2015-11-01 00:00:00
 (3 rows)
 
-select * from tt where name like '% ' order by id;
+select * from adv_query_1 where name like '% ' order by id;
  ID | NAME | DT 
 ----+------+----
 (0 rows)
 
-select * from tt where name like 'apple' order by id;
+select * from adv_query_1 where name like 'apple' order by id;
  ID | NAME  |         DT          
 ----+-------+---------------------
   3 | apple | 2015-11-01 00:00:00
 (1 row)
 
-select * from tt where name like to_char('apple%') order by id;
+select * from adv_query_1 where name like to_char('apple%') order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
@@ -381,25 +381,25 @@ select * from tt where name like to_char('apple%') order by id;
   3 | apple         | 2015-11-01 00:00:00
 (3 rows)
 
-select * from tt where dt like '2015-10-01' order by id;
+select * from adv_query_1 where dt like '2015-10-01' order by id;
  ID | NAME | DT 
 ----+------+----
 (0 rows)
 
-select * from tt where dt like to_date('2015-10-01','YYYY-MM-DD') order by id;
+select * from adv_query_1 where dt like to_date('2015-10-01','YYYY-MM-DD') order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
 (1 row)
 
-drop table tt;
+drop table adv_query_1;
 --IS NULL	
-create table tt(id int,name varchar(20));
-insert into tt values(1,'Jack');
-insert into tt values(2,'');
-insert into tt values(3,null);
-insert into tt values(null,null);
-select * from tt where name is null order by id;
+create table adv_query_1(id int,name varchar(20));
+insert into adv_query_1 values(1,'Jack');
+insert into adv_query_1 values(2,'');
+insert into adv_query_1 values(3,null);
+insert into adv_query_1 values(null,null);
+select * from adv_query_1 where name is null order by id;
  ID | NAME 
 ----+------
   2 | 
@@ -407,34 +407,34 @@ select * from tt where name is null order by id;
     | 
 (3 rows)
 
-select * from tt where name is not null;
+select * from adv_query_1 where name is not null;
  ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
-select * from tt where id is not null and name is null order by id;
+select * from adv_query_1 where id is not null and name is null order by id;
  ID | NAME 
 ----+------
   2 | 
   3 | 
 (2 rows)
 
-select * from tt where  name=null;
+select * from adv_query_1 where  name=null;
  ID | NAME 
 ----+------
 (0 rows)
 
-drop table tt;
+drop table adv_query_1;
 --测试在pg语法下创建表，在oracle下查询
 set grammar to default;
-create table tt(id int,name varchar(20));
-insert into tt values(1,'Jack');
-insert into tt values(2,'');
-insert into tt values(3,null);
-insert into tt values(null,null);
+create table adv_query_1(id int,name varchar(20));
+insert into adv_query_1 values(1,'Jack');
+insert into adv_query_1 values(2,'');
+insert into adv_query_1 values(3,null);
+insert into adv_query_1 values(null,null);
 set grammar to oracle;
-select * from tt where name is null order by id;
+select * from adv_query_1 where name is null order by id;
  ID | NAME 
 ----+------
   2 | 
@@ -442,37 +442,37 @@ select * from tt where name is null order by id;
     | 
 (3 rows)
 
-select * from tt where name is not null;
+select * from adv_query_1 where name is not null;
  ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
-select * from tt where id is not null and name is null order by id;
+select * from adv_query_1 where id is not null and name is null order by id;
  ID | NAME 
 ----+------
   2 | 
   3 | 
 (2 rows)
 
-select * from tt where  name=null;
+select * from adv_query_1 where  name=null;
  ID | NAME 
 ----+------
 (0 rows)
 
-drop table tt;
+drop table adv_query_1;
 --AND 、OR、NOT	优先级	
-create table tt(id int,name varchar(20));
-insert into tt values(1,'Jack');
-insert into tt values(2,'Tom');
-insert into tt values(3,'Tom');
-select name from tt where id=1 and name='Jack';
+create table adv_query_1(id int,name varchar(20));
+insert into adv_query_1 values(1,'Jack');
+insert into adv_query_1 values(2,'Tom');
+insert into adv_query_1 values(3,'Tom');
+select name from adv_query_1 where id=1 and name='Jack';
  NAME 
 ------
  Jack
 (1 row)
 
-select name from tt where id=1 and name='Jack' or 1=1 order by id;
+select name from adv_query_1 where id=1 and name='Jack' or 1=1 order by id;
  NAME 
 ------
  Jack
@@ -480,13 +480,13 @@ select name from tt where id=1 and name='Jack' or 1=1 order by id;
  Tom
 (3 rows)
 
-select name from tt where id=1 and (name='Jack' or 1=1);
+select name from adv_query_1 where id=1 and (name='Jack' or 1=1);
  NAME 
 ------
  Jack
 (1 row)
 
-select name from tt where id=1 or id=2 or id=3 order by id;
+select name from adv_query_1 where id=1 or id=2 or id=3 order by id;
  NAME 
 ------
  Jack
@@ -494,27 +494,27 @@ select name from tt where id=1 or id=2 or id=3 order by id;
  Tom
 (3 rows)
 
-select * from tt where id=1 or name='Tom' and id=2 order by id;
+select * from adv_query_1 where id=1 or name='Tom' and id=2 order by id;
  ID | NAME 
 ----+------
   1 | Jack
   2 | Tom
 (2 rows)
 
-select * from tt where (id=1 or name='Tom') and id=2 order by id;
+select * from adv_query_1 where (id=1 or name='Tom') and id=2 order by id;
  ID | NAME 
 ----+------
   2 | Tom
 (1 row)
 
-select * from tt where id=1 or name='Tom' and not id=2 order by id;
+select * from adv_query_1 where id=1 or name='Tom' and not id=2 order by id;
  ID | NAME 
 ----+------
   1 | Jack
   3 | Tom
 (2 rows)
 
-select * from tt where id=1 or not (name='Jack' and id=2) order by id;
+select * from adv_query_1 where id=1 or not (name='Jack' and id=2) order by id;
  ID | NAME 
 ----+------
   1 | Jack
@@ -522,25 +522,25 @@ select * from tt where id=1 or not (name='Jack' and id=2) order by id;
   3 | Tom
 (3 rows)
 
-select * from tt where id=1 or not name='Jack' and id=2 order by id;
+select * from adv_query_1 where id=1 or not name='Jack' and id=2 order by id;
  ID | NAME 
 ----+------
   1 | Jack
   2 | Tom
 (2 rows)
 
-drop table tt;
+drop table adv_query_1;
 --distinct
-create table tt(id int,name varchar(20));
-insert into tt values(1,'Jack');
-insert into tt values(1,'Rose');
-insert into tt values(2,'Tom');
-insert into tt values(3,'Tom');
-insert into tt values(1,'Jack');
-insert into tt values(4,'');
-insert into tt values(null,4);
-insert into tt values(5,null);
-select * from tt order by id, name;
+create table adv_query_1(id int,name varchar(20));
+insert into adv_query_1 values(1,'Jack');
+insert into adv_query_1 values(1,'Rose');
+insert into adv_query_1 values(2,'Tom');
+insert into adv_query_1 values(3,'Tom');
+insert into adv_query_1 values(1,'Jack');
+insert into adv_query_1 values(4,'');
+insert into adv_query_1 values(null,4);
+insert into adv_query_1 values(5,null);
+select * from adv_query_1 order by id, name;
  ID | NAME 
 ----+------
   1 | Jack
@@ -553,7 +553,7 @@ select * from tt order by id, name;
     | 4
 (8 rows)
 
-select distinct id from tt order by id;
+select distinct id from adv_query_1 order by id;
  ID 
 ----
   1
@@ -564,7 +564,7 @@ select distinct id from tt order by id;
    
 (6 rows)
 
-select distinct id,name from tt order by id, name;
+select distinct id,name from adv_query_1 order by id, name;
  ID | NAME 
 ----+------
   1 | Jack
@@ -576,13 +576,13 @@ select distinct id,name from tt order by id, name;
     | 4
 (7 rows)
 
-select count(distinct id) from tt;
+select count(distinct id) from adv_query_1;
  COUNT(DISTINCT ID) 
 --------------------
                   5
 (1 row)
 
-select distinct name from tt order by name;
+select distinct name from adv_query_1 order by name;
  NAME 
 ------
  4
@@ -592,19 +592,19 @@ select distinct name from tt order by name;
  
 (5 rows)
 
-select count(distinct name) from tt;
+select count(distinct name) from adv_query_1;
  COUNT(DISTINCT NAME) 
 ----------------------
                     4
 (1 row)
 
-drop table tt;
+drop table adv_query_1;
 --精度测试	
-create table tt(id number,name varchar(20),addr char(5));
-insert into tt values(1.00,'Jack','1');
-insert into tt values(1,to_char('Jack '),'1    ');
-insert into tt values(1.00,' Jack','    1');
-select * from tt;
+create table adv_query_1(id number,name varchar(20),addr char(5));
+insert into adv_query_1 values(1.00,'Jack','1');
+insert into adv_query_1 values(1,to_char('Jack '),'1    ');
+insert into adv_query_1 values(1.00,' Jack','    1');
+select * from adv_query_1;
  ID | NAME  | ADDR  
 ----+-------+-------
   1 | Jack  | 1    
@@ -612,13 +612,13 @@ select * from tt;
   1 |  Jack |     1
 (3 rows)
 
-select distinct id from tt order by id;
+select distinct id from adv_query_1 order by id;
  ID 
 ----
   1
 (1 row)
 
-select distinct name from tt order by name;
+select distinct name from adv_query_1 order by name;
  NAME  
 -------
   Jack
@@ -626,29 +626,29 @@ select distinct name from tt order by name;
  Jack 
 (3 rows)
 
-select distinct addr from tt order by addr;
+select distinct addr from adv_query_1 order by addr;
  ADDR  
 -------
      1
  1    
 (2 rows)
 
-select count(distinct id) from tt;
+select count(distinct id) from adv_query_1;
  COUNT(DISTINCT ID) 
 --------------------
                   1
 (1 row)
 
-drop table tt;
+drop table adv_query_1;
 --order by	单列、多列	
-create table tt(id int,name varchar(20));
-insert into tt values(1,'1Jack');
-insert into tt values(2,'1Rose');
-insert into tt values(2,'Rose');
-insert into tt values(3,'Tom');
-insert into tt values(11,'Jack');
-insert into tt values(4,'');
-select * from tt order by id;
+create table adv_query_1(id int,name varchar(20));
+insert into adv_query_1 values(1,'1Jack');
+insert into adv_query_1 values(2,'1Rose');
+insert into adv_query_1 values(2,'Rose');
+insert into adv_query_1 values(3,'Tom');
+insert into adv_query_1 values(11,'Jack');
+insert into adv_query_1 values(4,'');
+select * from adv_query_1 order by id;
  ID | NAME  
 ----+-------
   1 | 1Jack
@@ -659,7 +659,7 @@ select * from tt order by id;
  11 | Jack
 (6 rows)
 
-select * from tt order by name desc;
+select * from adv_query_1 order by name desc;
  ID | NAME  
 ----+-------
   4 | 
@@ -670,7 +670,7 @@ select * from tt order by name desc;
   1 | 1Jack
 (6 rows)
 
-select * from tt order by id,name desc;
+select * from adv_query_1 order by id,name desc;
  ID | NAME  
 ----+-------
   1 | 1Jack
@@ -681,16 +681,16 @@ select * from tt order by id,name desc;
  11 | Jack
 (6 rows)
 
-drop table tt;
+drop table adv_query_1;
 --group by	一般用法	
-create table tt(id number,name varchar(20),sal number);
-insert into tt values(1,'rose',1800);
-insert into tt values(2,'rose',2000.5);
-insert into tt values(3.00,'Jack',2000);
-insert into tt values(3,'Tom',2000);
-insert into tt values(4,'Tom',2000);
-insert into tt values(5,'Steven',2000.00);
-select * from tt order by id;
+create table adv_query_1(id number,name varchar(20),sal number);
+insert into adv_query_1 values(1,'rose',1800);
+insert into adv_query_1 values(2,'rose',2000.5);
+insert into adv_query_1 values(3.00,'Jack',2000);
+insert into adv_query_1 values(3,'Tom',2000);
+insert into adv_query_1 values(4,'Tom',2000);
+insert into adv_query_1 values(5,'Steven',2000.00);
+select * from adv_query_1 order by id;
  ID |  NAME  |  SAL   
 ----+--------+--------
   1 | rose   |   1800
@@ -701,7 +701,7 @@ select * from tt order by id;
   5 | Steven |   2000
 (6 rows)
 
-select sal from tt group by sal order by sal;
+select sal from adv_query_1 group by sal order by sal;
   SAL   
 --------
    1800
@@ -709,7 +709,7 @@ select sal from tt group by sal order by sal;
  2000.5
 (3 rows)
 
-select id,count(id) from tt group by id order by id;
+select id,count(id) from adv_query_1 group by id order by id;
  ID | COUNT(ID) 
 ----+-----------
   1 |         1
@@ -719,7 +719,7 @@ select id,count(id) from tt group by id order by id;
   5 |         1
 (5 rows)
 
-select id,count(*) from tt group by id,name order by id;
+select id,count(*) from adv_query_1 group by id,name order by id;
  ID | COUNT(*) 
 ----+----------
   1 |        1
@@ -730,14 +730,14 @@ select id,count(*) from tt group by id,name order by id;
   5 |        1
 (6 rows)
 
-select name,count(*) from tt group by name having count(*)>1 order by name;
+select name,count(*) from adv_query_1 group by name having count(*)>1 order by name;
  NAME | COUNT(*) 
 ------+----------
  Tom  |        2
  rose |        2
 (2 rows)
 
-select name,count(*) from tt group by name having name !='Tom' order by name;
+select name,count(*) from adv_query_1 group by name having name !='Tom' order by name;
   NAME  | COUNT(*) 
 --------+----------
  Jack   |        1
@@ -745,7 +745,7 @@ select name,count(*) from tt group by name having name !='Tom' order by name;
  rose   |        2
 (3 rows)
 
-select name,count(*) from tt group by name order by name;
+select name,count(*) from adv_query_1 group by name order by name;
   NAME  | COUNT(*) 
 --------+----------
  Jack   |        1
@@ -754,7 +754,7 @@ select name,count(*) from tt group by name order by name;
  rose   |        2
 (4 rows)
 
-select name,count(*) from tt group by name order by count(*);
+select name,count(*) from adv_query_1 group by name order by count(*);
   NAME  | COUNT(*) 
 --------+----------
  Steven |        1
@@ -763,30 +763,30 @@ select name,count(*) from tt group by name order by count(*);
  rose   |        2
 (4 rows)
 
-drop table tt;
+drop table adv_query_1;
 --view下复杂查询，查出最大一行的所有字段：
-create table tt(id int,name varchar(10),sal number(7,2));
-insert into tt(id,name,sal) values(1, 'mike','5000');
-insert into tt(id,name,sal) values(2, 'Tom','6000.98');
-insert into tt(id,name,sal) values(3, 'Jhon',null);
-create view vv as select max(sal) as max_sal from tt;
+create table adv_query_1(id int,name varchar(10),sal number(7,2));
+insert into adv_query_1(id,name,sal) values(1, 'mike','5000');
+insert into adv_query_1(id,name,sal) values(2, 'Tom','6000.98');
+insert into adv_query_1(id,name,sal) values(3, 'Jhon',null);
+create view vv as select max(sal) as max_sal from adv_query_1;
 select * from vv;
  MAX_SAL 
 ---------
  6000.98
 (1 row)
 
-select id,name,sal from tt,vv where tt.sal=vv.max_sal;
+select id,name,sal from adv_query_1,vv where adv_query_1.sal=vv.max_sal;
  ID | NAME |   SAL   
 ----+------+---------
   2 | Tom  | 6000.98
 (1 row)
 
-select id,name,sal from tt,(select max(sal) as max_sal from tt) v where tt.sal=v.max_sal;
+select id,name,sal from adv_query_1,(select max(sal) as max_sal from adv_query_1) v where adv_query_1.sal=v.max_sal;
  ID | NAME |   SAL   
 ----+------+---------
   2 | Tom  | 6000.98
 (1 row)
 
 drop view vv;
-drop table tt;
+drop table adv_query_1;

@@ -2,12 +2,12 @@ set grammar to oracle;
 set datestyle='ISO,YMD';
 
 --create table
-create table aa(id int, dt varchar2(30));
-insert into aa values(1,'1-1-1');
-insert into aa values(2,'9999-12-1');
-insert into aa values(3,'2015-10-18');
-select id,to_date(dt,'yyyy-mm-dd')from aa order by id;
-drop table aa;
+create table todatetbl(id int, dt varchar2(30));
+insert into todatetbl values(1,'1-1-1');
+insert into todatetbl values(2,'9999-12-1');
+insert into todatetbl values(3,'2015-10-18');
+select id,to_date(dt,'yyyy-mm-dd')from todatetbl order by id;
+drop table todatetbl;
 
 --query
 select to_date('20150102','yyyymmdd') from dual;

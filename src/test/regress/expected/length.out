@@ -43,12 +43,12 @@ select length(12.3456) from dual;
                7
 (1 row)
 
-create table tt (name varchar2(10));
-insert into tt values('1bd2sdfaef');
-insert into tt values('3csadfed');
-insert into tt values('mmsdeq4d');
-insert into tt values('ccd');
-select * from tt where length(name) >6 order by name;
+create table length_tbl (name varchar2(10));
+insert into length_tbl values('1bd2sdfaef');
+insert into length_tbl values('3csadfed');
+insert into length_tbl values('mmsdeq4d');
+insert into length_tbl values('ccd');
+select * from length_tbl where length(name) >6 order by name;
     NAME    
 ------------
  1bd2sdfaef
@@ -56,7 +56,7 @@ select * from tt where length(name) >6 order by name;
  mmsdeq4d
 (3 rows)
 
-select name,length(name) from tt order by name;
+select name,length(name) from length_tbl order by name;
     NAME    | LENGTH(NAME) 
 ------------+--------------
  1bd2sdfaef |           10
@@ -65,4 +65,4 @@ select name,length(name) from tt order by name;
  mmsdeq4d   |            8
 (4 rows)
 
-drop table tt;
+drop table length_tbl;
