@@ -1310,8 +1310,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		else
 #endif /* ADB */
 		*processed = CopyFrom(cstate);	/* copy from file to database */
-		
-		ereport(LOG, (errmsg("Copy from, count_tuple(%lu).", *processed)));
 		EndCopyFrom(cstate);
 	}
 	else
@@ -1320,7 +1318,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 							 stmt->filename, stmt->is_program,
 							 stmt->attlist, stmt->options ADB_ONLY_COMMA_ARG(cluster_safe));
 		*processed = DoCopyTo(cstate);	/* copy from database to file */
-		ereport(LOG, (errmsg("Copy to, count_tuple(%lu).", *processed)));
 		EndCopyTo(cstate);
 	}
 
