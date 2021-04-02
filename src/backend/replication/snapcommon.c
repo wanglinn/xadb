@@ -187,7 +187,7 @@ void SnapTransferLock(SnapCommonLock *comm_lock, void **param_io,
 	char					*lock_start;
 	SnapTransPara			*param;
 
-	if (!param_io)
+	if (!param_io || *param_io == NULL)
 		return;
 
 	param = (SnapTransPara*)(*param_io);
