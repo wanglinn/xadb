@@ -916,6 +916,8 @@ static void RevertSwitchverData(MemoryContext spiContext,
 									spiContext,
 									NULL,
 									NULL);
+		MgrFree(getAgentCmdRst.description.data);
+		MgrFree(infosendmsg.data);
 	}
 
 	holdLockCoordinator = getHoldLockCoordinator(coordinators);
@@ -2422,11 +2424,17 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 								 PGconn *masterPGconn,
 								 MemoryContext spiContext)
 {
+	GetAgentCmdRst 		getAgentCmdRst;	
+	initStringInfo(&(getAgentCmdRst.description));
+
 	setPGHbaTrustSlaveReplication(masterNode, slaveNode, true);
 
 	setSynchronousStandbyNames(slaveNode, "");
 
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
+
+	mgr_refresh_standby(slaveNode->nodepath, slaveNode->host->form.oid, &getAgentCmdRst);
+	MgrFree(getAgentCmdRst.description.data);
 
 	shutdownNodeWithinSeconds(slaveNode,
 							  SHUTDOWN_NODE_FAST_SECONDS,
@@ -2452,6 +2460,9 @@ void appendSlaveNodeFollowMasterForSwitchOver(MemoryContext spiContext,
 												SwitcherNodeWrapper *slave,
 												bool complain)
 {
+	GetAgentCmdRst 		getAgentCmdRst;	
+	initStringInfo(&(getAgentCmdRst.description));
+
 	MgrNodeWrapper *masterNode = master->mgrNode;
 	MgrNodeWrapper *slaveNode  = slave->mgrNode;
 	PGconn 	*masterPGconn 	  = master->pgConn;
@@ -2461,6 +2472,9 @@ void appendSlaveNodeFollowMasterForSwitchOver(MemoryContext spiContext,
 	setSynchronousStandbyNames(slaveNode, "");
 
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
+
+	mgr_refresh_standby(slaveNode->nodepath, slaveNode->host->form.oid, &getAgentCmdRst);
+	MgrFree(getAgentCmdRst.description.data);
 
 	shutdownNodeWithinSeconds(slaveNode,
 							  SHUTDOWN_NODE_FAST_SECONDS,
@@ -2486,6 +2500,9 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 								SwitcherNodeWrapper *slave,
 								bool complain)
 {
+	GetAgentCmdRst 		getAgentCmdRst;	
+	initStringInfo(&(getAgentCmdRst.description));
+
 	MgrNodeWrapper *masterNode = master->mgrNode;
 	MgrNodeWrapper *slaveNode  = slave->mgrNode;
 	PGconn 	*masterPGconn 	  = master->pgConn;
@@ -2495,6 +2512,9 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 	setSynchronousStandbyNames(slaveNode, "");
 
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
+
+	mgr_refresh_standby(slaveNode->nodepath, slaveNode->host->form.oid, &getAgentCmdRst);
+	MgrFree(getAgentCmdRst.description.data);
 
 	shutdownNodeWithinSeconds(slaveNode,
 							  SHUTDOWN_NODE_FAST_SECONDS,
@@ -3656,6 +3676,8 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 	dlist_mutable_iter iter;
 	SwitcherNodeWrapper *slaveNode;
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	GetAgentCmdRst 		getAgentCmdRst;	
+	initStringInfo(&(getAgentCmdRst.description));
 
 	if (dlist_is_empty(runningSlaves))
 	{
@@ -3677,8 +3699,11 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 		setSynchronousStandbyNames(slaveNode->mgrNode, "");
 		setSlaveNodeRecoveryConf(newMaster->mgrNode,
 								 slaveNode->mgrNode);
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_refresh_standby(slaveNode->mgrNode->nodepath, slaveNode->mgrNode->host->form.oid, &getAgentCmdRst);
 		pfreeSwitcherNodeWrapperPGconn(slaveNode);
 	}
+	MgrFree(getAgentCmdRst.description.data);
 
 	if (gtmMaster)
 		batchSetGtmInfoOnNodes(gtmMaster, runningSlaves, NULL, true);
@@ -5603,6 +5628,8 @@ void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 	SwitcherNodeWrapper *newParent;
 	MgrNodeWrapper 		*ParentNode;
  	MgrNodeWrapper 		*slaveNode;
+ 	GetAgentCmdRst 		getAgentCmdRst;	
+	initStringInfo(&(getAgentCmdRst.description));
 
 	Assert(childMgrNode);
 	Assert(parentMgrNode);
@@ -5619,6 +5646,9 @@ void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 	setPGHbaTrustSlaveReplication(ParentNode, slaveNode, true);
 
 	setSlaveNodeRecoveryConf(ParentNode, slaveNode);
+	
+	mgr_refresh_standby(slaveNode->nodepath, slaveNode->host->form.oid, &getAgentCmdRst);
+	MgrFree(getAgentCmdRst.description.data);
 
 	shutdownNodeWithinSeconds(slaveNode,
 							  SHUTDOWN_NODE_FAST_SECONDS,
@@ -7715,6 +7745,7 @@ void RefreshGtmAdbCheckSyncNextid(MgrNodeWrapper *mgrNode, char *value)
 	if (!getAgentCmdRst.ret)
 		ereport(ERROR, (errmsg("set adb_check_sync_nextid = '%s' in postgresql.conf of %s fail"
 			, infosendmsg.data, NameStr(mgrNode->form.nodename))));
+	// TODO
 }
 
 static void PrintReplicationInfo(SwitcherNodeWrapper *masterNode)

@@ -518,13 +518,10 @@ static void cmd_node_init(char cmdtype, StringInfo msg, char *cmdfile, char* VER
 		{
 			ereport(ERROR, (errmsg("%s does not exist", path)));
 		}
-		/*check path/recovery.done, if recovry.conf not update to recovery.done, sleep 3 then check it again
-		* , just do this, because it should wait the pg_ctl promote execute finish, otherwise maybe get the funciton
-		* which update recovery.conf to recovery.done not execute, for example: pg_ctl promote then shutdown the node
-		*/
+		
 		memset(recoveryfile, 0, MAXPGPATH*sizeof(char));
 		strcpy(recoveryfile, path);
-		strcat(recoveryfile, "/recovery.done");
+		strcat(recoveryfile, "/postgresql.auto.conf");
 		sleep(1);
 		iloop = 0;
 		if (access(recoveryfile, F_OK) != 0)
@@ -537,10 +534,9 @@ static void cmd_node_init(char cmdtype, StringInfo msg, char *cmdfile, char* VER
 			/*check recovery.done exist*/
 			if (access(recoveryfile, F_OK) != 0)
 			{
-				ereport(ERROR, (errmsg("could not update recovery.conf to recovery.done in %s", path)));
+				ereport(ERROR, (errmsg("could not update postgresql.conf to postgresql.auto.conf in %s", path)));
 			}
-		}
-
+		}		
 	}
 	agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
 	agt_flush();

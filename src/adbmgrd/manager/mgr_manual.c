@@ -594,8 +594,6 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 					master_nodeinfo.nodeport,
 					master_nodeinfo.nodeusername,
 					nodenamedata.data);
-	if (!mgr_is_recovery_guc_supported())
-		mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 	pfree(primary_conninfo_value.data);
@@ -604,14 +602,15 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 									&infosendmsg,
 									slave_nodeinfo.nodehost,
 									&getAgentCmdRst);
-
 	if (!getAgentCmdRst.ret)
 	{
 		ereport(WARNING, (errmsg("refresh recovery.conf fail, %s", getAgentCmdRst.description.data)));
 		res = false;
 	}
-
 	pfree(nodetypestr);
+
+	resetStringInfo(&(getAgentCmdRst.description));
+	mgr_refresh_standby(slave_nodeinfo.nodepath, slave_nodeinfo.nodehost, &getAgentCmdRst);
 
 	/*start the node*/
 	if (res)
@@ -872,8 +871,6 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	appendStringInfo(&restmsg, "host=%s port=%d user=%s application_name=%s", src_nodeinfo.nodeaddr
 		, src_nodeinfo.nodeport, dest_nodeinfo.nodeusername, dest_nodeinfo.nodename);
 	mgr_append_pgconf_paras_str_str("recovery_target_timeline", "latest", &infosendmsg);
-	if (!mgr_is_recovery_guc_supported())
-		mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", restmsg.data, &infosendmsg);
 	mgr_send_conf_parameters_recovery(dest_nodeinfo.nodepath, &infosendmsg, dest_nodeinfo.nodehost, &getAgentCmdRst);
 	pfree_AppendNodeInfo(src_nodeinfo);

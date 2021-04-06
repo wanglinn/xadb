@@ -349,7 +349,6 @@ extern void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo i
 extern void mgr_send_conf_parameters_recovery(char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst);
 extern void mgr_refresh_standby(char *cndnPath, Oid hostOid, GetAgentCmdRst *getAgentCmdRst);
 extern void mgr_append_pgconf_paras_str_str(const char *key, const char *value, StringInfo infosendmsg);
-extern void mgr_append_paras_standby(const char *key, const char *value, StringInfo infosendmsg);
 extern void mgr_append_pgconf_paras_str_int(const char *key, int value, StringInfo infosendmsg);
 extern void mgr_append_infostr_infostr(StringInfo infostr, StringInfo sourceinfostr);
 extern void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, StringInfo infosendparamsg);
@@ -681,5 +680,4 @@ extern void CheckZoneNodesBeforeInitAll(void);
 extern void PrintReplicationInfoOfMasterZone(MemoryContext spiContext, char *currentZone);
 extern bool get_local_ip(Name local_ip);
 extern int mgr_get_server_version_num(void);
-extern bool mgr_is_recovery_guc_supported(void);
 #endif /* MGR_CMDS_H */

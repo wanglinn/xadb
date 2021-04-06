@@ -1672,10 +1672,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 	appendStringInfo(&infosendmsg, " -D %s", cndnPath);
-	if (mgr_is_recovery_guc_supported())
-		appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
-	else
-		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+	appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
 	appendStringInfo(&infosendmsg, " --nodename %s", cndnnametmp);
 	/* connection agent */
 	ma = ma_connect_hostoid(hostOid);
@@ -2172,10 +2169,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
 		appendStringInfo(&infosendmsg, " -p %u", masterport);
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
-		if (mgr_is_recovery_guc_supported())
-			appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
-		else
-			appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+		appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
 		appendStringInfo(&infosendmsg, " -U %s", user);
 		appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
 		ReleaseSysCache(gtmmastertuple);
@@ -4776,8 +4770,6 @@ bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster)
 						get_hostuser_from_hostoid(parentnodeinfo.nodehost),
 						nodename.data);
 
-		if (!mgr_is_recovery_guc_supported())
-			mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		/*connect to master create slot and update primary_slot_name of datanode slave's recovery.conf*/
@@ -5212,8 +5204,6 @@ bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster)
 						agtm_m_nodeinfo.nodeport,
 						appendnodeinfo.nodeusername,
 						nodename.data);
-		if (!mgr_is_recovery_guc_supported())
-			mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		mgr_send_conf_parameters_recovery(appendnodeinfo.nodepath,
@@ -7233,16 +7223,11 @@ void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosend
 
 void mgr_send_conf_parameters_recovery(char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst)
 {
-	if (mgr_is_recovery_guc_supported())
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONFAUTO, datapath, infosendmsg, hostoid, getAgentCmdRst);
-	else
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, datapath, infosendmsg, hostoid, getAgentCmdRst);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONFAUTO, datapath, infosendmsg, hostoid, getAgentCmdRst);
 }
 void mgr_refresh_standby(char *cndnPath, Oid hostOid, GetAgentCmdRst *getAgentCmdRst)
 {
 	StringInfoData infosendmsg;
-	if (!mgr_is_recovery_guc_supported())
-		return;
 	initStringInfo(&infosendmsg);
 	resetStringInfo(&(getAgentCmdRst->description));
 	mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
@@ -7278,18 +7263,6 @@ void mgr_append_pgconf_paras_str_int(const char *key, int value, StringInfo info
 */
 void mgr_append_pgconf_paras_str_quotastr(const char *key, const char *value, StringInfo infosendmsg)
 {
-	Assert(key != NULL && value != NULL && infosendmsg->data != NULL);
-	appendStringInfoString(infosendmsg, key);
-	appendStringInfoCharMacro(infosendmsg, '\0');
-	appendStringInfo(infosendmsg, "'%s'", value);
-	appendStringInfoCharMacro(infosendmsg, '\0');
-}
-
-void mgr_append_paras_standby(const char *key, const char *value, StringInfo infosendmsg)
-{
-	if (mgr_is_recovery_guc_supported())
-		return;
-
 	Assert(key != NULL && value != NULL && infosendmsg->data != NULL);
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
@@ -7390,8 +7363,6 @@ void mgr_add_parameters_recoveryconf(char nodetype, char *slavename, Oid tupleoi
 	initStringInfo(&primary_conninfo_value);
 	appendStringInfo(&primary_conninfo_value, "host=%s port=%d user=%s application_name=%s", masterhostaddress, masterport, username.data, slavename);
 	mgr_append_pgconf_paras_str_str("recovery_target_timeline", "latest", infosendparamsg);
-	if (!mgr_is_recovery_guc_supported())
-		mgr_append_paras_standby("standby_mode", "on", infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, infosendparamsg);
 	pfree(primary_conninfo_value.data);
 	pfree(masterhostaddress);

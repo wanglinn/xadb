@@ -419,8 +419,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
 
-		if (!mgr_is_recovery_guc_supported())
-			mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		mgr_send_conf_parameters_recovery(destnodeinfo.nodepath,
 											&infosendmsg,
@@ -560,8 +558,6 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 						sourcenodeinfo.nodeport,
 						get_hostuser_from_hostoid(sourcenodeinfo.nodehost));
 
-		if (!mgr_is_recovery_guc_supported())
-		 	mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		mgr_send_conf_parameters_recovery(destnodeinfo.nodepath,
 											&infosendmsg,
