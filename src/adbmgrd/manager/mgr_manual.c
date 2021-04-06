@@ -585,10 +585,10 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		res = false;
 	}
 
-	/*refresh recovery.conf of this node*/
+	/*refresh postgres.conf of this node*/
 	resetStringInfo(&infosendmsg);
 	initStringInfo(&primary_conninfo_value);
-	ereport(NOTICE, (errmsg("refresh recovery.conf of %s \"%s\"", nodetypestr, nodenamedata.data)));
+	ereport(NOTICE, (errmsg("refresh postgresql.conf of %s \"%s\"", nodetypestr, nodenamedata.data)));
 	appendStringInfo(&primary_conninfo_value, "host=%s port=%d user=%s application_name=%s",
 					master_nodeinfo.nodeaddr,
 					master_nodeinfo.nodeport,
@@ -604,7 +604,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 									&getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
-		ereport(WARNING, (errmsg("refresh recovery.conf fail, %s", getAgentCmdRst.description.data)));
+		ereport(WARNING, (errmsg("refresh postgresql.conf fail, %s", getAgentCmdRst.description.data)));
 		res = false;
 	}
 	pfree(nodetypestr);
@@ -1217,15 +1217,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		PQclear(res);
 		res = NULL;
 
-		/*rm recovery.conf*/
-		resetStringInfo(&infosendmsg);
-		resetStringInfo(&restmsg);
-		appendStringInfo(&infosendmsg, "%s/recovery.conf", dest_nodeinfo.nodepath);
-		rest = mgr_ma_send_cmd(AGT_CMD_RM, infosendmsg.data, dest_nodeinfo.nodehost, &restmsg);
-		if (!rest)
-		{
-			ereport(ERROR, (errmsg("on coordinator \"%s\", rm %s fail, %s", s_coordname, infosendmsg.data, restmsg.data)));
-		}
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_refresh_standby(dest_nodeinfo.nodepath, dest_nodeinfo.nodehost, &getAgentCmdRst);
 
 		/*set the coordinator*/
 		ereportNoticeLog(errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
