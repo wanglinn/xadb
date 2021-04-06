@@ -109,7 +109,6 @@ ExecSort(PlanState *pstate)
 
 			if (TupIsNull(slot))
 				break;
-#warning delete srt_start_merge?
 #ifdef ADB
 			if (plannode->srt_start_merge)
 				tuplesort_puttupleslotontape(tuplesortstate, slot);
