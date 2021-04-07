@@ -278,6 +278,7 @@ ClassifyUtilityCommandAsReadOnly(Node *parsetree)
 		case T_CreateAuxStmt:
 		case T_PaddingAuxDataStmt:
 		case T_CleanConnStmt:
+		case T_FinishActiveBackendStmt:
 #endif /* ADB */
 			{
 				/* DDL is not read-only, and neither is TRUNCATE. */
