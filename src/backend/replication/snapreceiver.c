@@ -1549,7 +1549,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	StringInfoData	msg;
 	TransactionId	txid;
 	TransactionId	nextXid;
-	TransactionId	gxid = FirstNormalTransactionId;
+	TransactionId	gxid = InvalidTransactionId;
 
 	if ((len % sizeof(txid)) != 0 ||
 		len == 0)
