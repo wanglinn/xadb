@@ -545,6 +545,7 @@ ExecInsert(ModifyTableState *mtstate,
 		if (IsCnNode() && resultRemoteRel)
 		{
 			TupleTableSlot *saveSlot = NULL;
+			TupleTableSlot *tmpSlot = NULL;
 
 			saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
 			saveSlot = ExecCopySlot(saveSlot, slot);
@@ -572,18 +573,19 @@ ExecInsert(ModifyTableState *mtstate,
 
 			if (parentSlot)
 			{
-				slot = ExecProcNodeDMLInXC(estate, planSlot, parentSlot);
+				tmpSlot = ExecProcNodeDMLInXC(estate, planSlot, parentSlot);
 				ExecDropSingleTupleTableSlot(parentSlot);
 			}
 			else
-				slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
+				tmpSlot = ExecProcNodeDMLInXC(estate, planSlot, slot);
 
-			if (TupIsNull(slot))
-				slot = saveSlot;
+			if (TupIsNull(tmpSlot))
+				slot = ExecCopySlot(slot, saveSlot);
 			else
 			{
-				Form_pg_attribute  atts = slot->tts_tupleDescriptor->attrs;
+				Form_pg_attribute	atts = slot->tts_tupleDescriptor->attrs;
 				int					natts = slot->tts_tupleDescriptor->natts;
+				slot				= tmpSlot;
 
 				ItemPointerSetInvalid(&slot->tts_tid);
 				/* Make sure the tuple is fully deconstructed */
@@ -601,10 +603,9 @@ ExecInsert(ModifyTableState *mtstate,
 						break;
 					}
 				}
-
-				if (saveSlot)
-					ExecDropSingleTupleTableSlot(saveSlot);
 			}
+			if (saveSlot)
+				ExecDropSingleTupleTableSlot(saveSlot);
 		}
 		else
 		{
