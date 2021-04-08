@@ -1288,6 +1288,13 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				ReindexStmt *stmt = (ReindexStmt *) parsetree;
 #ifdef ADB
 				bool send_to_remote = true;
+				if (stmt->concurrent)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("AntDB does not support concurrent REINDEX yet"),
+							 errdetail("The feature is not currently supported")));
+				}
 #endif /* ADB */
 
 				if (stmt->concurrent)
