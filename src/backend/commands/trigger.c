@@ -2547,6 +2547,7 @@ ExecBRDeleteTriggers(EState *estate, EPQState *epqstate,
 
 		if (trigtuple == NULL)
 			return false;
+		ExecForceStoreHeapTuple(trigtuple, slot, false);
 	}
 	else
 	{
@@ -2869,6 +2870,7 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		if (!fdw_trigtuple)
 			return false;
 		trigtuple = pgxc_get_trigger_tuple(fdw_trigtuple->t_data);
+		ExecForceStoreHeapTuple(trigtuple, oldslot, false);
 	}
 	else
 	{
@@ -2914,13 +2916,6 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 		trigtuple = fdw_trigtuple;
 	}
 #ifdef ADB
-	}
-
-	if (TupIsNull(oldslot))
-	{
-		if (should_free_trig)
-			heap_freetuple(trigtuple);
-		return true;
 	}
 #endif
 
@@ -3039,6 +3034,8 @@ ExecARUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
 			/* No OLD tuple means triggers are to be run on datanode */
 			if (fdw_trigtuple == NULL)
 				return;
+			
+			ExecForceStoreHeapTuple(fdw_trigtuple, oldslot, false);
 		} else
 		{
 			/* Do the usual PG-way for datanode */
@@ -6137,18 +6134,6 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 			/* We never use ctid2 field */
 			ItemPointerSetInvalid(&(new_event.ate_ctid2));
 		}
-	
-	if (TupIsNull(oldslot))
-	{
-		if (fdw_tuplestore)
-		{
-			if (oldslot != NULL)
-				tuplestore_puttupleslot(fdw_tuplestore, oldslot);
-			if (newslot != NULL)
-				tuplestore_puttupleslot(fdw_tuplestore, newslot);
-		}
-		return;
-	}
 #endif
 
 	for (i = 0; i < trigdesc->numtriggers; i++)
