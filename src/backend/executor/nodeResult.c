@@ -132,19 +132,14 @@ ExecResult(PlanState *pstate)
 			node->rs_done = true;
 		}
 
-#ifdef ADB
-		if (node->ps.qual == NULL ||
-			ExecQual(node->ps.qual, econtext))
-		{
-			if(node->ps.ps_ProjInfo)
-			{
-#endif /* ADB */
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+		if (node->ps.qual &&
+			ExecQual(node->ps.qual, econtext) == false)
+			continue;
+#endif /* ADB || ADB_GRAM_ORA */
+
 		/* form the result tuple using ExecProject(), and return it */
 		return ExecProject(node->ps.ps_ProjInfo);
-#ifdef ADB
-			}	/* (if node->ps.ps_ProjInfo) */
-		} /* if(qual) */
-#endif /* ADB */
 	}
 
 	return NULL;
@@ -229,7 +224,11 @@ ExecInitResult(Result *node, EState *estate, int eflags)
 	 * Initialize result slot, type and projection.
 	 */
 	ExecInitResultTupleSlotTL(&resstate->ps, &TTSOpsVirtual);
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+	ExecAssignProjectionInfo(&resstate->ps, outerPlanState(resstate) ? ExecGetResultType(outerPlanState(resstate)) : NULL);
+#else
 	ExecAssignProjectionInfo(&resstate->ps, NULL);
+#endif
 
 	/*
 	 * initialize child expressions
