@@ -10568,7 +10568,11 @@ static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms)
 
 	int count;
 	foreach(lc, root->cte_plan_ids)
-		bms = bms_add_member(bms, lfirst_int(lc));
+	{
+		/* ignore dummy(inline CTE and not used select CTE) */
+		if (lfirst_int(lc) >= 0)
+			bms = bms_add_member(bms, lfirst_int(lc));
+	}
 
 	for(count=root->simple_rel_array_size;count>0;)
 	{
