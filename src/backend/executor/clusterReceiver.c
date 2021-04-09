@@ -460,11 +460,11 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	Oid oid;
 	bool isdropped;
 
-	if(len < (sizeof(bool) + sizeof(int)))
+	if(len < sizeof(int))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("invalid message length")));
+				 errmsg("invalid message length for TupleDesc")));
 	}
 
 	memcpy(&nattr, msg, sizeof(nattr));
