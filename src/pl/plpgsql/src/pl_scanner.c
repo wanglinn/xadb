@@ -150,7 +150,7 @@ static void location_lineno_init(void);
  * matches one of those.
  */
 static int
-plsql_yylex(const ScanKeywordList *unreserved_kws, const uint16 *unreserved_tokens)
+plsql_yylex(const ScanKeywordList *unreserved_kws, const uint16 *unreserved_tokens ADB_GRAM_ORA_COMMA_ARG(int extern_bracket))
 {
 	int			tok1;
 	TokenAuxData aux1;
@@ -268,7 +268,7 @@ plsql_yylex(const ScanKeywordList *unreserved_kws, const uint16 *unreserved_toke
 								   core_yy.scanbuf + aux1.lloc,
 								   (!AT_STMT_START(plpgsql_yytoken) ||
 									(tok2 == '=' || tok2 == COLON_EQUALS ||
-									 tok2 == '[')),
+									 tok2 == '[' ADB_GRAM_ORA_CODE(|| tok2 == extern_bracket))),
 								   &aux1.lval.wdatum,
 								   &aux1.lval.word))
 				tok1 = T_DATUM;
@@ -307,13 +307,13 @@ plsql_yylex(const ScanKeywordList *unreserved_kws, const uint16 *unreserved_toke
 int
 plpgsql_yylex(void)
 {
-	return plsql_yylex(&UnreservedPLKeywords, UnreservedPLKeywordTokens);
+	return plsql_yylex(&UnreservedPLKeywords, UnreservedPLKeywordTokens ADB_GRAM_ORA_COMMA_ARG('['));
 }
 
 #ifdef ADB_GRAM_ORA
 int	plorasql_yylex(void)
 {
-	int tok1 = plsql_yylex(&UnreservedPLORAKeywords, UnreservedPLORAKeywordTokens);
+	int tok1 = plsql_yylex(&UnreservedPLORAKeywords, UnreservedPLORAKeywordTokens, '(');
 
 	plorasql_yylval = plpgsql_yylval;
 	plorasql_yylloc = plpgsql_yylloc;
