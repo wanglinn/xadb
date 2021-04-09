@@ -320,7 +320,7 @@ GetNewGlobalTransactionId(int level)
 
 	full_gxid = FullTransactionIdFromEpochAndXid(EpochFromFullTransactionId(ShmemVariableCache->nextFullXid),
 												 gxid);
-	if (FullTransactionIdPrecedes(ShmemVariableCache->nextFullXid, full_gxid))
+	if (FullTransactionIdPrecedesOrEquals(ShmemVariableCache->nextFullXid, full_gxid))
 	{
 		/*
 		 * If we are allocating the first XID of a new page of the commit log,
