@@ -107,6 +107,7 @@ static void pgxc_add_returning_list(RemoteQuery *rq,
 									List *ret_list,
 									TupleDesc rel_desc,
 									int rel_index,
+									Oid reltype,
 									List *need_attno);
 static void pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 									Index resultRelationIndex,
@@ -836,6 +837,7 @@ make_remotequery(List *qptlist, List *qpqual, Index scanrelid)
  * ret_list       : The returning list
  * rel_desc       : relation desc
  * rel_index      : The index of the concerned relation in RTE list
+ * rel_type       : The relation type id
  * need_attno     : must include attrubute number
  */
 static void
@@ -843,6 +845,7 @@ pgxc_add_returning_list(RemoteQuery *rq,
 						List *ret_list,
 						TupleDesc rel_desc,
 						int rel_index,
+						Oid reltype,
 						List *need_attno)
 {
 	List	   *shipableReturningList = NIL;
@@ -863,22 +866,36 @@ pgxc_add_returning_list(RemoteQuery *rq,
 	while ((x = bms_first_member(varattnos)) >= 0)
 	{
 		int attno = x + FirstLowInvalidHeapAttributeNumber;
-		Assert(attno != InvalidAttrNumber);
+		const char *name = NULL;
 
-		if (attno < 0)
-			attr = SystemAttributeDefinition(attno);
-		else
-			attr = TupleDescAttr(rel_desc, attno-1);
-		
-		var = makeVar(rel_index,
-					  (AttrNumber)attno,
-					  attr->atttypid,
-					  attr->atttypmod,
-					  attr->attcollation,
-					  0);
+		if (attno == InvalidAttrNumber)
+		{
+			/* whole row */
+			var = makeVar(rel_index,
+						  InvalidAttrNumber,
+						  reltype,
+						  -1,
+						  InvalidOid,
+						  0);
+			name = "*";
+		}else
+		{
+			if (attno < 0)
+				attr = SystemAttributeDefinition(attno);
+			else
+				attr = TupleDescAttr(rel_desc, attno-1);
+
+			var = makeVar(rel_index,
+						  (AttrNumber)attno,
+						  attr->atttypid,
+						  attr->atttypmod,
+						  attr->attcollation,
+						  0);
+			name = NameStr(attr->attname);
+		}
 		tle = makeTargetEntry((Expr*)var,
 							  ++resno,
-							  pstrdup(NameStr(attr->attname)),
+							  pstrdup(name),
 							  false);
 		shipableReturningList = lappend(shipableReturningList, tle);
 	}
@@ -1488,6 +1505,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 									mt->returningLists ? list_nth(mt->returningLists, relcount) : NIL,
 									RelationGetDescr(res_rel),
 									resultRelationIndex,
+									RelationGetForm(res_rel)->reltype,
 									mt->resultAttnos ? list_nth(mt->resultAttnos, relcount) : NIL);
 
 		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
