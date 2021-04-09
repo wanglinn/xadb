@@ -770,11 +770,11 @@ proc_sect		:
 proc_stmt		: pl_block ';'
 						{ $$ = $1; }
 				| opt_block_label stmt_assign
-						{ $$ = $2; castStmt(assign, ASSIGN, $$)->label = $1; }
+						{ $$ = $2; castStmt(assign, ASSIGN, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_if
-						{ $$ = $2; castStmt(if, IF, $$)->label = $1; }
+						{ $$ = $2; castStmt(if, IF, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_exit
-						{ $$ = $2; castStmt(exit, EXIT, $$)->block_name = $1; }
+						{ $$ = $2; castStmt(exit, EXIT, $$)->block_name = $1; plpgsql_ns_pop(); }
 				| stmt_func
 						{ $$ = $1; }
 				| opt_block_label stmt_return
@@ -799,6 +799,7 @@ proc_stmt		: pl_block ';'
 											 errmsg("Unknown Pl/pgsql return type for stmt %d", $$->cmd_type)));
 								}
 							}
+							plpgsql_ns_pop();
 						}
 				| opt_block_label stmt_piperow
 						{
@@ -813,9 +814,10 @@ proc_stmt		: pl_block ';'
 										(errcode(ERRCODE_INTERNAL_ERROR),
 										 errmsg("Unknown Pl/pgsql return type for stmt %d", $$->cmd_type)));
 							}
+							plpgsql_ns_pop();
 						}
 				| opt_block_label stmt_raise
-						{ $$ = $2; castStmt(raise, RAISE, $$)->label = $1; }
+						{ $$ = $2; castStmt(raise, RAISE, $$)->label = $1; plpgsql_ns_pop(); }
 				| stmt_goto
 						{ $$ = $1; }
 				| stmt_loop
@@ -825,29 +827,31 @@ proc_stmt		: pl_block ';'
 				| stmt_for
 						{ $$ = $1; }
 				| opt_block_label stmt_case
-						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; }
+						{ $$ = $2; castStmt(case, CASE, $$)->label = $1; plpgsql_ns_pop(); }
 				| stmt_null
 						{ $$ = $1; }
 				| opt_block_label stmt_execsql
-						{ $$ = $2; castStmt(execsql, EXECSQL, $$)->label = $1; }
+						{ $$ = $2; castStmt(execsql, EXECSQL, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_open
-						{ $$ = $2; castStmt(open, OPEN, $$)->label = $1; }
+						{ $$ = $2; castStmt(open, OPEN, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_close
-						{ $$ = $2; castStmt(close, CLOSE, $$)->label = $1; }
+						{ $$ = $2; castStmt(close, CLOSE, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_fetch
-						{ $$ = $2; castStmt(fetch, FETCH, $$)->label = $1; }
+						{ $$ = $2; castStmt(fetch, FETCH, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_commit
 						{
 							$$ = $2;
 							castStmt(sub_commit, SUB_COMMIT, $$)->label = $1;
+							plpgsql_ns_pop();
 						}
 				| opt_block_label stmt_rollback
 						{
 							$$ = $2;
 							castStmt(sub_rollback, SUB_ROLLBACK, $$)->label = $1;
+							plpgsql_ns_pop();
 						}
 				| opt_block_label stmt_dynexecute
-						{ $$ = $2; castStmt(dynexecute, DYNEXECUTE, $$)->label = $1; }
+						{ $$ = $2; castStmt(dynexecute, DYNEXECUTE, $$)->label = $1; plpgsql_ns_pop(); }
 				;
 
 stmt_assign		: assign_var assign_operator expr_until_semi
@@ -930,12 +934,14 @@ stmt_func		: opt_block_label T_CWORD '('
 							func->label = $1;
 							$$ = (PLpgSQL_stmt *)func;
 						}
+						plpgsql_ns_pop();
 					}
 				| opt_block_label T_WORD '('
 					{
 						PLpgSQL_stmt_func *func = read_func_stmt(@2, @3);
 						func->label = $1;
 						$$ = (PLpgSQL_stmt *)func;
+						plpgsql_ns_pop();
 					}
 				;
 
@@ -1124,6 +1130,7 @@ stmt_goto		: opt_block_label POK_GOTO any_identifier ';'
 						new->label = $1;
 
 						$$ = (PLpgSQL_stmt *)new;
+						plpgsql_ns_pop();
 					}
 				;
 
