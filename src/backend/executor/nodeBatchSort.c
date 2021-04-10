@@ -3,6 +3,7 @@
 #include "common/hashfn.h"
 #include "executor/executor.h"
 #include "executor/nodeBatchSort.h"
+#include "catalog/pg_collation.h"
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -269,7 +270,7 @@ BatchSortState* ExecInitBatchSort(BatchSort *node, EState *estate, int eflags)
 		flinfo = palloc0(sizeof(*flinfo));
 		fcinfo = palloc0(SizeForFunctionCallInfo(1));
 		fmgr_info(typentry->hash_proc, flinfo);
-		InitFunctionCallInfoData(*fcinfo, flinfo, 1, InvalidOid, NULL, NULL);
+		InitFunctionCallInfoData(*fcinfo, flinfo, 1, DEFAULT_COLLATION_OID, NULL, NULL);
 		fcinfo->args[0].isnull = false;
 		state->groupFuns = lappend(state->groupFuns, fcinfo);
 	}
