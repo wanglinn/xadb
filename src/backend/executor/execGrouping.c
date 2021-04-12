@@ -20,6 +20,9 @@
 #include "miscadmin.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#ifdef ADB_EXT
+#include "catalog/pg_collation.h"
+#endif
 
 static int	TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2);
 static uint32 TupleHashTableHash_internal(struct tuplehash_hash *tb,
@@ -482,6 +485,7 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 uint32 TupleHashGetHashValue(TupleHashTable hashtable, TupleTableSlot *slot)
 {
 	FmgrInfo   *hashfunctions = hashtable->tab_hash_funcs;
+	Oid			*hash_cols = hashtable->tab_collations;
 	AttrNumber *keyColIdx = hashtable->keyColIdx;
 	uint32		hashkey = hashtable->hash_iv;
 	int			numCols = hashtable->numCols;
@@ -503,8 +507,9 @@ uint32 TupleHashGetHashValue(TupleHashTable hashtable, TupleTableSlot *slot)
 		{
 			uint32		hkey;
 
-			hkey = DatumGetUInt32(FunctionCall1(&hashfunctions[i],
-												attr));
+			hkey = DatumGetUInt32(FunctionCall1Coll(&hashfunctions[i],
+													hash_cols[i],
+													attr));
 			hashkey ^= hkey;
 		}
 	}
