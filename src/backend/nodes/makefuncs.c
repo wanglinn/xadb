@@ -29,6 +29,7 @@
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/typcache.h"
+#include "catalog/pg_collation.h"
 #endif /* ADB */
 #ifdef USE_SEQ_ROWID
 #include "parser/parser.h"
@@ -940,11 +941,14 @@ Expr *makeHashExprFamily(Expr *expr, Oid opfamily, Oid inputtype)
 											COERCE_IMPLICIT_CAST,
 											-1);
 		typoid = NAMEOID;
-		collid = InvalidOid;
+		collid = DEFAULT_COLLATION_OID;
 		funcid = F_HASHNAME;
 	}else
 	{
 		collid = exprCollation((Node*)expr);
+		if (collid == InvalidOid)
+			collid = DEFAULT_COLLATION_OID;
+
 		funcid = get_opfamily_proc(opfamily, inputtype, inputtype, 1);
 		if (!OidIsValid(funcid))
 		{
