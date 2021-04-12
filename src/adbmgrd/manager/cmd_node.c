@@ -9576,6 +9576,7 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node, HeapTuple nodetupl
 							,"port"
 							,newport);
 		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, nodename, newport);
+		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg, NULL, 0);
 		MgrFree(infosendmsg.data);
 	}PG_CATCH();
 	{   
