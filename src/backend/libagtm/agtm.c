@@ -285,7 +285,7 @@ get_seqnextval_from_gtmcorrd(const char *seqname, const char * database,	const c
 	databaseSize = strlen(database);
 	schemaSize = strlen(schema);
 	agtmcoord_send_message(AGTM_MSG_SEQUENCE_GET_NEXT, database, 
-					  "%d%d %p%d %d%d %p%d %d%d %p%d" "%p%d %p%d %p%d %p%d %d",
+					  "%d%d %p%d %d%d %p%d %d%d %p%d" "%p%d %p%d %p%d %p%d %c",
 					  seqNameSize, 4,
 					  seqname, seqNameSize,
 					  databaseSize, 4,
@@ -338,7 +338,7 @@ set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
 	schemaSize = strlen(schema);
 
 	agtmcoord_send_message(AGTM_MSG_SEQUENCE_SET_VAL, database, 
-					"%d%d %p%d %d%d %p%d %d%d %p%d" INT64_FORMAT "%d",
+					"%d%d %p%d %d%d %p%d %d%d %p%d" INT64_FORMAT "%c",
 					seqNameSize, 4,
 					seqname, seqNameSize,
 					databaseSize, 4,
