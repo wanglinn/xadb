@@ -5017,6 +5017,9 @@ dequote_file_name(char *fname, int quote_char)
 	 * or strtokx will not interpret the string correctly (notably, it won't
 	 * recognize escapes).
 	 */
+	if ((pset.is_manage) && (completion_charp == NULL))
+		return pg_strdup("");
+
 	if (quote_char == '\'')
 	{
 		char	   *workspace = (char *) pg_malloc(strlen(fname) + 2);
