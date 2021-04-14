@@ -666,6 +666,12 @@ NODE_SPECIAL_MEB(ReduceInfo)
 	keys NODE_STRUCT_ARRAY(ReduceKeyInfo, keys, NODE_ARG_->nkey)
 END_SPECIAL_MEB(ReduceInfo)
 
+NODE_SPECIAL_MEB(SubscriptingRef)
+	refcontainertype NODE_OID(type,refcontainertype)
+	refelemtype NODE_OID(type,refelemtype)
+	refcollid NODE_OID(collation,refcollid)
+END_SPECIAL_MEB(SubscriptingRef)
+
 /* ADB_GRAM_ORA */
 NODE_SPECIAL_MEB(ConnectByPlan)
 	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
