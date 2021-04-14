@@ -1006,8 +1006,6 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 
 				/* load reation Oid */
 				rte->relid = RestoreRelationOid(buf, missok);
-				if (missok)
-					rte->relid = InvalidOid;
 
 				/* we must lock relation now */
 				pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
