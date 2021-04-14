@@ -958,7 +958,7 @@ static void ExpansionHashModuloMakeClean(Form_pgxc_class new_class, List *new_va
 	Oid				oid;
 	bool			null_res;
 
-	rel = relation_open(new_class->pcrelid, NoLock);
+	rel = relation_open(new_class->pcrelid, RowExclusiveLock);
 	initStringInfo(&msg);
 
 	if (new_values == NIL)
@@ -1003,7 +1003,7 @@ static void ExpansionHashModuloMakeClean(Form_pgxc_class new_class, List *new_va
 		}
 	}
 
-	relation_close(rel, NoLock);
+	relation_close(rel, RowExclusiveLock);
 }
 
 static void ExpansionHashModulo(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
@@ -1197,7 +1197,7 @@ loop_:
 	msgtype = pq_getmsgbyte(&msg);
 	if (msgtype == EW_KEY_CLASS_RELATION)
 	{
-		rel = table_open(load_oid_class(&msg), NoLock);
+		rel = table_open(load_oid_class(&msg), AccessShareLock);
 		if (rel->rd_rel->relkind == RELKIND_RELATION ||
 			rel->rd_rel->relkind == RELPERSISTENCE_UNLOGGED)
 			num_blocks = RelationGetNumberOfBlocks(rel);
@@ -1209,7 +1209,7 @@ loop_:
 						   (Expr*)loadNode(&msg),
 						   rel_clean,
 						   clean_index_state);
-		table_close(rel, NoLock);
+		table_close(rel, AccessShareLock);
 		goto loop_;
 	}else if (msgtype != EW_KEY_END_DATABASE)
 	{

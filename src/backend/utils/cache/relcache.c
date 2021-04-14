@@ -1179,19 +1179,6 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 	else
 		relation->rd_rsdesc = NULL;
 
-#ifdef ADB
-	if (!singleuser)
-	{
-		if ((IsCnNode()||IsDnNode()) &&
-			relation->rd_id >= FirstNormalObjectId)
-			RelationBuildLocator(relation);
-
-		RelationBuildAuxiliary(relation);
-
-		RelationBuildExpansionClean(relation);
-	}
-#endif
-
 	/* foreign key data is not loaded till asked for */
 	relation->rd_fkeylist = NIL;
 	relation->rd_fkeyvalid = false;
@@ -1232,6 +1219,19 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 			Assert(relation->rd_rel->relam == InvalidOid);
 			break;
 	}
+
+#ifdef ADB
+	if (!singleuser)
+	{
+		if ((IsCnNode()||IsDnNode()) &&
+			relation->rd_id >= FirstNormalObjectId)
+			RelationBuildLocator(relation);
+
+		RelationBuildAuxiliary(relation);
+
+		RelationBuildExpansionClean(relation);
+	}
+#endif
 
 	/* extract reloptions if any */
 	RelationParseRelOptions(relation, pg_class_tuple);
