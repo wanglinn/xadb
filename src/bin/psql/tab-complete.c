@@ -5017,8 +5017,10 @@ dequote_file_name(char *fname, int quote_char)
 	 * or strtokx will not interpret the string correctly (notably, it won't
 	 * recognize escapes).
 	 */
+#ifdef ADB
 	if ((pset.is_manage) && (completion_charp == NULL))
 		return pg_strdup("");
+#endif
 
 	if (quote_char == '\'')
 	{
