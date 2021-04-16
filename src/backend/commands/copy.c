@@ -6030,6 +6030,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		MemoryContextReset(tup_context);
 		MemoryContextSwitchTo(tup_context);
 
+		ExecClearTuple(relslot);
 		if (!NextCopyFrom(cstate, econtext, relslot->tts_values, relslot->tts_isnull))
 			break;
 
@@ -6038,13 +6039,14 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		 * so (re-)initialize tts_tableOid before evaluating them.
 		 */
 		relslot->tts_tableOid = RelationGetRelid(target_resultRelInfo->ri_RelationDesc);
+		ExecStoreVirtualTuple(relslot);
 
 		/* Triggers and stuff need to be invoked in query context. */
 		MemoryContextSwitchTo(query_context);
 
 		if (cstate->whereClause)
 		{
-			econtext->ecxt_scantuple = myslot;
+			econtext->ecxt_scantuple = relslot;
 			/* Skip items that don't match COPY's WHERE clause */
 			if (!ExecQual(cstate->qualexpr, econtext))
 				continue;
