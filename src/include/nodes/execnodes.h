@@ -2607,8 +2607,8 @@ typedef struct ReduceScanState
 	PlanState			ps;
 	List			   *param_hash_exprs;
 	List			   *scan_hash_exprs;
-	FmgrInfo		   *param_hash_funs;
-	FmgrInfo		   *scan_hash_funs;
+	List			   *param_hash_funs;
+	List			   *scan_hash_funs;
 	struct dsm_segment *dsm_seg;
 	struct SharedTuplestoreAccessor
 					  **batchs,

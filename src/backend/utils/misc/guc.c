@@ -4197,7 +4197,7 @@ static struct config_int ConfigureNamesInt[] =
 			0
 		},
 		&reduce_scan_max_buckets,
-		2048, 2, 16384,
+		512, 2, 16384,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

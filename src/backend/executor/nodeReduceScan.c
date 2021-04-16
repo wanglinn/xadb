@@ -1,6 +1,7 @@
 
 #include "postgres.h"
 
+#include "catalog/pg_collation_d.h"
 #include "commands/tablespace.h"
 #include "common/hashfn.h"
 #include "executor/executor.h"
@@ -30,7 +31,8 @@ typedef struct RedcueScanSharedMemory
 int reduce_scan_bucket_size = 1024*1024;	/* 1MB */
 int reduce_scan_max_buckets = 1024;
 
-static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, FmgrInfo *fmgr, bool *isnull);
+static List* InitHashFuncList(List *list);
+static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, List *fcinfos, bool *isnull);
 static inline SharedTuplestoreAccessor* ExecGetReduceScanBatch(ReduceScanState *node, uint32 hashval)
 {
 	return node->batchs[hashval%node->nbatchs];
@@ -113,9 +115,7 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 
 	if(node->param_hash_keys != NIL)
 	{
-		ListCell *lc;
 		size_t space_allowed;
-		int i;
 		int nbuckets;
 		int nskew_mcvs;
 		int saved_work_mem = work_mem;
@@ -133,30 +133,15 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 								&rcs->nbatchs,
 								&nskew_mcvs);
 		work_mem = saved_work_mem;
+		if (nbuckets > 0 &&
+			nbuckets * rcs->nbatchs > rcs->nbatchs)
+			rcs->nbatchs *= nbuckets;
 		if (rcs->nbatchs > reduce_scan_max_buckets)
 			rcs->nbatchs = reduce_scan_max_buckets;
 		rcs->param_hash_exprs = ExecInitExprList(node->param_hash_keys, (PlanState*)rcs);
 		rcs->scan_hash_exprs = ExecInitExprList(node->scan_hash_keys, (PlanState*)rcs);
-		rcs->param_hash_funs = palloc(sizeof(rcs->param_hash_funs[0]) * rcs->ncols_hash);
-		rcs->scan_hash_funs = palloc(sizeof(rcs->scan_hash_funs[0]) * rcs->ncols_hash);
-
-		i=0;
-		foreach(lc, node->param_hash_keys)
-		{
-			TypeCacheEntry *typeCache = lookup_type_cache(exprType(lfirst(lc)), TYPECACHE_HASH_PROC);
-			Assert(OidIsValid(typeCache->hash_proc));
-			fmgr_info(typeCache->hash_proc, &rcs->param_hash_funs[i]);
-			++i;
-		}
-
-		i=0;
-		foreach(lc, node->scan_hash_keys)
-		{
-			TypeCacheEntry *typeCache = lookup_type_cache(exprType(lfirst(lc)), TYPECACHE_HASH_PROC);
-			Assert(OidIsValid(typeCache->hash_proc));
-			fmgr_info(typeCache->hash_proc, &rcs->scan_hash_funs[i]);
-			++i;
-		}
+		rcs->param_hash_funs = InitHashFuncList(node->param_hash_keys);
+		rcs->scan_hash_funs = InitHashFuncList(node->scan_hash_keys);
 	}else
 	{
 		rcs->nbatchs = 1;
@@ -353,26 +338,31 @@ void ExecReScanReduceScan(ReduceScanState *node)
 	}
 }
 
-static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, FmgrInfo *fmgr, bool *isnull)
+static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, List *fcinfos, bool *isnull)
 {
-	ListCell *lc;
-	ExprState *expr_state;
-	Datum key_value;
-	uint32 hash_value = 0;
-	int i;
+	ListCell		   *lc,*lc2;
+	FunctionCallInfo	fcinfo;
+	ExprState		   *expr_state;
+	Datum				key_value;
+	uint32				hash_value = 0;
+	Assert(list_length(exprs) == list_length(fcinfos));
 
-	i = 0;
-	foreach(lc, exprs)
+	forboth(lc, exprs, lc2, fcinfos)
 	{
 		expr_state = lfirst(lc);
+		fcinfo = lfirst(lc2);
 
-		key_value = ExecEvalExpr(expr_state, econtext, isnull);
+		fcinfo->args[0].value = ExecEvalExpr(expr_state, econtext, isnull);
 		if (*isnull)
 			return 0;
 
-		key_value = FunctionCall1(&fmgr[i], key_value);
+		key_value = FunctionCallInvoke(fcinfo);
+		if (unlikely(fcinfo->isnull))
+		{
+			ereport(ERROR,
+					errmsg("hash function %u returned NULL", fcinfo->flinfo->fn_oid));
+		}
 		hash_value = hash_combine(hash_value, DatumGetUInt32(key_value));
-		++i;
 	}
 
 	return hash_value;
@@ -411,4 +401,36 @@ void ExecSetReduceScanEPQOrigin(ReduceScanState *node, ReduceScanState *origin)
 		node->origin_state = origin->origin_state;
 	else
 		node->origin_state = origin;
+}
+
+static List*
+InitHashFuncList(List *list)
+{
+	Oid					collid;
+	TypeCacheEntry	   *typeCache;
+	FunctionCallInfo    fcinfo;
+	FmgrInfo		   *flinfo;
+	Node			   *expr;
+	ListCell		   *lc;
+	List			   *result = NIL;
+
+	foreach (lc, list)
+	{
+		expr = lfirst(lc);
+
+		typeCache = lookup_type_cache(exprType(expr), TYPECACHE_HASH_PROC);
+		Assert(OidIsValid(typeCache->hash_proc));
+
+		flinfo = palloc(MAXALIGN(sizeof(FmgrInfo)) + SizeForFunctionCallInfo(1));
+		fcinfo = (FunctionCallInfo)(((char*)flinfo) + MAXALIGN(sizeof(FmgrInfo)));
+		fmgr_info(typeCache->hash_proc, flinfo);
+		fmgr_info_set_expr(expr, flinfo);
+		collid = exprCollation(expr);
+		InitFunctionCallInfoData(*fcinfo, flinfo, 1, collid, NULL, NULL);
+		fcinfo->args[0].isnull = false;
+
+		result = lappend(result, fcinfo);
+	}
+
+	return result;
 }
