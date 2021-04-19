@@ -11768,9 +11768,11 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
 #ifdef ADB
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("CREATE TABLE AS EXECUTE not yet supported")));
+					if ($4->rel->relpersistence != RELPERSISTENCE_TEMP)
+						ereport(ERROR,
+								errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("CREATE TABLE AS EXECUTE only support temporary yet"),
+								parser_errposition(@2 >= 0 ? @2 : @3));
 #endif
 					$4->skipData = !($9);
 					$$ = (Node *) ctas;
@@ -11791,6 +11793,13 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					/* cram additional flags into the IntoClause */
 					$7->rel->relpersistence = $2;
 					$7->skipData = !($12);
+#ifdef ADB
+					if ($7->rel->relpersistence != RELPERSISTENCE_TEMP)
+						ereport(ERROR,
+								errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("CREATE TABLE AS EXECUTE only support temporary yet"),
+								parser_errposition(@2 >= 0 ? @2 : @3));
+#endif
 					$$ = (Node *) ctas;
 				}
 		;
