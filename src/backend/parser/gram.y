@@ -4500,6 +4500,7 @@ CreateAsStmt:
 		| CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					MULTI_GRAM_CODE(ctas->grammar = PARSE_GRAM_POSTGRES);
 					ctas->query = $9;
 					ctas->into = $7;
 					ctas->relkind = OBJECT_TABLE;
@@ -4553,6 +4554,7 @@ CreateMatViewStmt:
 		CREATE OptNoLog MATERIALIZED VIEW create_mv_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					MULTI_GRAM_CODE(ctas->grammar = PARSE_GRAM_POSTGRES);
 					ctas->query = $7;
 					ctas->into = $5;
 					ctas->relkind = OBJECT_MATVIEW;
@@ -4566,6 +4568,7 @@ CreateMatViewStmt:
 		| CREATE OptNoLog MATERIALIZED VIEW IF_P NOT EXISTS create_mv_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					MULTI_GRAM_CODE(ctas->grammar = PARSE_GRAM_POSTGRES);
 					ctas->query = $10;
 					ctas->into = $8;
 					ctas->relkind = OBJECT_MATVIEW;
@@ -11754,6 +11757,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
 					ExecuteStmt *n = makeNode(ExecuteStmt);
+					MULTI_GRAM_CODE(ctas->grammar = PARSE_GRAM_POSTGRES);
 					n->name = $7;
 					n->params = $8;
 					ctas->query = (Node *) n;
@@ -11776,6 +11780,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
 					ExecuteStmt *n = makeNode(ExecuteStmt);
+					MULTI_GRAM_CODE(ctas->grammar = PARSE_GRAM_POSTGRES);
 					n->name = $10;
 					n->params = $11;
 					ctas->query = (Node *) n;
