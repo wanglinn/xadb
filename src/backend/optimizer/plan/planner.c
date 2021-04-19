@@ -385,15 +385,6 @@ planner(Query *parse, const char *query_string, int cursorOptions,
 	if (planner_hook)
 		result = (*planner_hook) (parse, query_string, cursorOptions, boundParams);
 	else
-#ifdef ADB
-		/*
-		 * A Coordinator receiving a query from another Coordinator
-		 * is not allowed to go into PGXC planner.
-		 */
-		if (IsCnMaster())
-			result = pgxc_planner(parse, query_string, cursorOptions, boundParams);
-		else
-#endif
 		result = standard_planner(parse, query_string, cursorOptions, boundParams);
 	return result;
 }
@@ -411,6 +402,16 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	Plan	   *top_plan;
 	ListCell   *lp,
 			   *lr;
+
+#ifdef ADB
+	/*
+	 * first try PGXC planner if coordinator
+	 * receiving a query not from another coordinator
+	 */
+	if (IsCnMaster() &&
+		(result = pgxc_try_planner(parse, query_string, cursorOptions, boundParams)) != NULL)
+		return result;
+#endif /* ADB */
 
 	/*
 	 * Set up global state for this planner invocation.  This data is needed

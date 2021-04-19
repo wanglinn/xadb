@@ -34,7 +34,6 @@
 #include "optimizer/pgxcplan.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/planmain.h"
-#include "optimizer/planner.h"
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
@@ -2484,7 +2483,7 @@ fetch_ctid_of(Plan *subtree, Query *query)
  * The plan generated in either of the above cases is returned.
  */
 PlannedStmt *
-pgxc_planner(Query *query, const char *query_string, int cursorOptions, ParamListInfo boundParams)
+pgxc_try_planner(Query *query, const char *query_string, int cursorOptions, ParamListInfo boundParams)
 {
 	PlannedStmt *result;
 
@@ -2492,16 +2491,14 @@ pgxc_planner(Query *query, const char *query_string, int cursorOptions, ParamLis
 	pgxc_handle_unsupported_stmts(query);
 
 	result = pgxc_handle_exec_direct(query, cursorOptions, boundParams);
-	if (result)
-		return result;
 
 	/* see if can ship the query completely */
-	result = pgxc_FQS_planner(query, cursorOptions, boundParams);
-	if (result)
-		return result;
+	if (result == NULL)
+		result = pgxc_FQS_planner(query, cursorOptions, boundParams);
 
-	/* we need Coordinator for evaluation, invoke standard planner */
-	result = standard_planner(query, query_string, cursorOptions, boundParams);
+	if (result)
+		result->queryId = query->queryId;
+
 	return result;
 }
 

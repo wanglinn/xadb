@@ -566,27 +566,8 @@ static PlannedStmt *adbss_planner_hook(Query *parse,
 	if (prev_planner_hook)
 		result = prev_planner_hook(parse, query_string, cursorOptions, boundParams);
 	else
-	{
-#ifdef ADB
-		/*
-		 * A Coordinator receiving a query from another Coordinator
-		 * is not allowed to go into PGXC planner.
-		 */
-		if (IsCnMaster())
-			result = pgxc_planner(parse, query_string, cursorOptions, boundParams);
-		else
-#endif
-			result = standard_planner(parse, query_string, cursorOptions, boundParams);
-	}
-	/* 
-	 * As far as I know, pgxc_planner does not save the queryId to PlannedStmt.
-	 * If the value of a SQL's PlannedStmt->queryId not been assigned, 
-	 * The Instrumentation data will be ignored by pg_stat_statements.
-	 * And for the reason of integration with pg_stat_statements,
-	 * this plugin (adb_stat_statments) uses the same queryId generate by
-	 * pg_stat_statements(see pgss_post_parse_analyze). 
-	 */
-	result->queryId = parse->queryId;
+		result = standard_planner(parse, query_string, cursorOptions, boundParams);
+
 	return result;
 }
 

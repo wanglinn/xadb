@@ -144,8 +144,8 @@ typedef struct RemoteQuery
 										 */
 } RemoteQuery;
 
-extern PlannedStmt *pgxc_planner(Query *query, const char *query_string,
-								 int cursorOptions, ParamListInfo boundParams);
+extern PlannedStmt *pgxc_try_planner(Query *query, const char *query_string,
+									 int cursorOptions, ParamListInfo boundParams);
 extern List *AddRemoteQueryNode(List *stmts, const char *queryString,
 								RemoteQueryExecType remoteExecType, bool is_temp);
 #ifdef ADB
