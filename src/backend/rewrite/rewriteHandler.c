@@ -4428,12 +4428,13 @@ QueryRewriteCTAS(Query *parsetree)
 	 * NULL for SELECT INTO and the default mechanism will be picked)
 	 */
 	create_stmt->tableElts = tableElts;
-	create_stmt->distributeby = stmt->into->distributeby;
-	create_stmt->subcluster = stmt->into->subcluster;
+	create_stmt->distributeby = into->distributeby;
+	create_stmt->subcluster = into->subcluster;
 
-	create_stmt->tablespacename = stmt->into->tableSpaceName;
-	create_stmt->oncommit = stmt->into->onCommit;
-	create_stmt->options = stmt->into->options;
+	create_stmt->tablespacename = into->tableSpaceName;
+	create_stmt->oncommit = into->onCommit;
+	create_stmt->options = into->options;
+	create_stmt->accessMethod = into->accessMethod;
 
 	/*
 	 * Check consistency of arguments
