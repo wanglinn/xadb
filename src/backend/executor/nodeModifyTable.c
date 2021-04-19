@@ -295,6 +295,9 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot, CmdType cmdtype
 			if (TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED)
 			{
 				Expr	   *expr;
+				RangeTblEntry
+						   *rte = exec_rt_fetch(resultRelInfo->ri_RangeTableIndex, estate);
+				int			attno = i + 1 - FirstLowInvalidHeapAttributeNumber;
 
 				/*
 				 * If it's an update and the current column was not marked as
@@ -304,12 +307,33 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot, CmdType cmdtype
 				 */
 				if (cmdtype == CMD_UPDATE &&
 					!(rel->trigdesc && rel->trigdesc->trig_update_before_row) &&
-					!bms_is_member(i + 1 - FirstLowInvalidHeapAttributeNumber,
-								   exec_rt_fetch(resultRelInfo->ri_RangeTableIndex, estate)->extraUpdatedCols))
+					!bms_is_member(attno, rte->extraUpdatedCols))
 				{
 					resultRelInfo->ri_GeneratedExprs[i] = NULL;
 					continue;
 				}
+
+#ifdef ADB
+				/*
+				 * If it's an insert and current column was not marked as being
+				 * default(force insert from coord), we can skip the computation.
+				 */
+				if (cmdtype == CMD_INSERT &&
+					bms_is_member(attno, rte->insertedCols) &&
+					bms_is_member(attno, rte->defaultCols) == false)
+				{
+					resultRelInfo->ri_GeneratedExprs[i] = NULL;
+					continue;
+				}
+
+				if (cmdtype == CMD_UPDATE &&
+					bms_is_member(attno, rte->updatedCols) &&
+					bms_is_member(attno, rte->defaultCols) == false)
+				{
+					resultRelInfo->ri_GeneratedExprs[i] = NULL;
+					continue;
+				}
+#endif /* ADB */
 
 #ifdef USE_SEQ_ROWID
 				if (cmdtype != CMD_INSERT &&

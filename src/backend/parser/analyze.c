@@ -1087,6 +1087,11 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 		rte->insertedCols = bms_add_member(rte->insertedCols,
 										   attr_num - FirstLowInvalidHeapAttributeNumber);
+#ifdef ADB
+		if (IsA(expr, SetToDefault))
+			rte->defaultCols = bms_add_member(rte->defaultCols,
+											  attr_num - FirstLowInvalidHeapAttributeNumber);
+#endif /* ADB */
 	}
 
 	/* Process ON CONFLICT, if any. */
@@ -2718,6 +2723,12 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 		/* Mark the target column as requiring update permissions */
 		target_rte->updatedCols = bms_add_member(target_rte->updatedCols,
 												 attrno - FirstLowInvalidHeapAttributeNumber);
+
+#ifdef ADB
+		if (IsA(tle->expr, SetToDefault))
+			target_rte->defaultCols = bms_add_member(target_rte->defaultCols,
+													 attrno - FirstLowInvalidHeapAttributeNumber);
+#endif /* ADB */
 
 		orig_tl = lnext(origTlist, orig_tl);
 	}

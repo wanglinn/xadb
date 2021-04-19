@@ -1211,6 +1211,7 @@ typedef struct RangeTblEntry
 	int			param_new;		/* PARAMTS scan param id and ModifyTable new tuple store */
 	int			param_old;		/* ModifyTable old tuple store */
 	Bitmapset  *mt_result;		/* ModifyTable result column(s), attno - FirstLowInvalidHeapAttributeNumber */
+	Bitmapset  *defaultCols;	/* insert and update as default columns */
 	List	   *execNodes;		/* nodes OID execute on */
 	double		rows;
 #endif /* ADB */

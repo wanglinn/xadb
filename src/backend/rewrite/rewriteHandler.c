@@ -847,7 +847,7 @@ rewriteTargetListIU(List *targetList,
 			if (att_tup->attidentity == ATTRIBUTE_IDENTITY_BY_DEFAULT && override == OVERRIDING_USER_VALUE)
 				apply_default = true;
 
-			if (att_tup->attgenerated && !apply_default)
+			if (att_tup->attgenerated && !apply_default ADB_ONLY_CODE(&& !IsConnFromCoord()))
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("cannot insert into column \"%s\"", NameStr(att_tup->attname)),
@@ -872,7 +872,7 @@ rewriteTargetListIU(List *targetList,
 						 errdetail("Column \"%s\" is an identity column defined as GENERATED ALWAYS.",
 								   NameStr(att_tup->attname))));
 
-			if (att_tup->attgenerated && new_tle && !apply_default)
+			if (att_tup->attgenerated && new_tle && !apply_default ADB_ONLY_CODE(&& !IsConnFromCoord()))
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("column \"%s\" can only be updated to DEFAULT", NameStr(att_tup->attname)),
@@ -885,6 +885,7 @@ rewriteTargetListIU(List *targetList,
 			/*
 			 * stored generated column will be fixed in executor
 			 */
+			ADB_ONLY_CODE(if (!(IsConnFromCoord() && !apply_default)))
 			new_tle = NULL;
 		}
 		else if (apply_default)
