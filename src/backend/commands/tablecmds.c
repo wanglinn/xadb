@@ -5889,7 +5889,7 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 	 * PGXCTODO - issue for pg_catalog or any other cases?
 	 */
 	if (IS_PGXC_COORDINATOR)
-		return;
+		goto after_check_fk_;
 #endif
 
 	/*
@@ -5942,6 +5942,9 @@ ATRewriteTables(AlterTableStmt *parsetree, List **wqueue, LOCKMODE lockmode,
 		if (rel)
 			table_close(rel, NoLock);
 	}
+#ifdef ADB
+after_check_fk_:
+#endif /* ADB */
 
 	/* Finally, run any afterStmts that were queued up */
 	foreach(ltab, *wqueue)
