@@ -10406,13 +10406,16 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 	ReduceInfo		   *rep_rinfo = NULL;
 	List			   *result_distribute_cols = NIL;
 	List			   *storage = NIL;
-	ListCell		   *lc;
+	List			   *exclude_subs = NIL;
+	List			   *exclude_item;
+	List			   *sub_rlist;
+	ListCell		   *lc,*lc2;
 	Index				relid;
 	int					nth = 0;
 	bool				have_replicate = false;
 	bool				have_no_rep = false;
 
-	foreach(lc, modify->resultRelations)
+	forboth(lc, modify->resultRelations, lc2, modify->subpaths)
 	{
 		Relation rel = NULL;
 		relid = lfirst_int(lc);
@@ -10503,6 +10506,17 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 			}
 		}
 
+		/* get subpath exclude nodes */
+		exclude_item = NIL;
+		sub_rlist = get_reduce_info_list(lfirst(lc2));
+		if (sub_rlist != NIL)
+		{
+			ReduceInfoListGetStorageAndExcludeOidList(sub_rlist,
+													  NULL,
+													  &exclude_item);
+		}
+		exclude_subs = lappend(exclude_subs, exclude_item);
+
 		if (rinfo != result_rinfo &&
 			rinfo != rep_rinfo)
 			FreeReduceInfo(rinfo);
@@ -10524,6 +10538,26 @@ static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *
 		else
 			result_rinfo = MakeRandomReduceInfo(storage);
 	}
+
+	/* get exclude nodes */
+	foreach (lc, result_rinfo->storage_nodes)
+	{
+		Assert(list_member_oid(result_rinfo->exclude_exec, lfirst_oid(lc)) == false);
+		foreach (lc2, exclude_subs)
+		{
+			if (list_member_oid(lfirst(lc2), lfirst_oid(lc)) == false)
+				break;
+		}
+
+		/* in all exclude */
+		if (lc2 == NULL)
+			result_rinfo->exclude_exec = lappend_oid(result_rinfo->exclude_exec, lfirst_oid(lc));
+	}
+
+	/* free resource */
+	foreach(lc, exclude_subs)
+		list_free(lfirst(lc));
+	list_free(exclude_subs);
 	list_free(storage);
 	list_free(result_distribute_cols);
 

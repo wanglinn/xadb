@@ -5219,7 +5219,7 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 				++(exec_info->part_count);
 			}else
 			{
-				List *exec_list = ReduceInfoListGetExecuteOidList(get_reduce_info_list(path));
+				List *exec_list = ReduceInfoListGetExecuteOidList(reduce_list);
 				foreach(lc, exec_list)
 				{
 					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
