@@ -459,7 +459,6 @@ static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econ
 static TupleTableSlot* NextRowFromCoordinator(CopyState cstate, ExprContext *econtext, void *data);
 static TupleTableSlot* makeClusterCopySlot(Relation rel);
 static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze);
-static bool CopyHasOidsOptions(List *list);
 
 static List* LoadAuxRelCopyInfo(StringInfo mem_toc);
 
@@ -1255,20 +1254,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 #ifdef ADB
 			if (is_from == false && RelationGetLocInfoForRemote(rel))
 			{
-				if (CopyHasOidsOptions(stmt->options))
-				{
-					/* we must add "oid" */
-					cr = makeNode(ColumnRef);
-					cr->fields = list_make1(makeString("oid"));
-					cr->location = -1;
-
-					target = makeNode(ResTarget);
-					target->name = NULL;
-					target->indirection = NIL;
-					target->val = (Node*)cr;
-					target->location = -1;
-					select->targetList = lcons(target, select->targetList);
-				}
 				query->stmt = (Node*)parse_analyze(query, pstate->p_sourcetext, NULL, 0, NULL);
 			}else
 			{
@@ -6285,20 +6270,6 @@ static CopyStmt* makeClusterCopyFromStmt(Relation rel, bool freeze)
 	stmt->options = options;
 
 	return stmt;
-}
-
-static bool CopyHasOidsOptions(List *list)
-{
-	ListCell *lc;
-	DefElem *defel;
-	foreach(lc, list)
-	{
-		defel = lfirst(lc);
-		if (strcmp(defel->defname, "oids") == 0)
-			return defGetBoolean(defel);
-	}
-
-	return false;
 }
 
 void SerializeAuxRelCopyInfo(StringInfo buf, List *list)
