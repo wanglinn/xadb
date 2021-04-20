@@ -2136,7 +2136,7 @@ inheritance_planner(PlannerInfo *root)
 									 assign_special_exec_param(root)));
 #ifdef ADB
 	if (cluster_valid &&
-		has_any_triggers_subclass(root, parse->resultRelation, parse->commandType) == false)
+		rte_has_any_cluster_unsafe_subclass(planner_rt_fetch(parse->resultRelation, root), parse->commandType) == false)
 	{
 		ModifyTablePath *modify = create_modifytable_path(root,
 														  final_rel,
@@ -2881,7 +2881,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 				/* need this? safety add it */
 				root->parent_root == NULL &&
 				rti_is_base_rel(root, parse->resultRelation) &&
-				!has_any_triggers_subclass(root, parse->resultRelation, CMD_INSERT) &&
+				!rte_has_any_cluster_unsafe_subclass(planner_rt_fetch(parse->resultRelation, root), CMD_INSERT) &&
 				!have_remote_query_path(path) &&
 				is_remote_relation(root, parse->resultRelation))
 			{
@@ -3037,7 +3037,7 @@ not_cluster_insert_path_:
 			ModifyTablePath *modify;
 			if (parse->withCheckOptions ||
 				rti_is_base_rel(root, parse->resultRelation) == false ||
-				has_any_triggers_subclass(root, parse->resultRelation, parse->commandType))
+				rte_has_any_cluster_unsafe_subclass(planner_rt_fetch(parse->resultRelation, root), parse->commandType))
 				break;
 
 			if (is_remote_relation(root, parse->resultRelation) == false)

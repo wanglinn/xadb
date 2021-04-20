@@ -56,6 +56,8 @@
 #ifdef ADB
 #include "catalog/pg_inherits.h"
 #include "pgxc/pgxc.h"
+#include "rewrite/rewriteHandler.h"
+#include "utils/memutils.h"
 #endif
 
 /* GUC parameter */
@@ -2182,78 +2184,146 @@ has_stored_generated_columns(PlannerInfo *root, Index rti)
 
 #ifdef ADB
 
-extern bool reloid_list_has_any_triggers(List *list, CmdType event);
-
-bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event)
+static inline bool
+rel_attr_has_cluster_unsafe_default(Relation rel, AttrNumber attno)
 {
-	RangeTblEntry  *rte = planner_rt_fetch(rti, root);
-	return reloid_has_any_triggers_subclass(rte->relid, event);
-}
-
-bool reloid_has_any_triggers_subclass(Oid reloid, CmdType event)
-{
-	List		   *list;
-	bool			result = false;
-
-	if (!has_subclass(reloid))
-		list = list_make1_oid(reloid);
-	else
-		list = find_all_inheritors(reloid, NoLock, NULL);
-	result = reloid_list_has_any_triggers(list, event);
-
-	list_free(list);
-	return result;
-}
-
-bool reloid_list_has_any_triggers(List *list, CmdType event)
-{
-	ListCell	   *lc;
-	Relation		relation;
-	TriggerDesc	   *trigDesc;
-	bool			result = false;
-
-	foreach(lc, list)
+	Node *node = build_column_default(rel, attno);
+	if (unlikely(node == NULL))
 	{
-		relation = table_open(lfirst_oid(lc), AccessShareLock);
-		trigDesc = relation->trigdesc;
-		switch (event)
-		{
-			case CMD_INSERT:
-				if (trigDesc &&
-					(trigDesc->trig_insert_after_row ||
-					 trigDesc->trig_insert_before_row ||
-					 trigDesc->trig_insert_after_statement ||
-					 trigDesc->trig_insert_before_statement))
-					result = true;
-				break;
-			case CMD_UPDATE:
-				if (trigDesc &&
-					(trigDesc->trig_update_after_row ||
-					 trigDesc->trig_update_before_row ||
-					 trigDesc->trig_update_after_statement ||
-					 trigDesc->trig_update_before_statement))
-					result = true;
-				break;
-			case CMD_DELETE:
-				if (trigDesc &&
-					(trigDesc->trig_delete_after_row ||
-					 trigDesc->trig_delete_before_row ||
-					 trigDesc->trig_delete_after_statement ||
-					 trigDesc->trig_delete_before_statement))
-					result = true;
-				break;
-			default:
-				elog(ERROR, "unrecognized CmdType: %d", (int) event);
-				break;
-		}
-		table_close(relation, AccessShareLock);
-		if (result)
-			break;
+		ereport(ERROR,
+				errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("no generation expression found for column number %d of table \"%s\"",
+			 		   attno, RelationGetRelationName(rel)));
+	}
+	return has_cluster_hazard(node, false);
+}
+
+static bool
+rel_has_insert_cluster_unsafe(RangeTblEntry *rte, Relation rel)
+{
+	TriggerDesc	   *trigDesc = rel->trigdesc;
+	TupleDesc		tupdesc;
+	int				i,natts;
+
+	/* has trigger? */
+	if (trigDesc &&
+		(trigDesc->trig_insert_after_row ||
+		 trigDesc->trig_insert_before_row ||
+		 trigDesc->trig_insert_after_statement ||
+		 trigDesc->trig_insert_before_statement))
+		return true;
+
+	/* has cluster unsafe cluster expr? */
+	tupdesc = RelationGetDescr(rel);
+	if (tupdesc->constr == NULL ||
+		tupdesc->constr->has_generated_stored == false)
+		return false;
+	for (i = 0, natts = tupdesc->natts; i < natts; ++i)
+	{
+		if (TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED &&
+			rel_attr_has_cluster_unsafe_default(rel, i+1))
+			return true;
 	}
 
-	return result;
+	return false;
 }
 
+static bool
+rel_has_delete_cluster_unsafe(RangeTblEntry *rte, Relation rel)
+{
+	TriggerDesc	   *trigDesc = rel->trigdesc;
+
+	/* has trigger? */
+	return (trigDesc &&
+			(trigDesc->trig_update_after_row ||
+			 trigDesc->trig_update_before_row ||
+			 trigDesc->trig_update_after_statement ||
+			 trigDesc->trig_update_before_statement));
+}
+
+static bool
+rel_has_update_cluster_unsafe(RangeTblEntry *rte, Relation rel)
+{
+	TriggerDesc	   *trigDesc = rel->trigdesc;
+	TupleDesc		tupdesc;
+	int				x,attno;
+
+	/* has trigger? */
+	if (trigDesc &&
+		(trigDesc->trig_delete_after_row ||
+		 trigDesc->trig_delete_before_row ||
+		 trigDesc->trig_delete_after_statement ||
+		 trigDesc->trig_delete_before_statement))
+		return true;
+
+	/* has cluster unsafe cluster expr? */
+	tupdesc = RelationGetDescr(rel);
+	if (tupdesc->constr == NULL ||
+		tupdesc->constr->has_generated_stored == false)
+		return false;
+	x = -1;
+	while ((x=bms_next_member(rte->extraUpdatedCols, x)) >= 0)
+	{
+		attno = x + FirstLowInvalidHeapAttributeNumber;
+		Assert(attno > 0);
+		if (TupleDescAttr(tupdesc, attno-1)->attgenerated == ATTRIBUTE_GENERATED_STORED &&
+			rel_attr_has_cluster_unsafe_default(rel, attno))
+			return true;
+	}
+
+	return false;
+}
+
+bool
+rte_has_any_cluster_unsafe_subclass(RangeTblEntry *rte, CmdType event)
+{
+	bool	  (*test_func)(RangeTblEntry *, Relation);
+	List	   *list;
+	ListCell   *lc;
+	Relation	rel;
+	MemoryContext context,oldcontext;
+	bool		result;
+
+	switch (event)
+	{
+	case CMD_INSERT:
+		test_func = rel_has_insert_cluster_unsafe;
+		break;
+	case CMD_DELETE:
+		test_func = rel_has_delete_cluster_unsafe;
+		break;
+	case CMD_UPDATE:
+		test_func = rel_has_update_cluster_unsafe;
+		break;
+	default:
+		elog(ERROR, "unrecognized CmdType: %d", (int) event);
+		return false;	/* let compiler quiet */
+	}
+
+	if (has_subclass(rte->relid))
+		list = find_all_inheritors(rte->relid, NoLock, NULL);
+	else
+		list = list_make1_oid(rte->relid);
+
+	context = AllocSetContextCreate(CurrentMemoryContext, "cluster unsafe check", ALLOCSET_SMALL_SIZES);
+	oldcontext = MemoryContextSwitchTo(context);
+
+	for (lc = list_head(list), result = false;
+		 lc != NULL && result == false;
+		 lc = lnext(list, lc))
+	{
+		MemoryContextReset(context);
+		rel = table_open(lfirst_oid(lc), AccessShareLock);
+		result = (*test_func)(rte, rel);
+		table_close(rel, AccessShareLock);
+	}
+
+	list_free(list);
+	MemoryContextSwitchTo(oldcontext);
+	MemoryContextSwitchTo(context);
+
+	return result;
+}
 #endif /* ADB */
 
 /*

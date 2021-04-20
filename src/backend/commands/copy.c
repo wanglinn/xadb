@@ -1096,6 +1096,13 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 											   NULL, false, false);
 		rte = nsitem->p_rte;
 		rte->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
+#ifdef ADB
+		if (is_from)
+		{
+			pstate->p_target_nsitem = nsitem;
+			pstate->p_target_relation = rel;
+		}
+#endif /* ADB */
 
 		if (stmt->whereClause)
 		{
@@ -1320,6 +1327,8 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		*processed = DoCopyTo(cstate);	/* copy from database to file */
 		EndCopyTo(cstate);
 	}
+
+	ADB_ONLY_CODE(pstate->p_target_relation = NULL);
 
 	if (rel != NULL)
 		table_close(rel, NoLock);
@@ -3535,7 +3544,8 @@ CopyFrom(CopyState cstate)
 			{
 				/* Compute stored generated columns */
 				if (resultRelInfo->ri_RelationDesc->rd_att->constr &&
-					resultRelInfo->ri_RelationDesc->rd_att->constr->has_generated_stored)
+					resultRelInfo->ri_RelationDesc->rd_att->constr->has_generated_stored
+					ADB_ONLY_CODE(&& cstate->NextRowFrom != NextRowFromCoordinator))
 					ExecComputeStoredGenerated(estate, myslot, CMD_INSERT);
 
 				/*
@@ -3964,7 +3974,7 @@ BeginCopyFrom(ParseState *pstate,
 		 * when has insert before or after trigger, we call trigger and save tuple to tuplestore,
 		 * when all row readed, read tuple from tuplestore and send it to datanode
 		 */
-		if (reloid_has_any_triggers_subclass(RelationGetRelid(rel), CMD_INSERT))
+		if (rte_has_any_cluster_unsafe_subclass(pstate->p_target_nsitem->p_rte, CMD_INSERT))
 		{
 			cstate->NextRowFrom = NextLineCallTrigger;
 			cstate->cs_tuplestore = tuplestore_begin_heap(false, false, work_mem);
@@ -6104,6 +6114,11 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 
 		if (!TupIsNull(slot))
 		{
+			/* Compute stored generated columns */
+			if (resultRelInfo->ri_RelationDesc->rd_att->constr &&
+				resultRelInfo->ri_RelationDesc->rd_att->constr->has_generated_stored)
+				ExecComputeStoredGenerated(estate, slot, CMD_INSERT);
+
 			ExecARInsertTriggers(estate, resultRelInfo, slot, NIL /* coordinator no index to check */, cstate->transition_capture);
 
 			/* tstuple is like rel tuple, but we append a line number, now we make a new tuple */
