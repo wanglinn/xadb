@@ -2335,7 +2335,7 @@ transformIndexConstraints(CreateStmtContext *cxt)
 			{
 				IndexElem  *attribute = (IndexElem *) lfirst_node(IndexElem,indexlc);
 
-				if ((strcmp(attribute->name,"rowid") == 0) && !default_with_rowids)
+				if (attribute->name && (strcmp(attribute->name,"rowid") == 0) && !default_with_rowids)
 				{
 					break;
 				}
