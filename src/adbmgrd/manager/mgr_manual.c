@@ -1075,6 +1075,10 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 		mgr_host= (Form_mgr_host)GETSTRUCT(host_tuple);
 		Assert(mgr_host);
+
+		char node_path[255] = {0};
+		snprintf(node_path, sizeof(node_path), "%s/%s", dest_nodeinfo.nodepath, "standby.signal");
+		mgr_rm_temp_file(mgr_host->oid, node_path);
 		ReleaseSysCache(host_tuple);
 		
 		tupleM = SearchSysCache1(NODENODEOID, dest_nodeinfo.nodemasteroid);
@@ -1216,9 +1220,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 		PQclear(res);
 		res = NULL;
-
-		resetStringInfo(&(getAgentCmdRst.description));
-		mgr_refresh_standby(dest_nodeinfo.nodepath, dest_nodeinfo.nodehost, &getAgentCmdRst);
 
 		/*set the coordinator*/
 		ereportNoticeLog(errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"

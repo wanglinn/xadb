@@ -245,6 +245,7 @@ extern void mgr_alter_parm(MGRAlterParm *node, ParamListInfo params, DestReceive
 
 /*in cmd_node.c */
 extern void mgr_reload_conf(Oid hostoid, char *nodepath);
+extern void mgr_rm_temp_file(Oid dnhostoid,char *temp_file);
 extern bool get_active_node_info(const char node_type, const char *node_name, char *zone, AppendNodeInfo *nodeinfo);
 /*coordinator datanode parse cmd*/
 extern Datum mgr_init_gtmcoord_master(PG_FUNCTION_ARGS);

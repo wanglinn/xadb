@@ -200,7 +200,6 @@ static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *t
 static void mgr_stop_node_with_restoremode(const char *nodepath, Oid hostoid);
 static void mgr_freezen_cm_alldatabase(AppendNodeInfo *appendnodeinfo);
 static void mgr_pg_dumpall_input_node(const Oid dn_master_oid, const int32 dn_master_port, char *temp_file);
-static void mgr_rm_dumpall_temp_file(Oid dnhostoid,char *temp_file);
 static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, char nodetype);
 static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *dnname, Oid dnhostoid, int32 dnport);
 static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename);
@@ -4555,7 +4554,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		/* step 6: start the datanode master with restoremode mode, and input all catalog message */
 		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost, CNDN_TYPE_DATANODE_MASTER);
 		mgr_pg_dumpall_input_node(appendnodeinfo.nodehost, appendnodeinfo.nodeport, temp_file);
-		mgr_rm_dumpall_temp_file(appendnodeinfo.nodehost, temp_file);
+		mgr_rm_temp_file(appendnodeinfo.nodehost, temp_file);
 
 		/* step 7: stop the datanode master with restoremode, and then start it with "datanode" mode */
 		mgr_stop_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost);
@@ -4986,7 +4985,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		/* step 6: start the append coordiantor with restoremode mode, and input all catalog message */
 		mgr_start_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost, CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_pg_dumpall_input_node(appendnodeinfo.nodehost, appendnodeinfo.nodeport, temp_file);
-		mgr_rm_dumpall_temp_file(appendnodeinfo.nodehost, temp_file);
+		mgr_rm_temp_file(appendnodeinfo.nodehost, temp_file);
 
 		/*step 6_1: vacuum freezen all database for this new cn master*/
 		mgr_freezen_cm_alldatabase(&appendnodeinfo);
@@ -6034,7 +6033,7 @@ static void mgr_set_inited_incluster(char *nodename, char nodetype, bool checkva
 	pfree(info);
 }
 
-static void mgr_rm_dumpall_temp_file(Oid dnhostoid,char *temp_file)
+void mgr_rm_temp_file(Oid dnhostoid,char *temp_file)
 {
 	StringInfoData cmd_str;
 	StringInfoData buf;
