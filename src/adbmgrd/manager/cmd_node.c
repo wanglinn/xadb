@@ -13722,7 +13722,7 @@ static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
 			memset(&name, 0x00, sizeof(NameData)*6);
 			MgrQueryStatReplicationSlave(nodeSlave, name);
 
-			masterOid = MgrGetRootNodeOid(tuple->t_tableOid);
+			masterOid = MgrGetRootNodeOid(nodeSlave->oid);
 			out = MgrQueryStatReplicationMaster(masterOid, nodeSlave, name);
 			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(out));
 		}
