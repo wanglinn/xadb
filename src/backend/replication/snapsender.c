@@ -1949,7 +1949,7 @@ re_lock_:
 
 	if (assign_len <  SnapSender->xcnt)
 	{
-		SpinLockRelease(&SnapSender->mutex);
+		SpinLockRelease(&SnapSender->gxid_mutex);
 		assign_len += XID_ARRAY_STEP_SIZE;
 		goto re_lock_;
 	}
@@ -2506,7 +2506,7 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	bool			update_xmin = false;
 	bool			is_wait_ok = false;
 
-	if (RecoveryInProgress() || !adb_check_sync_nextid)
+	if (RecoveryInProgress() || !adb_check_sync_nextid || !is_need_check_dn_coon)
 		return snap;
 
 	/* when gtmc get snapshot, we musk make sure all dn has synced two phase xid */

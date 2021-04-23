@@ -716,10 +716,6 @@ void SnapReceiverMain(void)
 			break;
 
 		case WALRCV_STOPPED:
-			pg_atomic_write_u32(&SnapRcv->state, WALRCV_STARTING);
-			/* fall through, do not add break */
-		case WALRCV_STARTING:
-			/* The usual case */
 			break;
 
 		case WALRCV_WAITING:
@@ -820,6 +816,7 @@ void SnapReceiverMain(void)
 		else
 			options.proto.logical.proto_version = InvalidTransactionId;
 
+		pg_atomic_write_u32(&SnapRcv->state, WALRCV_STARTING);
 		/*collect all left xid inluce rxact and prepared xid*/
 		options.proto.logical.publication_names = SnapRcvSendInitSyncXid();
 		if (walrcv_startstreaming(wrconn, &options))
@@ -910,6 +907,7 @@ void SnapReceiverMain(void)
 						SnapRcvSendHeartbeat();
 				}
 			}
+			pg_atomic_write_u32(&SnapRcv->state, WALRCV_STOPPED);
 		}else
 		{
 			ereport(LOG,
@@ -1025,6 +1023,7 @@ static void SnapRcvDie(int code, Datum arg)
 	Assert(state == WALRCV_STREAMING ||
 		   state == WALRCV_RESTARTING ||
 		   state == WALRCV_STARTING ||
+		   state == WALRCV_STOPPED ||
 		   state == WALRCV_WAITING ||
 		   state == WALRCV_STOPPING);
 	

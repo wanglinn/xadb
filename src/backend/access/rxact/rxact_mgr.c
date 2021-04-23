@@ -60,6 +60,26 @@
 #endif /* RXACT_LOG_LEVEL */
 #define RXACT_TYPE_IS_VALID(t) (t == RX_PREPARE || t == RX_COMMIT || t == RX_ROLLBACK)
 
+#define RXACT_START_TRANS(in_transaction, oldcontext, CurrentMemoryContext)	\
+do {																		\
+	if (in_transaction == false)														\
+	{																		\
+		oldcontext = CurrentMemoryContext;									\
+		StartTransactionCommand();											\
+		CurrentMemoryContext = oldcontext;									\
+		in_transaction = true;												\
+	}																		\
+} while(0)
+
+#define RXACT_END_TRANS(in_transaction, oldcontext, CurrentMemoryContext)	\
+do {																		\
+	if (in_transaction)														\
+	{																		\
+		AbortCurrentTransaction();											\
+		CurrentMemoryContext = oldcontext;									\
+	}																		\
+} while(0)
+
 typedef struct RxactAgent
 {
 	pgsocket sock;
@@ -1277,6 +1297,8 @@ static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo)
 	NodeConn *node_conn;
 
 	bool transfor_auto_ok = true;
+	bool in_transaction = false;
+	MemoryContext oldcontext = CurrentMemoryContext;
 
 	Assert(rinfo->type == RX_AUTO);
 	for(i=0;i<rinfo->count_nodes;++i)
@@ -1285,6 +1307,8 @@ static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo)
 		if(rinfo->remote_success[i])
 			continue;
 
+		/* get node connection, skip if not connectiond */
+		RXACT_START_TRANS(in_transaction, oldcontext, CurrentMemoryContext);
 		/* get node connection, skip if not connectiond */
 		node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
 		if(node_conn == NULL || node_conn->conn == NULL || node_conn->doing_gid[0] != '\0')
@@ -1310,6 +1334,7 @@ static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo)
 		if (res)
 			PQclear(res);
 	}
+	RXACT_END_TRANS(in_transaction, oldcontext, CurrentMemoryContext);
 
 	if (transfor_auto_ok)
 	{
@@ -1463,13 +1488,7 @@ static void rxact_2pc_do(void)
 				continue;
 
 			/* get node connection, skip if not connectiond */
-			if (in_transaction == false)
-			{
-				oldcontext = CurrentMemoryContext;
-				StartTransactionCommand();
-				CurrentMemoryContext = oldcontext;
-				in_transaction = true;
-			}
+			RXACT_START_TRANS(in_transaction, oldcontext, CurrentMemoryContext);
 			node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
 			if(node_conn == NULL || node_conn->conn == NULL || node_conn->doing_gid[0] != '\0')
 			{
@@ -1505,11 +1524,8 @@ static void rxact_2pc_do(void)
 		waiting_time = -1L;
 	else
 		waiting_time = 1000L;
-	if (in_transaction)
-	{
-		AbortCurrentTransaction();
-		CurrentMemoryContext = oldcontext;
-	}
+
+	RXACT_END_TRANS(in_transaction, oldcontext, CurrentMemoryContext);
 
 	if(buf.data)
 		pfree(buf.data);
