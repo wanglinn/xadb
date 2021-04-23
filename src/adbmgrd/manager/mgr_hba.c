@@ -661,8 +661,9 @@ static Oid tuple_insert_table_hba(Datum *values, bool *isnull)
 	values[Anum_mgr_hba_oid-1] = ObjectIdGetDatum(hba_oid);
 	isnull[Anum_mgr_hba_oid-1] = false;
 	newtuple = heap_form_tuple(RelationGetDescr(rel), values, isnull);
-	table_close(rel, RowExclusiveLock);
+	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
+	table_close(rel, RowExclusiveLock);
 	return hba_oid;
 }
 
