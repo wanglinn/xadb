@@ -1493,12 +1493,10 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					if (!IsA(bspec, PartitionBoundSpec))
 						elog(ERROR, "expected PartitionBoundSpec");
 					
-					if (bspec->strategy != PARTITION_STRATEGY_RANGE)
-						ereport(ERROR,
-								(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-								 errmsg("invalid bound specification for a range partition")));
-
-					tmpSpc->lowerdatums = copyObjectImpl(bspec->lowerdatums);
+					if (bspec->strategy == PARTITION_STRATEGY_RANGE)
+					{
+						tmpSpc->lowerdatums = copyObjectImpl(bspec->lowerdatums);
+					}
 					ReleaseSysCache(tuple);
 				}
 			}
