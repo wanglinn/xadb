@@ -2235,10 +2235,10 @@ rel_has_delete_cluster_unsafe(RangeTblEntry *rte, Relation rel)
 
 	/* has trigger? */
 	return (trigDesc &&
-			(trigDesc->trig_update_after_row ||
-			 trigDesc->trig_update_before_row ||
-			 trigDesc->trig_update_after_statement ||
-			 trigDesc->trig_update_before_statement));
+			(trigDesc->trig_delete_after_row ||
+			 trigDesc->trig_delete_before_row ||
+			 trigDesc->trig_delete_after_statement ||
+			 trigDesc->trig_delete_before_statement));
 }
 
 static bool
@@ -2250,10 +2250,10 @@ rel_has_update_cluster_unsafe(RangeTblEntry *rte, Relation rel)
 
 	/* has trigger? */
 	if (trigDesc &&
-		(trigDesc->trig_delete_after_row ||
-		 trigDesc->trig_delete_before_row ||
-		 trigDesc->trig_delete_after_statement ||
-		 trigDesc->trig_delete_before_statement))
+		(trigDesc->trig_update_after_row ||
+		 trigDesc->trig_update_before_row ||
+		 trigDesc->trig_update_after_statement ||
+		 trigDesc->trig_update_before_statement))
 		return true;
 
 	/* has cluster unsafe cluster expr? */
