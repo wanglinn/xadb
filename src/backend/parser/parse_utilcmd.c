@@ -503,17 +503,13 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	if (cell)
 	{
 		/* drop ROWID DefElem  */
-		if (list_length(stmt->options) == 1)
-		{
-			list_free(stmt->options);
-			stmt->options = NIL;
-		}
-		else
-			list_delete_ptr(stmt->options, lfirst(cell));
+		stmt->options = list_delete_cell(stmt->options, cell);
 	}
 	else
+	{
 		/* if not found, the default value is used */
 		use_rowid = default_with_rowids;
+	}
 
 	if (use_rowid &&
 		stmt->ofTypename == NULL &&
@@ -1414,6 +1410,10 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	 * column default expressions in the per-column loop below.
 	 */
 	new_attno = 1;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (IsOraRowidColumn(TupleDescAttr(tupleDesc, 0)))
+		--new_attno;
+#endif
 	for (parent_attno = 1; parent_attno <= tupleDesc->natts;
 		 parent_attno++)
 	{
