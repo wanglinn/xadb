@@ -14,6 +14,7 @@
 #include "catalog/pg_operator_d.h"
 #include "catalog/pg_type_d.h"
 #include "catalog/pgxc_class.h"
+#include "catalog/heap.h"
 #include "catalog/pg_collation.h"
 #include "commands/copy.h"
 #include "commands/dbcommands.h"
@@ -1029,14 +1030,14 @@ static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *exp
 	List		   *list;
 	StringInfoData	msg;
 	int				i;
-	const FormData_pg_attribute *sysatt;
+    const FormData_pg_attribute *sysatt;
 	
 	ExpansionReplicated(form_class, tup, expansion, rel_class, indstate);
 	if (!IsGTMNode())
 		return;
 
-    sysatt = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
-	clean_expr = (Expr*)makeVar(1,
+    sysatt = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
+    clean_expr = (Expr*)makeVar(1,
 								SelfItemPointerAttributeNumber,
 								sysatt->atttypid,
 								sysatt->atttypmod,
