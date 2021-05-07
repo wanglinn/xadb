@@ -14,6 +14,7 @@
 #include "catalog/pg_operator_d.h"
 #include "catalog/pg_type_d.h"
 #include "catalog/pgxc_class.h"
+#include "catalog/pg_collation.h"
 #include "commands/copy.h"
 #include "commands/dbcommands.h"
 #include "executor/clusterReceiver.h"
@@ -1028,26 +1029,25 @@ static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *exp
 	List		   *list;
 	StringInfoData	msg;
 	int				i;
-
+	const FormData_pg_attribute *sysatt;
+	
 	ExpansionReplicated(form_class, tup, expansion, rel_class, indstate);
 	if (!IsGTMNode())
 		return;
 
-	/* hashtext(ctid::text) */
-	clean_expr = (Expr*)makeVar(1, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, 0);
-	clean_expr = (Expr*)coerce_to_target_type(NULL,
-											  (Node*)clean_expr,
-											  TIDOID,
-											  TEXTOID,
-											  -1,
-											  COERCION_EXPLICIT,
-											  COERCE_EXPLICIT_CAST,
-											  -1);
-	clean_expr = (Expr*)makeFuncExpr(F_HASHTEXT,
+    sysatt = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
+	clean_expr = (Expr*)makeVar(1,
+								SelfItemPointerAttributeNumber,
+								sysatt->atttypid,
+								sysatt->atttypmod,
+								sysatt->attcollation,
+								0);
+
+	clean_expr = (Expr*)makeFuncExpr(F_HASHTID,
 									 INT4OID,
 									 list_make1(clean_expr),
-									 InvalidOid,
-									 InvalidOid,
+									 DEFAULT_COLLATION_OID,
+									 sysatt->attcollation,
 									 COERCE_EXPLICIT_CALL);
 
 	/* modulo value, for now set 0, change when using */
@@ -1057,8 +1057,8 @@ static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *exp
 	clean_expr = (Expr*)makeFuncExpr(F_HASH_COMBIN_MOD,
 									 INT4OID,
 									 list_make2(modulo_expr, clean_expr),
-									 InvalidOid,
-									 InvalidOid,
+									 DEFAULT_COLLATION_OID,
+									 DEFAULT_COLLATION_OID,
 									 COERCE_EXPLICIT_CALL);
 
 	/* hash_combin_mod(0, hash(ctid::text)) = 0 */
