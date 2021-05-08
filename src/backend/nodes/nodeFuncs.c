@@ -4671,6 +4671,7 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 		WALK_CHILD_PATH(ProjectSetPath, subpath);
 		break;
 	case T_SortPath:
+	case T_IncrementalSortPath:
 		WALK_CHILD_PATH(SortPath, subpath);
 		break;
 	case T_BatchSortPath:
