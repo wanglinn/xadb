@@ -5937,6 +5937,11 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
+	/* Close any trigger target relations */
+	ExecCleanUpTriggerState(estate);
+
+	FreeExecutorState(estate);
+
 	return cstate->count_tuple;
 }
 
@@ -6135,7 +6140,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	cstate->cur_lineno = 0;
 
 	/* start cluster copy */
-	MemoryContextSwitchTo(query_context);
+	MemoryContextSwitchTo(cstate->copycontext);
 	cstate->list_connect = ExecStartClusterCopy(cstate->rel->rd_locator_info->nodeids,
 												makeClusterCopyFromStmt(cstate->rel, cstate->freeze),
 												cstate->mem_copy_toc,
