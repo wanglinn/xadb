@@ -271,6 +271,7 @@ typedef struct CopyStateData
 	TupleTableSlot	   *cs_tsConvert;
 	TupleTypeConvert   *cs_convert;
 	ReduceExprState	   *cs_reduce_state;
+	ModifyTableState   *mtstate;
 	Expr			   *cs_reduce_expr;
 	CustomNextRowFunction NextRowFrom;
 	void			   *func_data;		/* function NextRowFrom's user data */
@@ -5805,6 +5806,25 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 							RelationGetRelationName(cstate->rel))));
 	}
 
+	estate->es_result_relation_info = makeNode(ResultRelInfo);
+	estate->es_result_relations = estate->es_result_relation_info;
+	estate->es_num_result_relations = 1;
+	InitResultRelInfo(estate->es_result_relations,
+					  cstate->rel,
+					  1,
+					  NULL,
+					  0);
+	ExecOpenIndices(estate->es_result_relations, false);
+
+	cstate->mtstate = makeNode(ModifyTableState);
+	cstate->mtstate->ps.state = estate;
+	cstate->mtstate->operation = CMD_INSERT;
+	cstate->mtstate->resultRelInfo = estate->es_result_relations;
+
+	if (cstate->whereClause)
+		cstate->qualexpr = ExecInitQual(castNode(List, cstate->whereClause),
+										&cstate->mtstate->ps);
+
 	type_convert = cstate->cs_convert;
 	ts_convert = cstate->cs_tsConvert;
 	if (cstate->cs_reduce_state == NULL)
@@ -5937,6 +5957,8 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
+	ExecCloseIndices(estate->es_result_relations);
+
 	/* Close any trigger target relations */
 	ExecCleanUpTriggerState(estate);
 
@@ -5948,10 +5970,9 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econtext, void *data)
 {
 	EState *estate = econtext->ecxt_estate;
-	PartitionTupleRouting *proute;
+	PartitionTupleRouting *proute = NULL;
 	ResultRelInfo  *resultRelInfo;
 	ResultRelInfo *target_resultRelInfo;
-	ModifyTableState *mtstate;
 	TupleTableSlot *slot;
 	TupleTableSlot *myslot;
 	TupleTableSlot *relslot;
@@ -5963,24 +5984,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	MemoryContext tup_context = GetPerTupleMemoryContext(estate);
 	uint64 processed = 0L;
 
-	/*
-	 * We need a ResultRelInfo so we can use the regular executor's
-	 * index-entry-making machinery.  (There used to be a huge amount of code
-	 * here that basically duplicated execUtils.c ...)
-	 */
-	target_resultRelInfo = resultRelInfo = makeNode(ResultRelInfo);
-	InitResultRelInfo(resultRelInfo,
-					  cstate->rel,
-					  1,		/* dummy rangetable index */
-					  NULL,
-					  0);
-
-	ExecOpenIndices(resultRelInfo, false);
-
-	estate->es_result_relations = resultRelInfo;
-	estate->es_num_result_relations = 1;
-	estate->es_result_relation_info = resultRelInfo;
-	ExecInitRangeTable(estate, cstate->range_table);
+	target_resultRelInfo = resultRelInfo = estate->es_result_relation_info;
 
 	/*
 	 * If there are any triggers with transition tables on the named relation,
@@ -5996,20 +6000,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	 * CopyFrom tuple routing.
 	 */
 	if (cstate->rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
-	{
-
 		proute = ExecSetupPartitionTupleRouting(estate, NULL, cstate->rel);
-
-		mtstate = makeNode(ModifyTableState);
-		mtstate->ps.plan = NULL;
-		mtstate->ps.state = estate;
-		mtstate->operation = CMD_INSERT;
-		mtstate->resultRelInfo = estate->es_result_relations;
-	}else
-	{
-		mtstate = NULL;
-		proute = NULL;
-	}
 
 	/*
 	 * Check BEFORE STATEMENT insertion triggers. It's debatable whether we
@@ -6055,7 +6046,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		/* Determine the partition to heap_insert the tuple into */
 		if (proute && !TupIsNull(myslot))
 		{
-			resultRelInfo = ExecFindPartition(mtstate, target_resultRelInfo,
+			resultRelInfo = ExecFindPartition(cstate->mtstate, target_resultRelInfo,
 											  proute, myslot, estate);
 			if (resultRelInfo->ri_RelationDesc->rd_auxlist != NIL)
 				ereport(ERROR,
@@ -6129,7 +6120,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 
 	/* Close all the partitioned tables, leaf partitions, and their indices */
 	if (proute)
-		ExecCleanupTupleRouting(mtstate, proute);
+		ExecCleanupTupleRouting(cstate->mtstate, proute);
 
 	/* Close any trigger target relations */
 	ExecCleanUpTriggerState(estate);
@@ -6218,9 +6209,20 @@ static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econ
 {
 	TupleTableSlot *slot = cstate->cs_tupleslot;
 
+re_try_:
 	if (NextCopyFrom(cstate, econtext, slot->tts_values, slot->tts_isnull) == false)
 		return ExecClearTuple(slot);
 	ExecStoreVirtualTuple(slot);
+
+	if (cstate->qualexpr)
+	{
+		econtext->ecxt_scantuple = slot;
+		if (ExecQual(cstate->qualexpr, econtext) == false)
+		{
+			ExecClearTuple(slot);
+			goto re_try_;
+		}
+	}
 
 	++(cstate->count_tuple);
 
