@@ -2574,6 +2574,7 @@ _copyRangeTblEntry(const RangeTblEntry *from)
 	COPY_SCALAR_FIELD(param_new);
 	COPY_SCALAR_FIELD(param_old);
 	COPY_BITMAPSET_FIELD(mt_result);
+	COPY_BITMAPSET_FIELD(defaultCols);
 	COPY_NODE_FIELD(execNodes);
 	COPY_SCALAR_FIELD(rows);
 #endif /* ADB */

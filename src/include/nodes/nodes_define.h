@@ -3884,6 +3884,7 @@ BEGIN_NODE(RangeTblEntry)
 	NODE_SCALAR(int,param_new)
 	NODE_SCALAR(int,param_old)
 	NODE_BITMAPSET(Bitmapset,mt_result)
+	NODE_BITMAPSET(Bitmapset,defaultCols)
 	NODE_NODE(List,execNodes)
 	NODE_SCALAR(double,rows)
 #endif
