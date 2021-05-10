@@ -4702,3 +4702,45 @@ warnning_master_has_no_sync(char 	*nodeName,
 	MemoryContextDelete(switchContext);
 	SPI_finish();
 }
+
+void 
+mgr_check_rewind_dir_exist(char *zone)
+{
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	int 			spiRes;
+	dlist_head 		nodes = DLIST_STATIC_INIT(nodes);
+	dlist_iter 		iter;
+	MgrNodeWrapper 	*mgrNode = NULL;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_check_rewind_dir_exist", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+	PG_TRY();
+	{
+		selectNotActiveChildInZone(spiContext,
+									zone,
+									&nodes);
+		dlist_foreach(iter, &nodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			Assert(mgrNode);
+			mgr_check_rewind_dir_exist_and_priv(mgrNode->host->form.oid, mgrNode->nodepath);
+		}
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}

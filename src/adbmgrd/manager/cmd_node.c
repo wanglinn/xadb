@@ -1417,6 +1417,8 @@ mgr_init_gtmcoord_master(PG_FUNCTION_ARGS)
     
 	CheckZoneNodesBeforeInitAll();
 
+	mgr_check_rewind_dir_exist(mgr_zone);
+
 	mgr_get_init_parm(g_initall_options, &g_InitAllParmInfo);
 
 	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOORD_INIT, TAKEPLAPARM_N, fcinfo);
@@ -4479,6 +4481,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 
 		/* step 1: init workdir */
 		mgr_check_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
+		mgr_check_rewind_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
 		mgr_append_init_cndnmaster(&appendnodeinfo);
 
 		/* step 2: update datanode master's postgresql.conf. */
@@ -4731,6 +4734,7 @@ bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster)
 
 		/* step 5: basebackup for datanode master using pg_basebackup command. */
 		mgr_check_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
+		mgr_check_rewind_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
 		mgr_pgbasebackup(CNDN_TYPE_DATANODE_SLAVE, &appendnodeinfo, &parentnodeinfo);
 
 		/* step 6: update datanode slave's postgresql.conf. */
@@ -4918,6 +4922,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 
 		/* step 1: init workdir */
 		mgr_check_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
+		mgr_check_rewind_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
 		mgr_append_init_cndnmaster(&appendnodeinfo);
 
 		/* step 2: update coordinator master's postgresql.conf. */
@@ -5169,6 +5174,7 @@ bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster)
 
 		/* step 3: basebackup for datanode master using pg_basebackup command. */
 		mgr_check_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
+		mgr_check_rewind_dir_exist_and_priv(appendnodeinfo.nodehost, appendnodeinfo.nodepath);
 		mgr_pgbasebackup(CNDN_TYPE_GTM_COOR_SLAVE, &appendnodeinfo, &agtm_m_nodeinfo);
 
 		/* step 4: update agtm slave's postgresql.conf. */
@@ -6797,6 +6803,24 @@ void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir)
 
 	initStringInfo(&strinfo);
 	res = mgr_ma_send_cmd(cmdtype, dir, hostoid, &strinfo);
+
+	if (!res)
+		ereport(ERROR, (errmsg("%s", strinfo.data)));
+	pfree(strinfo.data);
+
+	return;
+}
+
+void mgr_check_rewind_dir_exist_and_priv(Oid hostoid, char *dir)
+{
+	StringInfoData strinfo;
+	char cmdtype = AGT_CMD_CHECK_DIR_EXIST;
+	bool res = false;
+	char rewind_dir[1024] = {0};
+
+	snprintf(rewind_dir, sizeof(rewind_dir)-1, "%s%s",  dir, "_rewind");
+	initStringInfo(&strinfo);
+	res = mgr_ma_send_cmd(cmdtype, rewind_dir, hostoid, &strinfo);
 
 	if (!res)
 		ereport(ERROR, (errmsg("%s", strinfo.data)));

@@ -390,6 +390,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		/*	4.check dst node basebackup dir does not exist.	*/
 		ereport(LOG, (errmsg("%s %s", step1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
 		mgr_check_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
+		mgr_check_rewind_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
 
 		/* 5.basebackup	*/
 		ereport(INFO, (errmsg("%s %s", step2_msg, "this step is basebackup, if the command failed, you must delete dst directory by hand.")));

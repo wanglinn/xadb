@@ -718,4 +718,5 @@ extern void warnning_node_by_level_syncstate(char 	*nodeName,
 											char 	nodeType);
 extern void warnning_master_has_no_sync(char 	*nodeName,
 										char 	nodeType);
+extern void mgr_check_rewind_dir_exist(char *zone);
 #endif /* MGR_HELPER_H */

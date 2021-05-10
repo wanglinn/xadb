@@ -813,6 +813,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 		ereport(ERROR, (errmsg("%s on port %d, coordinator \"%s\" is running", dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport, s_coordname)));
 	/* check the folder of dest coordinator */
 	mgr_check_dir_exist_and_priv(dest_nodeinfo.nodehost, dest_nodeinfo.nodepath);
+	mgr_check_rewind_dir_exist_and_priv(dest_nodeinfo.nodehost, dest_nodeinfo.nodepath);
 
 	/* make source coordinator to allow build stream replication */
 	initStringInfo(&infosendmsg);

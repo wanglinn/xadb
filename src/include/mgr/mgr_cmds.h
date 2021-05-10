@@ -545,6 +545,7 @@ extern void get_nodeinfo_byname(char *node_name, char node_type, bool *is_exist,
 extern void get_nodeinfo(char *nodename, char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
 extern void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr);
 extern void mgr_check_dir_exist_and_priv(Oid hostoid, char *dir);
+extern void mgr_check_rewind_dir_exist_and_priv(Oid hostoid, char *dir);
 extern void mgr_pgbasebackup(char nodetype, AppendNodeInfo *appendnodeinfo, AppendNodeInfo *parentnodeinfo);
 extern void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid);
 extern HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bool status, const char *description,

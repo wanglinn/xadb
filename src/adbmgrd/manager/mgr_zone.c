@@ -414,6 +414,7 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		CheckZoneNodesBeforeInitAll();
+		mgr_check_rewind_dir_exist(currentZone);
 
 		MgrInitAllNodes(currentZone);
 	}PG_CATCH();
