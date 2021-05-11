@@ -6573,7 +6573,7 @@ get_insert_query_def(Query *query, deparse_context *context)
 	 * In the case of "INSERT ... DEFAULT VALUES" analyzed in pgxc planner,
 	 * return the sql statement directly if the table has no default values.
 	 */
-	if (IsCnMaster() && !query->targetList)
+	if (IsCnMaster() && !query->targetList && query->sql_statement)
 	{
 		appendStringInfo(buf, "%s", query->sql_statement);
 		return;
