@@ -2257,6 +2257,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	else if (AGT_CMD_CLEAN_NODE == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
+		appendStringInfo(&infosendmsg, "; rm -rf %s%s", cndnPath, ADB_REWIND_TMP_DIR);
 	}
 	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype ||
 			AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype)
@@ -6818,7 +6819,7 @@ void mgr_check_rewind_dir_exist_and_priv(Oid hostoid, char *dir)
 	bool res = false;
 	char rewind_dir[1024] = {0};
 
-	snprintf(rewind_dir, sizeof(rewind_dir)-1, "%s%s",  dir, "_rewind");
+	snprintf(rewind_dir, sizeof(rewind_dir)-1, "%s%s",  dir, ADB_REWIND_TMP_DIR);
 	initStringInfo(&strinfo);
 	res = mgr_ma_send_cmd(cmdtype, rewind_dir, hostoid, &strinfo);
 
@@ -8506,6 +8507,7 @@ void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCm
 	/* clean nodepath dir*/
 	initStringInfo(&infosendmsg);
 	appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", nodepath, nodepath, nodepath);
+	appendStringInfo(&infosendmsg, "; rm -rf %s%s", nodepath, ADB_REWIND_TMP_DIR);
 	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostoid, &(getAgentCmdRst->description));
 
 	getAgentCmdRst->ret = res;

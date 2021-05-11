@@ -87,6 +87,8 @@
 #define ADB_CHECK_SYNC_NEXTID_OFF		"off"
 #define ADB_CHECK_SYNC_NEXTID_ON		"on"
 
+#define ADB_REWIND_TMP_DIR				"_rewind"
+
 typedef struct GetAgentCmdRst
 {
 	NameData nodename;
