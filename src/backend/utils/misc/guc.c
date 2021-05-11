@@ -373,7 +373,7 @@ static const struct config_enum_entry isolation_level_options[] = {
 	/*
 	 * PGXCTODO - PGXC does not support 9.1 serializable transactions yet
 	 */
-	{"serializable", XACT_REPEATABLE_READ, false},
+	{"repeatable read", XACT_REPEATABLE_READ, false},
 #else
 	{"serializable", XACT_SERIALIZABLE, false},
 #endif
