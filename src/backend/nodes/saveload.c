@@ -874,7 +874,7 @@ Oid load_oid_operator(StringInfo buf)
 							   OidIsValid(right) ? format_type_be(right) : "invalid")));
 		}
 
-		if(rettype != oid)
+		if(rettype != get_op_rettype(oid))
 		{
 			ereport(ERROR,
 				(errmsg("operator %u result type is not %s", oid, format_type_be(rettype)),
