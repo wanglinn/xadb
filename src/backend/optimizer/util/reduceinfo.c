@@ -36,7 +36,6 @@
 
 static oidvector *makeOidVector(List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
-static int CompareOid(const void *a, const void *b);
 static inline Const* MakeInt4Const(int32 value)
 {
 	return makeConst(INT4OID,
@@ -400,31 +399,28 @@ void FreeReduceInfoList(List *list)
 	list_free(list);
 }
 
+static int
+CompareListCellOid(const void *a, const void *b)
+{
+	Oid			oa = lfirst_oid((ListCell*)a);
+	Oid			ob = lfirst_oid((ListCell*)b);
+
+	if (oa == ob)
+		return 0;
+	return (oa > ob) ? 1 : -1;
+}
+
 List *SortOidList(List *list)
 {
-	Oid *oids;
-	ListCell *lc;
-	Size i,count;
-
 	if(list == NIL)
 		return NIL;
+	Assert(nodeTag(list) == T_OidList);
 
-	count = list_length(list);
-	if(count == 1)
-		return list;
+	pg_qsort(list->elements,
+			 list_length(list),
+			 sizeof(list->elements[0]),
+			 CompareListCellOid);
 
-	oids = palloc(sizeof(Oid)*count);
-	i=0;
-	foreach(lc, list)
-		oids[i++] = lfirst_oid(lc);
-
-	pg_qsort(oids, count, sizeof(Oid), CompareOid);
-
-	i=0;
-	foreach(lc, list)
-		lfirst_oid(lc) = oids[i++];
-
-	pfree(oids);
 	return list;
 }
 
@@ -2668,16 +2664,6 @@ static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bo
 	sref->refassgnexpr = NULL;
 
 	return (Expr*)sref;
-}
-
-static int CompareOid(const void *a, const void *b)
-{
-	Oid			oa = *((const Oid *) a);
-	Oid			ob = *((const Oid *) b);
-
-	if (oa == ob)
-		return 0;
-	return (oa > ob) ? 1 : -1;
 }
 
 bool CanModuloType(Oid type, bool no_error)
