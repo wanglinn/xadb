@@ -143,6 +143,8 @@ static Path* get_cheapest_join_path(ClusterJoinContext *jcontext,
 									CostSelector criterion,
 									bool must_no_param,
 									List **new_reduce_list);
+static inline bool is_modifying_replicated_rel(int resultRelation, Relids relids, List *pathlist);
+static List* get_replicated_path_list(List *list);
 static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outerpath, List *inner_pathlist);
 static void sort_cluster_inner_and_outer(ClusterJoinContext *jcontext, Path *outerpath, Path *innerpath,
 										 List *all_pathkeys, List *reduce_list);
@@ -1329,6 +1331,7 @@ sort_inner_and_outer(PlannerInfo *root,
 	if(outerrel->cluster_pathlist && innerrel->cluster_pathlist)
 	{
 		List	   *new_reduce_list;
+		List	   *outer_cluster_pathlist;
 		ClusterJoinContext jcontext;
 		MemSet(&jcontext, 0, sizeof(jcontext));
 		jcontext.root = root;
@@ -1339,19 +1342,32 @@ sort_inner_and_outer(PlannerInfo *root,
 		jcontext.jointype = save_jointype;
 		jcontext.try_match = CLUSTER_TRY_MERGE_JOIN;
 		set_cluster_join_clauses(&jcontext, false);
-		set_all_join_inner_path(&jcontext, outerrel->cheapest_cluster_total_path, innerrel->cluster_pathlist);
+		if (is_modifying_replicated_rel(root->parse->resultRelation,
+										innerrel->relids,
+										innerrel->cluster_pathlist))
+		{
+			outer_cluster_pathlist = get_replicated_path_list(outerrel->cluster_pathlist);
+			if (outer_cluster_pathlist == NIL)
+				goto end_cluster_;
+			outer_path = get_cheapest_path_for_pathkeys(outer_cluster_pathlist, NIL, NULL, TOTAL_COST, false);
+		}
+		else
+		{
+			outer_cluster_pathlist = outerrel->cluster_pathlist;
+			outer_path = outerrel->cheapest_cluster_total_path;
+		}
+		set_all_join_inner_path(&jcontext, outer_path, innerrel->cluster_pathlist);
 		inner_path = get_cheapest_join_path(&jcontext,
-											outerrel->cheapest_cluster_total_path,
+											outer_path,
 											TOTAL_COST,
 											false,
 											&new_reduce_list);
 		if(inner_path)
 		{
-			outer_path = outerrel->cheapest_cluster_total_path;
 			sort_cluster_inner_and_outer(&jcontext, outer_path, inner_path, all_pathkeys, new_reduce_list);
 			if(PATH_REQ_OUTER(outer_path))
 			{
-				outer_path = get_cheapest_path_for_pathkeys(outerrel->cluster_pathlist, NIL, NULL, TOTAL_COST, false);
+				outer_path = get_cheapest_path_for_pathkeys(outer_cluster_pathlist, NIL, NULL, TOTAL_COST, false);
 				if(outer_path)
 				{
 					set_all_join_inner_path(&jcontext, outer_path, innerrel->cluster_pathlist);
@@ -1371,6 +1387,9 @@ sort_inner_and_outer(PlannerInfo *root,
 					sort_cluster_inner_and_outer(&jcontext, outer_path, inner_path, all_pathkeys, new_reduce_list);
 			}
 		}
+		if (outer_cluster_pathlist != outerrel->cluster_pathlist)
+			list_free(outer_cluster_pathlist);
+end_cluster_:
 		clear_cluster_join_clause(&jcontext);
 	}
 #endif /* ADB */
@@ -2543,12 +2562,49 @@ static Path* get_cheapest_join_path(ClusterJoinContext *jcontext,
 	return cheapest_inner_path;
 }
 
+static inline bool
+is_modifying_replicated_rel(int resultRelation, Relids relids, List *pathlist)
+{
+	ListCell   *lc = list_head(pathlist);
+
+	if (resultRelation != 0 &&
+		bms_is_member(resultRelation, relids) &&
+		IsReduceInfoListReplicated(get_reduce_info_list(lfirst(lc))))
+	{
+#ifdef USE_ASSERT_CHECKING
+		/* all paths should distribute by replicated */
+		for (lc = lnext(pathlist, lc); lc != NULL; lc = lnext(pathlist, lc))
+			Assert(IsReduceInfoListReplicated(get_reduce_info_list(lfirst(lc))));
+#endif
+		return true;
+	}
+
+	return false;
+}
+
+static List* get_replicated_path_list(List *list)
+{
+	Path	   *path;
+	ListCell   *lc;
+	List	   *result = NIL;
+
+	foreach (lc, list)
+	{
+		path = lfirst(lc);
+		if (IsReduceInfoListReplicated(get_reduce_info_list(path)))
+			result = lappend(result, path);
+	}
+
+	return result;
+}
+
 static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_path, List *inner_pathlist)
 {
 	List *outer_reduce_list = get_reduce_info_list(outer_path);
 	List *list = NIL;
 	List *restrictlist = jcontext->joinclauses;
 	ListCell *lc;
+	List *rep_exec = NIL;
 	JoinType jointype = jcontext->jointype;
 	bool have_upper_reference = jcontext->joinrel->have_upper_reference;
 
@@ -2561,6 +2617,13 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 	if (have_upper_reference &&
 		IsReduceInfoListReplicated(outer_reduce_list) == false)
 		return;
+
+	if (jcontext->root->parse->resultRelation != 0 &&
+		bms_is_member(jcontext->root->parse->resultRelation, jcontext->outerrel->relids) &&
+		IsReduceInfoListReplicated(outer_reduce_list))
+	{
+		rep_exec = ReduceInfoListGetExecuteOidList(outer_reduce_list);
+	}
 
 	foreach(lc, inner_pathlist)
 	{
@@ -2581,6 +2644,25 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 			IsReduceInfoListReplicated(inner_reduce_list) == false)
 			continue;
 
+		if (rep_exec != NIL)
+		{
+			ListCell *lc2;
+			List *exec;
+
+			if (IsReduceInfoListReplicated(inner_reduce_list) == false)
+				continue;
+
+			exec = ReduceInfoListGetExecuteOidList(inner_reduce_list);
+			for (lc2 = list_head(rep_exec); lc2 != NULL; lc2 = lnext(rep_exec, lc2))
+			{
+				if (list_member_oid(exec, lfirst_oid(lc2)) == false)
+					break;
+			}
+			list_free(exec);
+			if (lc2 != NULL)
+				continue;
+		}
+
 		if(reduce_info_list_can_join(outer_reduce_list,
 									 inner_reduce_list,
 									 restrictlist,
@@ -2590,6 +2672,8 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 			list = lappend(list, lfirst(lc));
 		}
 	}
+
+	list_free(rep_exec);
 
 	jcontext->inner_pathlist = list;
 }
@@ -2958,12 +3042,25 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 	Path *outer_path;
 	Path *inner_path;
 	List *new_reduce_list;
+	List *tmp_outer_plist;
 	bool tried;
 	if(outer_pathlist == NIL || inner_pathlist == NIL)
 		return false;
 
+	if (is_modifying_replicated_rel(jcontext->root->parse->resultRelation,
+									jcontext->innerrel->relids,
+									inner_pathlist))
+	{
+		if (outer_pathlist == jcontext->outerrel->pathlist)
+			return false;
+		tmp_outer_plist = get_replicated_path_list(outer_pathlist);
+	}else
+	{
+		tmp_outer_plist = outer_pathlist;
+	}
+
 	tried = false;
-	foreach(lc1, outer_pathlist)
+	foreach(lc1, tmp_outer_plist)
 	{
 		outer_path = (Path *) lfirst(lc1);
 
@@ -3141,6 +3238,10 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 			}
 		}
 	}
+
+	if (tmp_outer_plist != outer_pathlist)
+		list_free(tmp_outer_plist);
+
 	return tried;
 }
 
