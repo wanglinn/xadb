@@ -5957,8 +5957,6 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
-	ExecCloseIndices(estate->es_result_relations);
-
 	/* Close any trigger target relations */
 	ExecCleanUpTriggerState(estate);
 
