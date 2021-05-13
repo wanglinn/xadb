@@ -453,13 +453,10 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 {
 	ListCell *lc;
 	List *rte_list;
-	Relation *base_rels;
 	PlannedStmt *stmt;
-	RangeTblEntry *rte;
 	ParamListInfo paramLI;
 	StringInfoData buf;
 	int es_instrument;
-	int i,n;
 
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_RTE_LIST, &buf.len);
 	if(buf.data == NULL)
@@ -469,33 +466,16 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	buf.cursor = 0;
 	rte_list = (List*)loadNodeAndHook(&buf, LoadPlanHook, NULL);
 
-	n = list_length(rte_list);
-	base_rels = palloc(sizeof(Relation) * n);
-	for(i=0,lc=list_head(rte_list);lc!=NULL;lc=lnext(rte_list,lc),++i)
-	{
-		rte = lfirst(lc);
-		if(rte->rtekind == RTE_RELATION)
-			base_rels[i] = table_open(rte->relid, rte->rellockmode);
-		else
-			base_rels[i] = NULL;
-	}
-
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_PLAN_STMT, &buf.len);
 	if(buf.data == NULL)
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 			, errmsg("Can not find PlannedStmt")));
 	buf.maxlen = buf.len;
 	buf.cursor = 0;
-	stmt = (PlannedStmt*)loadNodeAndHook(&buf, LoadPlanHook, (void*)base_rels);
+	stmt = (PlannedStmt*)loadNodeAndHook(&buf, LoadPlanHook, (void*)rte_list);
 	stmt->rtable = rte_list;
 	foreach(lc, stmt->planTree->targetlist)
 		((TargetEntry*)lfirst(lc))->resjunk = false;
-	for(i=0;i<n;++i)
-	{
-		if(base_rels[i])
-			table_close(base_rels[i], NoLock);
-	}
-	pfree(base_rels);
 
 	buf.data = mem_toc_lookup(info, REMOTE_KEY_PARAM, &buf.len);
 	if(buf.data)
@@ -1068,7 +1048,9 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	case T_PlanRowMark:
 		{
 			PlanRowMark *prm = (PlanRowMark*)node;
-			if (((Relation*)context)[prm->rti-1] == NULL)
+			RangeTblEntry *rte = rt_fetch(prm->rti, (List*)context);
+			if (rte->rtekind == RTE_RELATION &&
+				rte->relid == InvalidOid)
 				prm->markType = ROW_MARK_ADBSPECIAL;
 		}
 		break;
@@ -1081,7 +1063,10 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			/* check column attribute */
 			Form_pg_attribute attr;
 			Var *var = (Var*)node;
-			Relation rel = ((Relation*)context)[var->varno-1];
+			/*
+			  context change to list of RangeTblEntry
+			  //Relation rel = ((Relation*)context)[var->varno-1];
+			 */
 			if(rel != NULL)
 			{
 				if(var->varattno > RelationGetNumberOfAttributes(rel))
