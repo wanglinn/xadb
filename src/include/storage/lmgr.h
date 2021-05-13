@@ -42,7 +42,8 @@ extern bool ConditionalLockRelationOid(Oid relid, LOCKMODE lockmode);
 extern void UnlockRelationId(LockRelId *relid, LOCKMODE lockmode);
 extern void UnlockRelationOid(Oid relid, LOCKMODE lockmode);
 #ifdef ADB
-extern LOCKMODE GetLocalLockedRelationOidMode(Oid relid);
+extern LOCKMASK GetAllLocalLockedRelationByOid(Oid relid);
+extern void LockRelationOidByMask(Oid relid, LOCKMASK mask);
 #endif /* ADB */
 
 extern void LockRelation(Relation relation, LOCKMODE lockmode);

@@ -779,10 +779,12 @@ LockIncrementIfExists(const LOCKTAG *locktag,
 	return (ret == LOCKACQUIRE_ALREADY_HELD);
 }
 
-LOCKMODE LockGetLocalLockedMode(const LOCKTAG *locktag)
+LOCKMASK
+LockGetAllLocalLocked(const LOCKTAG *locktag)
 {
 	LOCALLOCK  *locallock;
 	LOCALLOCKTAG localtag;
+	LOCKMASK	mask = 0;
 	bool found;
 
 	/*
@@ -791,16 +793,13 @@ LOCKMODE LockGetLocalLockedMode(const LOCKTAG *locktag)
 	MemSet(&localtag, 0, sizeof(localtag));		/* must clear padding */
 	localtag.lock = *locktag;
 
-#if (NoLock>0)
-#	error change code
-#endif
-	for(localtag.mode = AccessExclusiveLock;localtag.mode;--localtag.mode)
+	for(localtag.mode = MaxLockMode;localtag.mode>NoLock;--localtag.mode)
 	{
 		locallock = hash_search(LockMethodLocalHash, &localtag, HASH_FIND, &found);
 		if(found && locallock->nLocks > 0)
-			return localtag.mode;
+			mask |= LOCKBIT_ON(localtag.mode);
 	}
-	return NoLock;
+	return mask;
 }
 
 #endif

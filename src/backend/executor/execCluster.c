@@ -860,9 +860,9 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		{
 			RangeTblEntry *rte = (RangeTblEntry*)node;
 			Relation rel = table_open(rte->relid, NoLock);
-			LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
+			LOCKMASK locked_mask = GetAllLocalLockedRelationByOid(rte->relid);
 			RangeTblEntry tmp;
-			Assert(locked_mode != NoLock);
+			Assert(locked_mask != 0);
 
 			memcpy(&tmp, rte, sizeof(RangeTblEntry));
 			tmp.relid = InvalidOid;
@@ -885,7 +885,7 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 			/* save relation Oid */
 			SerializeRelationOid(buf, RelationGetRelid(rel));
 			table_close(rel, NoLock);
-			appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
+			appendBinaryStringInfo(buf, (char*)&locked_mask, sizeof(locked_mask));
 			return true;
 		}
 		break;
@@ -976,7 +976,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 			{
 				/* get relation oid */
 				List *oids;
-				LOCKMODE lock_mode;
+				LOCKMASK lock_mask;
 				bool missok;
 
 				/* load nodes */
@@ -988,9 +988,9 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 				rte->relid = RestoreRelationOid(buf, missok);
 
 				/* we must lock relation now */
-				pq_copymsgbytes(buf, (char*)&lock_mode, sizeof(lock_mode));
+				pq_copymsgbytes(buf, (char*)&lock_mask, sizeof(lock_mask));
 				if(OidIsValid(rte->relid))
-					LockRelationOid(rte->relid, lock_mode);
+					LockRelationOidByMask(rte->relid, lock_mask);
 				else
 					rte->rtekind = RTE_REMOTE_DUMMY;
 			}

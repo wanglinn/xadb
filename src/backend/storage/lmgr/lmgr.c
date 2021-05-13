@@ -140,13 +140,25 @@ LockRelationOid(Oid relid, LOCKMODE lockmode)
 
 #ifdef ADB
 
-LOCKMODE GetLocalLockedRelationOidMode(Oid relid)
+LOCKMASK
+GetAllLocalLockedRelationByOid(Oid relid)
 {
 	LOCKTAG		tag;
 	SetLocktagRelationOid(&tag, relid);
-	return LockGetLocalLockedMode(&tag);
+	return LockGetAllLocalLocked(&tag);
 }
 
+void
+LockRelationOidByMask(Oid relid, LOCKMASK mask)
+{
+	LOCKMODE lockmode;
+
+	for (lockmode = MaxLockMode; lockmode > NoLock; --lockmode)
+	{
+		if (mask & LOCKBIT_ON(lockmode))
+			LockRelationOid(relid, lockmode);
+	}
+}
 #endif /* ADB */
 
 /*
