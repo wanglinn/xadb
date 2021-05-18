@@ -82,7 +82,7 @@ void add_hba_table_to_file(char *coord_name);
 //extern HbaInfo* parse_hba_file(const char *filename);
 /*--------------------------------------------------------------------*/
 static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg);
-static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
+static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
 static void drop_hba_all(GetAgentCmdRst *err_msg);
 static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg);
 static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg);
@@ -485,7 +485,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 		if (!mgr_type_include(nodetype, type))
 			ereport(ERROR, (errmsg("the node's type is not right")));
 
-		mgr_add_hba_one(nodetype, nodename, NameStr(mgr_node->nodezone), hbastr, true, true, &err_msg);
+		mgr_add_hba_one(AGT_CMD_CNDN_ADD_PGHBACONF_TAIL, nodetype, nodename, NameStr(mgr_node->nodezone), hbastr, true, true, &err_msg);
 	}
 	/*step 3: show the state of operating drop hba commands */
 	tup_result = tuple_form_table_hba(&nodedataname
@@ -511,7 +511,7 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 		Assert(mgr_node);
 		if (!mgr_type_include(mgr_node->nodetype, type))
 			continue;
-		mgr_add_hba_one(mgr_node->nodetype, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)
+		mgr_add_hba_one(AGT_CMD_CNDN_ADD_PGHBACONF_TAIL, mgr_node->nodetype, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)
 			, hbastr, record_err_msg, true, err_msg);
 		record_err_msg = false;
 	}
@@ -520,7 +520,7 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 	table_close(rel, AccessShareLock);
 }
 
-static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
+static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
 {
 	AppendNodeInfo nodeinfo;
 
@@ -606,7 +606,7 @@ static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hba
 	if(list_length(list_elem) > 0)
 	{
 		/*step3: send msg to the specified coordinator to update datanode master's pg_hba.conf*/
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF
+		mgr_send_conf_parameters(cmd_type
 								,nodeinfo.nodepath
 								,&infosendmsg
 								,nodeinfo.nodehost
@@ -1092,7 +1092,7 @@ void add_hba_table_to_file(char *coord_name)
 		{
 			ereport(ERROR, (errmsg("illegal hba info \"%s\" of \"%s\", please check table mgr_hba", hba_value, NameStr(mgr_hba->nodename))));
 		}
-		mgr_add_hba_one(nodetype, (char *)coord_name, NameStr(zone), hba_value, true, false, &err_msg);
+		mgr_add_hba_one(AGT_CMD_CNDN_REFRESH_PGHBACONF, nodetype, (char *)coord_name, NameStr(zone), hba_value, true, false, &err_msg);
 		if (!err_msg.ret)
 		{
 			ereport(ERROR, (errmsg("add hba info \"%s\" to coordinator \"%s\"", hba_value, coord_name)));
@@ -1105,6 +1105,54 @@ void add_hba_table_to_file(char *coord_name)
 	pfree(err_msg.description.data);
 }
 
+void add_seprator_to_hba_file()
+{
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	char *cnuser;
+	char *cnaddress;
+	Form_mgr_node mgr_node;
+	HeapTuple tuple;
+	NameData self_address;
+	bool bgetAddress;
+	StringInfoData infosendhbamsg;
+	bool is_valid;
+	AppendNodeInfo nodeinfo;
+	GetAgentCmdRst getAgentCmdRst;
+	
+	initStringInfo(&infosendhbamsg);
+	initStringInfo(&getAgentCmdRst.description);
+	appendStringInfo(&infosendhbamsg, "%s%s%s", "\n", HBA_CONFIG_SEPARATOR, "\n");
+
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	/*for datanode or gtm or coordinator replication*/
+	rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		is_valid = get_active_node_info(mgr_node->nodetype, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone), &nodeinfo);
+		if (!is_valid)
+		{
+			heap_endscan(rel_scan);
+			heap_close(rel_node, AccessShareLock);
+			MgrFree(infosendhbamsg.data);
+			MgrFree(getAgentCmdRst.description.data);
+			ereport(ERROR, (errmsg("%s \"%s\" is not running normal"
+					, mgr_nodetype_str(mgr_node->nodetype),  NameStr(mgr_node->nodename))));
+		}
+		
+		mgr_send_conf_parameters(AGT_CMD_CNDN_ADD_PGHBACONF_SEPARATOR
+								,nodeinfo.nodepath
+								,&infosendhbamsg
+								,nodeinfo.nodehost
+								,&getAgentCmdRst);
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_node, AccessShareLock);
+	MgrFree(infosendhbamsg.data);
+	MgrFree(getAgentCmdRst.description.data);
+}
 /*
 	2,if coord_name == "*",it will check all the table,
 	else only select the nodname is coord_name in the table;

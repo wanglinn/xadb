@@ -89,8 +89,9 @@ static void cmd_get_sqlstring_stringvalues(char cmdtype, StringInfo buf);
 static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *address, char *dbname, char *sqlstring, StringInfo output);
 
 static void cmd_node_refresh_pghba_parse(AgentCommand cmd_type, StringInfo msg);
+static void cmd_node_refresh_pghba_parse_separator(StringInfo msg);
 static HbaInfo *cmd_refresh_pghba_confinfo(AgentCommand cmd_type, HbaInfo *checkinfo, HbaInfo *infohead, StringInfo err_msg);
-static void add_pghba_info_list(HbaInfo *infohead, HbaInfo *checkinfo);
+static void add_pghba_info_list(AgentCommand cmd_type, HbaInfo *infohead, HbaInfo *checkinfo);
 static HbaInfo *delete_pghba_info_from_list(HbaInfo *infohead, HbaInfo *checkinfo);
 static char *get_connect_type_str(HbaType connect_type);
 static bool check_pghba_exist_info(HbaInfo *checkinfo, HbaInfo *infohead);
@@ -173,6 +174,9 @@ void do_agent_command(StringInfo buf)
 	case AGT_CMD_CNDN_REFRESH_PGHBACONF:
 		cmd_node_refresh_pghba_parse(AGT_CMD_CNDN_ADD_PGHBACONF, buf);
 		break;
+	case AGT_CMD_CNDN_ADD_PGHBACONF_TAIL:
+		cmd_node_refresh_pghba_parse(AGT_CMD_CNDN_ADD_PGHBACONF_TAIL, buf);
+		break;
 	case AGT_CMD_CNDN_DELETE_PGHBACONF:
 		cmd_node_refresh_pghba_parse(AGT_CMD_CNDN_DELETE_PGHBACONF, buf);
 		break;
@@ -180,6 +184,8 @@ void do_agent_command(StringInfo buf)
 		cmd_node_refresh_pghba_parse(AGT_CMD_CNDN_DELETE_PGHBACONF, buf);
 		cmd_node_refresh_pghba_parse(AGT_CMD_CNDN_ADD_PGHBACONF, buf);
 		break;
+	case AGT_CMD_CNDN_ADD_PGHBACONF_SEPARATOR:
+		cmd_node_refresh_pghba_parse_separator(buf);
 	/*modify gtm|coordinator|datanode postgresql.conf and reload it*/
 	case AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD:
 		cmd_node_refresh_pgsql_paras(cmd_type, buf);
@@ -558,7 +564,7 @@ static void cmd_node_refresh_pghba_parse(AgentCommand cmd_type, StringInfo msg)
 	HbaInfo *newinfo, *infohead;
 	MemoryContext pgconf_context;
 	MemoryContext oldcontext;
-	Assert(AGT_CMD_CNDN_DELETE_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type);
+	Assert(AGT_CMD_CNDN_DELETE_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF_TAIL == cmd_type);
 
 	pgconf_context = AllocSetContextCreate(CurrentMemoryContext,
 										   "pghbaconf",
@@ -621,21 +627,77 @@ static void cmd_node_refresh_pghba_parse(AgentCommand cmd_type, StringInfo msg)
 	MemoryContextDelete(pgconf_context);
 }
 
+static void cmd_node_refresh_pghba_parse_separator(StringInfo msg)
+{
+	const char *rec_msg_string;
+	StringInfoData output;
+	StringInfoData err_msg;
+	StringInfoData infoparastr;
+	StringInfoData pgconffile;
+	char datapath[MAXPGPATH];
+	char *ptmp;
+	FILE *out_file;
+
+	rec_msg_string = agt_getmsgstring(msg);
+	initStringInfo(&infoparastr);
+	initStringInfo(&pgconffile);
+	initStringInfo(&output);
+	initStringInfo(&err_msg);
+	appendBinaryStringInfo(&infoparastr, &msg->data[msg->cursor], msg->len - msg->cursor);
+
+	/*get datapath*/
+	strcpy(datapath, rec_msg_string);
+	/*check file exists*/
+	appendStringInfo(&pgconffile, "%s/pg_hba.conf", datapath);
+	if(access(pgconffile.data, F_OK) !=0 )
+	{
+		ereport(ERROR, (errmsg("could not find: %s", pgconffile.data)));
+	}
+
+	if ((out_file = fopen(pgconffile.data, "a+")) == NULL)
+	{
+		fprintf(stderr, (": could not open file \"%s\" for writing: %s\n"),
+			pgconffile.data, strerror(errno));
+		exit(1);
+	}
+	if (fputs(infoparastr.data, out_file) < 0)
+	{
+		fprintf(stderr, (": could not write file \"%s\": %s\n"),
+			pgconffile.data, strerror(errno));
+		exit(1);
+	}
+	if (fclose(out_file))
+	{
+		fprintf(stderr, (": could not write file \"%s\": %s\n"),
+			pgconffile.data, strerror(errno));
+		exit(1);
+	}
+
+	/*send the result to the manager*/	
+	appendStringInfoString(&output, "success");
+	agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
+
+	agt_flush();
+	pfree(output.data);
+	pfree(err_msg.data);
+	pfree(pgconffile.data);
+}
+
 static HbaInfo *cmd_refresh_pghba_confinfo(AgentCommand cmd_type, HbaInfo *checkinfo, HbaInfo *infohead, StringInfo err_msg)
 {
 	bool is_exist;
 	char *strtype;
-	Assert(AGT_CMD_CNDN_DELETE_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type);
+	Assert(AGT_CMD_CNDN_DELETE_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF_TAIL == cmd_type);
 	Assert(checkinfo);
 	Assert(infohead);
 
 	is_exist = check_pghba_exist_info(checkinfo, infohead);
 	strtype = get_connect_type_str(checkinfo->type);
-	if(AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type)
+	if(AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type || AGT_CMD_CNDN_ADD_PGHBACONF_TAIL == cmd_type)
 	{
 		if(false == is_exist)
 		{
-			add_pghba_info_list(infohead, checkinfo);
+			add_pghba_info_list(cmd_type, infohead, checkinfo);
 		}
 /*		else
 		{
@@ -666,7 +728,7 @@ static HbaInfo *cmd_refresh_pghba_confinfo(AgentCommand cmd_type, HbaInfo *check
 	return infohead;
 }
 /*append the to the info list*/
-static void add_pghba_info_list(HbaInfo *infohead, HbaInfo *checkinfo)
+static void add_pghba_info_list(AgentCommand cmd_type, HbaInfo *infohead, HbaInfo *checkinfo)
 {
 	HbaInfo *infotail = infohead;
 	char *strtype;
@@ -740,11 +802,33 @@ static void add_pghba_info_list(HbaInfo *infohead, HbaInfo *checkinfo)
 	line[newinfo->method_loc+newinfo->method_len+1] = '\0';
 	newinfo->line = line;
 	newinfo->next = NULL;
-	while(infotail->next)
+	
+	if ( AGT_CMD_CNDN_ADD_PGHBACONF == cmd_type)  /* add node hba */
 	{
-		infotail = infotail->next;
+		bool sep_exist = false;
+		HbaInfo *infotmp = NULL;
+		while(infotail->next)
+		{
+			infotmp = infotail;
+			infotail = infotail->next;
+			if (strstr(infotail->line, HBA_CONFIG_SEPARATOR) != NULL)
+			{
+				sep_exist = true;
+				infotmp->next = newinfo;
+				newinfo->next = infotail;
+			}
+		}
+		if (!sep_exist)
+			infotail->next = newinfo;
 	}
-	infotail->next = newinfo;
+	else	/* add app hba */
+	{
+		while(infotail->next)
+		{
+			infotail = infotail->next;
+		}
+		infotail->next = newinfo;
+	}
 }
 static void cmd_node_refresh_standby_paras(StringInfo msg)
 {

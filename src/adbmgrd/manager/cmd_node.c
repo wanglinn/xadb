@@ -7194,6 +7194,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 
 	/*add content of hba table to the pg_hba.conf file ,the "*" is meaning all*/
 	add_hba_table_to_file("*");
+	add_seprator_to_hba_file();
 	/* get the content from coordinator and gtm, then insert into mgr_parm which used
 	* to check set parameters
 	*/
