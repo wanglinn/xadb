@@ -94,8 +94,8 @@ static TupleDesc get_tuple_desc_for_hba(void);
 static HeapTuple tuple_form_table_hba(const Name node_name, const char * values);
 static void delete_table_hba(char *coord_name, char *values);
 static bool check_hba_tuple_exist(char *coord_name, char *values);
-static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool record_err_msg);
-static bool is_auth_method_valid(char *method);
+static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool record_err_msg, int *is_trust);
+static bool is_auth_method_valid(char *method, int *is_trust);
 static List *parse_hba_list(List *args_list);
 static void joint_hba_send_str(char *hbavalue, StringInfo infosendmsg);
 static void joint_hba_table_str(char *hbavalue, StringInfo infomsg);
@@ -523,7 +523,6 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
 {
 	AppendNodeInfo nodeinfo;
-
 	ListCell *lc, *lc_elem;
 	List *list_elem = NIL;
 	List *args_list = NIL;
@@ -536,6 +535,7 @@ static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename
 	bool is_valid = false;
 	Datum datum[Natts_mgr_node];
 	bool isnull[Natts_mgr_node];
+	int is_trust = 0;
 	memset(datum, 0, sizeof(datum));
 	memset(isnull, 0, sizeof(isnull));
 
@@ -559,12 +559,15 @@ static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename
 	{
 		resetStringInfo(&hbainfomsg);
 		resetStringInfo(&hbasendmsg);
+		resetStringInfo(&infosendmsg);
+		resetStringInfo(&getAgentCmdRst.description);
+		is_trust = 0;
 		str = lfirst(lc);
 		joint_hba_send_str(str, &hbasendmsg);
 		joint_hba_table_str(str, &hbainfomsg);
 
 		/*check the hba value is valid*/
-		is_valid = check_pghbainfo_vaild(&hbasendmsg, &err_msg->description, record_err_msg);
+		is_valid = check_pghbainfo_vaild(&hbasendmsg, &err_msg->description, record_err_msg, &is_trust);
 		if(!is_valid)
 		{
 			if(true == record_err_msg)
@@ -600,29 +603,32 @@ static void mgr_add_hba_one(AgentCommand cmd_type, char nodetype, char *nodename
 		else
 		{
 			appendBinaryStringInfo(&infosendmsg, hbasendmsg.data, hbasendmsg.len);
-			list_elem = lappend(list_elem, str_elem);
-		}
-	}
-	if(list_length(list_elem) > 0)
-	{
-		/*step3: send msg to the specified coordinator to update datanode master's pg_hba.conf*/
-		mgr_send_conf_parameters(cmd_type
+			if (cmd_type == AGT_CMD_CNDN_ADD_PGHBACONF_TAIL && is_trust == 1)
+				cmd_type = AGT_CMD_CNDN_REFRESH_PGHBACONF;
+
+			/*step3: send msg to the specified coordinator to update datanode master's pg_hba.conf*/
+			mgr_send_conf_parameters(cmd_type
 								,nodeinfo.nodepath
 								,&infosendmsg
 								,nodeinfo.nodehost
 								,&getAgentCmdRst);
-		if (!getAgentCmdRst.ret)
-		{
-			appendStringInfo(&err_msg->description,"add hba %s execute in agent failure\n",nodename);
-			appendStringInfo(&err_msg->description,"hba info sync error\n");
-			err_msg->ret = false;
-		}
-		else
-		{
-			/*step4: execute pgxc_ctl reload to take effect for the new value in the pg_hba.conf  */
-			mgr_reload_conf(nodeinfo.nodehost, nodeinfo.nodepath);
+			if (!getAgentCmdRst.ret)
+			{
+				ereportWarningLog(errmsg("%s \"%s\" add hba fail"
+								, mgr_nodetype_str(nodetype), nodename));
+				appendStringInfo(&err_msg->description,"add hba %s execute in agent failure\n",nodename);
+				appendStringInfo(&err_msg->description,"hba info sync error\n");
+				err_msg->ret = false;
+				continue;
+			}
+
+			list_elem = lappend(list_elem, str_elem);
 		}
 	}
+	/*step4: execute pgxc_ctl reload to take effect for the new value in the pg_hba.conf  */
+	if(list_length(list_elem) > 0)
+		mgr_reload_conf(nodeinfo.nodehost, nodeinfo.nodepath);
+
 	/*check whether insert hba info into table*/
 	if (is_check_exist)
 	{
@@ -913,6 +919,7 @@ static void drop_hba_nodename_value(char *coord_name, char *hbavalue, GetAgentCm
 	StringInfoData infosendmsg;
 	bool isNull = false;
 	GetAgentCmdRst getAgentCmdRst;
+	int  is_trust = 0;
 
 	Assert(coord_name);
 	initStringInfo(&getAgentCmdRst.description);
@@ -953,7 +960,7 @@ static void drop_hba_nodename_value(char *coord_name, char *hbavalue, GetAgentCm
 		err_msg->ret = false;
 		return;
 	}
-	if(check_pghbainfo_vaild(&infosendmsg, &(err_msg->description), true) == false)
+	if(check_pghbainfo_vaild(&infosendmsg, &(err_msg->description), true, &is_trust) == false)
 	{
 		err_msg->ret = false;
 		appendStringInfo(&err_msg->description, "in the item \"%s\".\n",hbavalue);
@@ -1105,7 +1112,7 @@ void add_hba_table_to_file(char *coord_name)
 	pfree(err_msg.description.data);
 }
 
-void add_seprator_to_hba_file()
+void add_seprator_to_hba_file(void)
 {
 	Relation rel_node;
 	HeapScanDesc rel_scan;
@@ -1224,7 +1231,7 @@ static HbaType get_connect_type(char *str_type)
 	return conntype;
 }
 
-static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool record_err_msg)
+static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool record_err_msg, int *is_trust)
 {
 	bool is_valid = true;
 	HbaInfo *newinfo;
@@ -1318,7 +1325,7 @@ static bool check_pghbainfo_vaild(StringInfo hba_info, StringInfo err_msg, bool 
 		goto func_end;
 	}
 
-	if(!is_auth_method_valid(newinfo->auth_method))
+	if(!is_auth_method_valid(newinfo->auth_method, is_trust))
 	{
 		is_valid = false;
 		if(true == record_err_msg)
@@ -1331,7 +1338,7 @@ func_end:
 	return is_valid;
 }
 
-static bool is_auth_method_valid(char *method)
+static bool is_auth_method_valid(char *method, int *is_trust)
 {
 	char *AuthMethod[13] = {"trust", "reject", "md5", "password", "gss", "sspi"
 						  , "krb5", "ident", "ldap", "cert", "pam", "peer", "radius"};
@@ -1341,6 +1348,8 @@ static bool is_auth_method_valid(char *method)
 	method_lwr = str_tolower(method, strlen(method), DEFAULT_COLLATION_OID);
 	for(i = 0; i < 13; ++i)
 	{
+		if (strcmp(method_lwr, "trust") == 0)
+			*is_trust = 1;
 		if(strcmp(method_lwr, AuthMethod[i]) == 0)
 			return true;
 	}
