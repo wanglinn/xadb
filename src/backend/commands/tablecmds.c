@@ -135,6 +135,7 @@ static List *post_alter_table_actions = NIL;
 
 #ifdef ADB_GRAM_ORA
 extern bool auto_rename_sub_partition;
+static char* parent_partition_name;
 #endif /* ADB_GRAM_ORA */
 
 /*
@@ -1452,7 +1453,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		ObjectAddress	tmpAddr;
 		Relation		parentRel;
 		bool			relispartition = false;
+		bool			samepartition = true;
 		Oid				currentRelId;
+		PartitionElem  		   *parent_pe;
 
 		if (stmt->partspec == NULL)
 		{
@@ -1461,7 +1464,12 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					 errmsg("relation \"%s\" is not a partition table", stmt->relation->relname)));
 
 		}
-
+		
+		if(parent_partition_name == NULL)
+		{
+			parent_pe = (PartitionElem*)lfirst(list_head(stmt->partspec->partParams));
+			parent_partition_name = pstrdup(parent_pe->name);
+		}
 		currentRelId = RangeVarGetRelid(stmt->relation, NoLock, false);
 		parentRel = RelationIdGetRelation(currentRelId);
 		if (RelationIsValid(parentRel))
@@ -1473,8 +1481,13 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				Datum					datum;
 				bool					isnull;
 				PartitionBoundSpec	   *bspec, *tmpSpc;
+				PartitionElem  		   *pe;
+				char		   		   *partition_element_name;
 
 				tmpSpc = ((CreateStmt *) linitial(stmt->child_rels))->partbound;
+
+				pe = (PartitionElem*)lfirst(list_head(stmt->partspec->partParams));
+				partition_element_name = pe->name;
 				if (tmpSpc->lowerdatums == NIL)
 				{
 					tuple = SearchSysCache1(RELOID, currentRelId);
@@ -1495,6 +1508,10 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					
 					if (bspec->strategy == PARTITION_STRATEGY_RANGE)
 					{
+						if(strcmp(partition_element_name,parent_partition_name) != 0)
+						{
+							samepartition = false;
+						}
 						tmpSpc->lowerdatums = copyObjectImpl(bspec->lowerdatums);
 					}
 					ReleaseSysCache(tuple);
@@ -1506,7 +1523,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 		/* user maybe using "VALUES LESS THAN (...)", it is not have min values */
 		last_range_upperdatums = NIL;
-		if (pg_strcasecmp(stmt->partspec->strategy, "range") == 0 && !relispartition)
+		if (pg_strcasecmp(stmt->partspec->strategy, "range") == 0 && (!relispartition || !samepartition))
 		{
 			int n = list_length(stmt->partspec->partParams);
 			while(n>0)
@@ -1573,7 +1590,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 							 pos >= 0 ? errposition(pos):0));
 				}
 
-				if (partbound->lowerdatums == NIL)
+				if (partbound->lowerdatums == NIL || !samepartition)
 				{
 					tmpStmt.partbound = palloc(sizeof(PartitionBoundSpec));
 					memcpy(tmpStmt.partbound, child->partbound, sizeof(PartitionBoundSpec));
