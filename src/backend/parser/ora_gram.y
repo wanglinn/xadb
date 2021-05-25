@@ -4687,7 +4687,9 @@ ora_part_child:
 SubPartitionTemplate:
 			SUBPARTITION_TEMPLATE '(' ora_subpart_child_list ')'
 				{
-					$$ = $3;
+					ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("syntax error")));
 				}
 			|  /*EMPTY*/
 				{
