@@ -57,6 +57,7 @@ const char	*nodename;
 #define target_nodename	nodename
 /* source node name */
 const char	*source_nodename;
+bool	backup = false;
 #endif
 
 /* Configuration options */
@@ -122,6 +123,7 @@ main(int argc, char **argv)
 #ifdef ADB
 		{"target-nodename", required_argument, NULL, 'T'},
 		{"source-nodename", required_argument, NULL, 'S'},
+		{"backup-file",     no_argument,       NULL, 'B'},
 #endif
 		{"no-ensure-shutdown", no_argument, NULL, 4},
 		{"version", no_argument, NULL, 'V'},
@@ -171,7 +173,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	while ((c = getopt_long(argc, argv, "cD:nNPR" ADB_ONLY_CODE("T:S:"), long_options, &option_index)) != -1)
+	while ((c = getopt_long(argc, argv, "cD:nNPR" ADB_ONLY_CODE("B") ADB_ONLY_CODE("T:S:"), long_options, &option_index)) != -1)
 	{
 		switch (c)
 		{
@@ -203,6 +205,9 @@ main(int argc, char **argv)
 					fprintf(stderr, _("Invalid source node name \"%s\""), source_nodename);
 					exit(1);
 				}
+				break;
+			case 'B':
+				backup = true;
 				break;
 #endif
 
@@ -420,6 +425,10 @@ main(int argc, char **argv)
 		exit(0);
 	}
 
+#ifdef ADB
+	if (backup)
+		open_rewind_file();
+#endif
 	findLastCheckpoint(datadir_target, divergerec, lastcommontliIndex,
 					   &chkptrec, &chkpttli, &chkptredo, restore_command);
 	pg_log_info("rewinding from last common checkpoint at %X/%X on timeline %u",
@@ -508,16 +517,39 @@ main(int argc, char **argv)
 	ControlFile_new.minRecoveryPointTLI = endtli;
 	ControlFile_new.state = DB_IN_ARCHIVE_RECOVERY;
 	if (!dry_run)
+	{
+#ifdef ADB
+		if (backup)
+			record_operator_copy(XLOG_CONTROL_FILE);
+#endif
 		update_controlfile(datadir_target, &ControlFile_new, do_sync);
+	}
 
 	if (showprogress)
 		pg_log_info("syncing target data directory");
 	syncTargetDirectory();
 
 	if (writerecoveryconf && !dry_run)
+	{
+#ifdef ADB
+		if (backup)
+		{
+			bool use_recovery_conf = (PQserverVersion(conn) < MINIMUM_VERSION_FOR_RECOVERY_GUC);
+			if (use_recovery_conf)
+				record_operator_copy("recovery.conf");
+			else
+				record_operator_copy("postgresql.auto.conf");
+		}
+#endif
+
 		WriteRecoveryConfig(conn, datadir_target,
 							GenerateRecoveryConfig(conn, NULL));
+	}
 
+#ifdef ADB
+	if (backup)
+		close_rewind_file();
+#endif
 	pg_log_info("Done!");
 
 	return 0;

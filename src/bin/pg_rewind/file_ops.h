@@ -22,4 +22,15 @@ extern void remove_target(file_entry_t *t);
 
 extern char *slurpFile(const char *datadir, const char *path, size_t *filesize);
 
+
+#ifdef ADB
+extern void record_operator_create(file_entry_t *entry);
+extern void record_operator_copy(char *old_file);
+extern void record_operator_copytail(char *old_file);
+extern void record_operator_remove(file_entry_t *entry);
+extern void record_operator_truncate(char *old_file);
+extern void open_rewind_file(void);
+extern void close_rewind_file(void);
+#endif
+
 #endif							/* FILE_OPS_H */

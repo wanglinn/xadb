@@ -1,6 +1,8 @@
 
 #include "postgres.h"
 
+#include <sys/stat.h>
+#include <unistd.h>
 #include "access/htup_details.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
@@ -20,6 +22,7 @@
 #include "utils/fmgroids.h"
 #include "executor/spi.h"
 #include "utils/snapmgr.h"
+#include "miscadmin.h"
 
 #define MAXLINE (8192-1)
 #define MAXPATH (512-1)
@@ -28,7 +31,12 @@
 #define SQL_PG_IS_IN_RECOVERY "select pg_is_in_recovery()"
 #define SQL_PG_QUERY_STARTTIME "select pg_postmaster_start_time()"
 
+#define ADB_REWIND_TMP_DIR				"_rewind"
+#define ADB_REWIND_FILE					"rewind.sh"
+
 char *mgr_zone;
+
+extern bool enable_rewind_backup;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -46,6 +54,12 @@ static struct enum_recovery_status enum_recovery_status_tab[] =
 	{-1, NULL}
 };
 
+typedef struct RewindWrapper
+{
+	char rewindcmd[MAXPGPATH];
+	dlist_node link;
+} RewindWrapper;
+
 #define format_lsn(x) (uint32) (x >> 32), (uint32) x
 
 static TupleDesc common_command_tuple_desc = NULL;
@@ -61,6 +75,11 @@ static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sql
 static XLogRecPtr parse_lsn(const char *str);
 static TupleDesc get_list_nodesize_tuple_desc(void);
 static int mgr_send_node_message_to_agent(char *host_addr, int32 agent_port, char *node_port, char *node_user, char *pid_file_path);
+
+static void restore_node(char *nodepath);
+static void create_rewind_dir(char *nodepath);
+static void delete_rewind_dir(char *nodepath);
+static char *get_nodepath_bytuple(HeapTuple node_tuple, Relation rel_node);
 
 bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
 HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
@@ -1386,6 +1405,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	Form_mgr_host mgr_host;
 	Datum datumPath;
 	NameData masterNameData;
+	char *nodepath = NULL;
 	/*check node type*/
 	if (!isSlaveNode(nodetype, false))
 	{
@@ -1417,6 +1437,11 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	user = get_hostuser_from_hostoid(mgr_node->nodehost);
 	memset(portBuf, 0, 10);
 	snprintf(portBuf, sizeof(portBuf), "%d", mgr_node->nodeport);
+
+    nodepath = get_nodepath_bytuple(tuple, rel_node);
+	restore_node(nodepath);
+	create_rewind_dir(nodepath);
+
 	/*restart the node then stop it with fast mode*/
 	initStringInfo(&(getAgentCmdRst.description));
 	ereport(NOTICE, (errmsg("pg_ctl restart %s \"%s\"", nodetypestr, nodename)));
@@ -1698,7 +1723,17 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	pg_usleep(3000000L);
 	/*node rewind*/
 	resetStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg,
+	if (enable_rewind_backup)
+		appendStringInfo(&infosendmsg,
+						" --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s -B",
+						slave_nodeinfo.nodepath,
+						master_nodeinfo.nodeaddr,
+						master_nodeinfo.nodeport,
+						slave_nodeinfo.nodeusername,
+						nodename,
+						master_nodeinfo.nodename);
+	else
+		appendStringInfo(&infosendmsg,
 					 " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s",
 					 slave_nodeinfo.nodepath,
 					 master_nodeinfo.nodeaddr,
@@ -1708,23 +1743,29 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 					 master_nodeinfo.nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
-	if (res && slave_nodeinfo.nodetype  == CNDN_TYPE_DATANODE_SLAVE)
+	if (res)
 	{
-		/*connect to master create replication slot*/
-		dn_master_replication_slot(master_nodeinfo.nodename,slave_nodeinfo.nodename,'c');
-		/*update primary_slot_name of slave node's recovery.conf*/
-		resetStringInfo(&infosendmsg);
-		resetStringInfo(&(getAgentCmdRst.description));
-		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", slave_nodeinfo.nodename, &infosendmsg);
-		mgr_send_conf_parameters_recovery(slave_nodeinfo.nodepath,
-											&infosendmsg,
-											slave_nodeinfo.nodehost,
-											&getAgentCmdRst);
-		if (!getAgentCmdRst.ret)
+		delete_rewind_dir(nodepath);
+
+		if (slave_nodeinfo.nodetype  == CNDN_TYPE_DATANODE_SLAVE)
 		{
-			ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
+			/*connect to master create replication slot*/
+			dn_master_replication_slot(master_nodeinfo.nodename,slave_nodeinfo.nodename,'c');
+			/*update primary_slot_name of slave node's recovery.conf*/
+			resetStringInfo(&infosendmsg);
+			resetStringInfo(&(getAgentCmdRst.description));
+			mgr_append_pgconf_paras_str_quotastr("primary_slot_name", slave_nodeinfo.nodename, &infosendmsg);
+			mgr_send_conf_parameters_recovery(slave_nodeinfo.nodepath,
+												&infosendmsg,
+												slave_nodeinfo.nodehost,
+												&getAgentCmdRst);
+			if (!getAgentCmdRst.ret)
+			{
+				ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
+			}
 		}
 	}
+
 	pfree(getAgentCmdRst.description.data);
 	pfree(restmsg.data);
 	pfree(infosendmsg.data);
@@ -4133,4 +4174,115 @@ bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8])
 		}
 	}
 	return found;
+}
+/* restore node data from rewind backup file */
+static void
+restore_node(char *nodepath)
+{
+	char 	datadir_rewind[MAXPGPATH] = {0};
+	char 	rewindCmd[MAXPGPATH] = {0};
+	FILE    *rewind_file = NULL;
+	dlist_head rewinds = DLIST_STATIC_INIT(rewinds);
+	RewindWrapper 		*rewindNode;
+	dlist_iter 			iter;
+	dlist_mutable_iter  miter;
+	
+	if (!enable_rewind_backup)
+		return;
+
+	snprintf(datadir_rewind, MAXPGPATH, 
+			"%s%s/%s",
+			nodepath, ADB_REWIND_TMP_DIR, ADB_REWIND_FILE);
+	if (access(datadir_rewind, F_OK) == -1)
+		return;
+	
+	rewind_file = fopen(datadir_rewind, "a+");
+	if (rewind_file == NULL)
+		ereportErrorLog(errmsg("could not create file \"%s\": %m", datadir_rewind));
+
+	ereportNoticeLog(errmsg("begin to restore rewind file by file(%s)", datadir_rewind));
+
+	while(fgets(rewindCmd, MAXPGPATH-1, rewind_file) != NULL)
+	{
+		rewindNode = palloc0(sizeof(RewindWrapper));
+		strncpy(rewindNode->rewindcmd, rewindCmd, strlen(rewindCmd)-1);
+		dlist_push_head(&rewinds, &rewindNode->link);
+		memset(rewindCmd, 0, MAXPGPATH);
+	}
+
+	dlist_foreach(iter, &rewinds)
+	{
+		rewindNode = dlist_container(RewindWrapper, link, iter.cur);
+		if (system(rewindNode->rewindcmd) == -1)
+		{
+			fclose(rewind_file);
+			rewind_file = NULL;
+			ereportErrorLog(errmsg("restore_node system \"%s\" fail: %m", rewindNode->rewindcmd));
+		}
+	}
+
+	dlist_foreach_modify(miter, &rewinds)
+	{
+		rewindNode = dlist_container(RewindWrapper, link, miter.cur);
+		dlist_delete(miter.cur);
+		if (rewindNode)
+		{
+			pfree(rewindNode);
+			rewindNode = NULL;
+		}		
+	}
+
+	fclose(rewind_file);
+	rewind_file = NULL;
+}
+
+static void
+create_rewind_dir(char *nodepath)
+{
+	char 	path[MAXPGPATH] = {0};
+	if (!enable_rewind_backup)
+		return;
+	
+	snprintf(path, MAXPGPATH, 
+			"%s%s",
+			nodepath, ADB_REWIND_TMP_DIR);
+	if (access(path, F_OK) == 0)
+		delete_rewind_dir(nodepath);
+
+	if (mkdir(path, S_IRWXU) != 0)
+		ereportErrorLog(errmsg("could not create directory \"%s\": %m", path));
+}
+
+static void
+delete_rewind_dir(char *nodepath)
+{
+	char 	path[MAXPGPATH] = {0};
+
+	if (!enable_rewind_backup)
+		return;
+
+	snprintf(path, MAXPGPATH, 
+			"rm -rf %s%s;",
+			nodepath, ADB_REWIND_TMP_DIR);	
+	if (system(path) == -1)
+		ereportErrorLog(errmsg("could not remove directory \"%s\": %m", path));
+	return;
+}
+
+static char *
+get_nodepath_bytuple(HeapTuple node_tuple, Relation rel_node)
+{
+	bool isNull = false;
+	Datum datumPath;
+	char *node_path;
+
+	datumPath = heap_getattr(node_tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
+	if(isNull)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_nodetmp")
+			, errmsg("column cndnpath is null")));
+	}
+	node_path = TextDatumGetCString(datumPath);
+	return node_path;	
 }

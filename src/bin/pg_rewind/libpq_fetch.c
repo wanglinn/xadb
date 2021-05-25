@@ -26,6 +26,7 @@
 PGconn	   *conn = NULL;
 #if defined ADB
 extern char *source_nodename;
+extern bool backup;
 #endif
 
 /*
@@ -498,23 +499,43 @@ libpq_executeFileMap(filemap_t *map)
 
 			case FILE_ACTION_COPY:
 				/* Truncate the old file out of the way, if any */
+#ifdef ADB
+				if (backup)
+					record_operator_copy(entry->path);
+#endif
 				open_target_file(entry->path, true);
 				fetch_file_range(entry->path, 0, entry->newsize);
 				break;
 
 			case FILE_ACTION_TRUNCATE:
+#ifdef ADB
+				if (backup)
+					record_operator_truncate(entry->path);
+#endif
 				truncate_target_file(entry->path, entry->newsize);
 				break;
 
 			case FILE_ACTION_COPY_TAIL:
+#ifdef ADB
+				if (backup)
+					record_operator_copytail(entry->path);
+#endif
 				fetch_file_range(entry->path, entry->oldsize, entry->newsize);
 				break;
 
 			case FILE_ACTION_REMOVE:
+#ifdef ADB
+				if (backup)
+					record_operator_remove(entry);
+#endif
 				remove_target(entry);
 				break;
 
 			case FILE_ACTION_CREATE:
+#ifdef ADB
+				if (backup)
+					record_operator_create(entry);
+#endif
 				create_target(entry);
 				break;
 		}

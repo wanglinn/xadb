@@ -37,6 +37,15 @@ static void remove_target_symlink(const char *path);
 #ifdef ADB
 extern const char *target_nodename;
 extern const char *source_nodename;
+
+FILE *rewind_file = NULL;
+
+#define ADB_REWIND_TMP_DIR				"_rewind"
+#define ADB_REWIND_FILE					"rewind.sh"
+
+char	datadir_rewind[MAXPGPATH] = {0};
+
+static void create_dir_sequence(char *old_path);
 #endif
 /*
  * Open a target file for writing. If 'trunc' is true and the file already
@@ -336,3 +345,189 @@ slurpFile(const char *datadir, const char *path, size_t *filesize)
 		*filesize = len;
 	return buffer;
 }
+
+
+#ifdef ADB
+void 
+record_operator_create(file_entry_t *entry)
+{
+	char restore_cmd[MAXPGPATH] = {0};
+	Assert(entry->action == FILE_ACTION_CREATE);
+
+	switch (entry->type)
+	{
+		case FILE_TYPE_DIRECTORY:
+			snprintf(restore_cmd, sizeof(restore_cmd), "rm -rf %s/%s;\n", datadir_target, entry->path);
+			if (fputs(restore_cmd, rewind_file) == EOF)
+				pg_fatal("fputs \"%s\" to rewind.sh fail.", restore_cmd);
+			break;
+
+		case FILE_TYPE_SYMLINK:
+			snprintf(restore_cmd, sizeof(restore_cmd), "unlink %s/%s;\n", datadir_target, entry->path);
+			if (fputs(restore_cmd, rewind_file) == EOF)
+				pg_fatal("fputs \"%s\" to rewind.sh fail.", restore_cmd);
+			break;
+
+		case FILE_TYPE_REGULAR:
+			/* can't happen. Regular files are created with open_target_file. */
+			pg_fatal("invalid action (CREATE) for regular file");
+			break;
+	}
+	if(fflush(rewind_file) != 0)
+		pg_fatal("fflush failed in the process of record_operator_create");
+}
+
+void
+record_operator_copy(char *old_file)
+{
+	char old_path[MAXPGPATH] = {0};
+	char new_path[MAXPGPATH] = {0};
+	char backup_cmd[MAXPGPATH] = {0};
+	char restore_cmd[MAXPGPATH*2] = {0};
+	bool exist = false;
+
+	Assert(old_file);
+	create_dir_sequence(old_file);
+
+    /* backup old_file */
+	snprintf(old_path, MAXPGPATH, "%s/%s", datadir_target, old_file);	
+	if (access(old_path, F_OK) != -1)
+		exist = true;
+
+	if (exist)
+	{
+		snprintf(new_path, MAXPGPATH, "%s/%s", datadir_rewind, old_file);
+		snprintf(backup_cmd, sizeof(backup_cmd), "cp %s %s", old_path, new_path);
+		if (system(backup_cmd) == -1)
+			pg_fatal("system exec cmd \"%s\" fail.", backup_cmd);
+	}
+
+	/* record restore cmd */
+	if (exist)
+		snprintf(restore_cmd, sizeof(restore_cmd), 
+				"rm -rf %s; cp %s %s;\n",
+				old_path, new_path, old_path);
+	else
+		snprintf(restore_cmd, sizeof(restore_cmd), 
+				"rm -rf %s;\n",
+				old_path);
+	if (fputs(restore_cmd, rewind_file) == EOF)
+		pg_fatal("fputs \"%s\" to rewind.sh fail.", restore_cmd);
+
+	if(fflush(rewind_file) != 0)
+		pg_fatal("fflush failed in the process of record_operator_copy");
+
+	return;
+}
+
+void 
+record_operator_truncate(char *old_file)
+{
+	record_operator_copy(old_file);
+	return;
+}
+
+void 
+record_operator_copytail(char *old_file)
+{
+	record_operator_copy(old_file);
+	return;
+}
+
+void 
+record_operator_remove(file_entry_t *entry)
+{
+	char old_path[MAXPGPATH] = {0};
+	char new_path[MAXPGPATH] = {0};
+	char backup_cmd[MAXPGPATH] = {0};
+	char restore_cmd[MAXPGPATH*2] = {0};
+
+	Assert(entry->action == FILE_ACTION_REMOVE);
+	switch (entry->type)
+	{
+		case FILE_TYPE_DIRECTORY:
+			snprintf(restore_cmd, sizeof(restore_cmd), "mkdir %s/%s;\n", datadir_target, entry->path);
+			if (fputs(restore_cmd, rewind_file) == EOF)
+				pg_fatal("fputs \"%s\" to rewind.sh fail.", restore_cmd);
+			break;
+
+		case FILE_TYPE_REGULAR:
+		case FILE_TYPE_SYMLINK:
+			snprintf(old_path, sizeof(old_path), "%s/%s", datadir_target, entry->path);
+			if (access(old_path, F_OK) == 0)
+			{
+				create_dir_sequence(entry->path);
+				snprintf(new_path, sizeof(new_path), "%s/%s", datadir_rewind, entry->path);
+				snprintf(backup_cmd, sizeof(backup_cmd), "cp %s %s;", old_path, new_path);
+				if (system(backup_cmd) == -1)
+					pg_fatal("system exec cmd \"%s\" fail.", backup_cmd);
+
+				/* record restore cmd */
+				snprintf(restore_cmd, sizeof(restore_cmd), 
+						"rm -rf %s; cp %s  %s\n",
+						old_path, new_path, old_path);
+				if (fputs(restore_cmd, rewind_file) == EOF)
+					pg_fatal("fputs \"%s\" to rewind.sh fail.", restore_cmd);
+			}
+			break;
+	}
+
+	if(fflush(rewind_file) != 0)
+		pg_fatal("fflush failed in the process of record_operator_remove");
+	
+	return;
+}
+
+void 
+open_rewind_file()
+{
+	char path[MAXPGPATH] = {0};
+	snprintf(datadir_rewind, MAXPGPATH, 
+			"%s%s",
+			datadir_target, ADB_REWIND_TMP_DIR);
+	snprintf(path, MAXPGPATH, "%s/%s", datadir_rewind, ADB_REWIND_FILE);
+	rewind_file = fopen(path, "wb+");
+	if (rewind_file == NULL)
+		pg_fatal("could not open file \"%s\": %m",
+				path);
+}
+
+void 
+close_rewind_file()
+{
+	if (rewind_file != NULL)
+	{
+		fclose(rewind_file);
+		rewind_file = NULL;
+	}
+}
+
+/* create the sub dir of node_rewind */
+static void create_dir_sequence(char *old_path)
+{
+	char *begin = old_path;
+	char *end = NULL;
+	char tmp_path[MAXPGPATH] = {0};
+	char dir_path[MAXPGPATH] = {0};
+		
+	while(begin != NULL)
+	{
+		end = strstr(begin, "/");
+		if (end == NULL)
+			return;
+
+		memset(dir_path, 0, sizeof(dir_path));
+		memset(tmp_path, 0, sizeof(tmp_path));
+		strncpy(dir_path, old_path, end-old_path);
+		snprintf(tmp_path, sizeof(tmp_path), "%s/%s", datadir_rewind, dir_path);
+		if (access(tmp_path, F_OK) == -1)
+		{
+			if (mkdir(tmp_path, PG_DIR_MODE_OWNER) != 0)
+				pg_fatal("could not create directory \"%s\": %m",
+						tmp_path);
+		}
+		begin =  end + 1;
+	}
+}
+
+#endif
