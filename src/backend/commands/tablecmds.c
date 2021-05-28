@@ -685,6 +685,99 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		master_relid = RelationGetRelid(master_rel);
 	}
 #endif
+#ifdef ADB_GRAM_ORA
+	/**
+	 * For sub partitioned tables with partitioned sub tables,
+	 * if the partition information is missing,
+	 * the partition information needed should be
+	 * generated according to the partition key of the parent table.
+	 */
+	if (stmt->grammar == PARSE_GRAM_ORACLE &&
+		stmt->child_rels != NIL &&
+		stmt->inhRelations != NIL &&
+		stmt->partspec == NULL)
+	{
+		PartitionSpec  *spec;
+		Relation		parent;
+		Relation		catalog;
+		HeapTuple		inheritsTuple;
+		SysScanDesc		scan;
+		ScanKeyData		scankey[1];
+		RangeVar	   *var;
+		PartitionKey	key;
+		List		   *part_elem = NIL;
+		int				i;
+		Oid				parentreloid;
+		Oid				partitionreloid;
+		char		   *partition_name = NULL;
+
+		Assert(list_length(stmt->inhRelations) == 1);
+		var = (RangeVar*) linitial(stmt->inhRelations);
+		parentreloid = RelnameGetRelid(var->relname);
+		
+		/*scan pg_inherits system table to search all children*/
+		catalog = table_open(InheritsRelationId, AccessShareLock);
+		ScanKeyInit(&scankey[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentreloid));
+		scan = systable_beginscan(catalog, InheritsParentIndexId, true, NULL, 1, scankey);
+		while ((inheritsTuple = systable_getnext(scan)) != NULL)
+		{
+			partitionreloid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
+			parent = RelationIdGetRelation(partitionreloid);
+			key = RelationGetPartitionKey(parent);
+		
+			if(!key)
+				elog(ERROR, "unexpected subpartition table relioid: %d", (int)partitionreloid);
+			
+			for (i = 0; i < key->partnatts; i++)
+			{
+				if(!partition_name)
+					partition_name = get_attname(RelationGetRelid(parent),key->partattrs[i], false);
+				else
+				{
+					if(strcmp(partition_name,get_attname(RelationGetRelid(parent),key->partattrs[i], false)) == 0)
+						continue;
+					else
+						elog(ERROR, "subpartition with different partition key");	
+				}
+			}
+			RelationClose(parent);
+		}
+		systable_endscan(scan);
+		table_close(catalog, AccessShareLock);
+
+		/* construct PartitionSpec info*/
+		if(partition_name)
+		{
+			PartitionElem *n = makeNode(PartitionElem);
+			n->name = partition_name;
+			n->location = -1;
+			part_elem = lappend(part_elem, n);
+			spec = makeNode(PartitionSpec);
+			switch (key->strategy)
+			{
+				case PARTITION_STRATEGY_HASH:
+					spec->strategy = pstrdup("hash");
+					break;
+				case PARTITION_STRATEGY_LIST:
+					spec->strategy = pstrdup("list");
+					break;
+				case PARTITION_STRATEGY_RANGE:
+					spec->strategy = pstrdup("range");
+					break;
+				default:
+					elog(ERROR, "unexpected partition strategy: %d",
+						(int) key->strategy);
+			}
+
+			spec->partParams = part_elem;
+			spec->location = -1;
+			stmt->partspec = spec;
+
+			if (stmt->relation->relpersistence != RELKIND_PARTITIONED_TABLE)
+				elog(ERROR, "unexpected relkind: %d", (int) stmt->relation->relpersistence);
+		}
+	}
+#endif	/* ADB_GRAM_ORA */
 
 	/*
 	 * Truncate relname to appropriate length (probably a waste of time, as
@@ -711,69 +804,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	}
 	else
 		partitioned = false;
-#ifdef ADB_GRAM_ORA
-	/**
-	 * For sub partitioned tables with partitioned sub tables,
-	 * if the partition information is missing,
-	 * the partition information needed should be
-	 * generated according to the partition key of the parent table.
-	 */
-	if (stmt->grammar == PARSE_GRAM_ORACLE &&
-		stmt->child_rels != NIL &&
-		stmt->inhRelations != NIL &&
-		stmt->partspec == NULL)
-	{
-		PartitionSpec  *spec;
-		Relation		parent;
-		RangeVar	   *var;
-		PartitionKey	key;
-		List		   *part_elem = NIL;
-		int				i;
-
-		Assert(list_length(stmt->inhRelations) == 1);
-		var = (RangeVar*) linitial(stmt->inhRelations);
-		parent = RelationIdGetRelation(RelnameGetRelid(var->relname));
-		key = RelationGetPartitionKey(parent);
-		if (key)
-		{
-			for (i = 0; i < key->partnatts; i++)
-			{
-				PartitionElem *n = makeNode(PartitionElem);
-				n->name = get_attname(RelationGetRelid(parent),
-										key->partattrs[i], false);
-				n->location = -1;
-				part_elem = lappend(part_elem, n);
-			}
-			RelationClose(parent);
-
-			spec = makeNode(PartitionSpec);
-			switch (key->strategy)
-			{
-				case PARTITION_STRATEGY_HASH:
-					spec->strategy = pstrdup("hash");
-					break;
-				case PARTITION_STRATEGY_LIST:
-					spec->strategy = pstrdup("list");
-					break;
-				case PARTITION_STRATEGY_RANGE:
-					spec->strategy = pstrdup("range");
-					break;
-				default:
-					elog(ERROR, "unexpected partition strategy: %d",
-						(int) key->strategy);
-			}
-
-			spec->partParams = part_elem;
-			spec->location = -1;
-
-			stmt->partspec = spec;
-
-			if (stmt->relation->relpersistence != RELKIND_PARTITIONED_TABLE)
-				elog(ERROR, "unexpected relkind: %d", (int) stmt->relation->relpersistence);
-			relkind = RELKIND_PARTITIONED_TABLE;
-		}
-	}
-#endif	/* ADB_GRAM_ORA */
 
 	/*
 	 * Look up the namespace in which we are supposed to create the relation,
