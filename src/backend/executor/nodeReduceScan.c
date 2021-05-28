@@ -69,10 +69,9 @@ static TupleTableSlot *ExecReduceScan(PlanState *pstate)
 			continue;
 		}
 
-		ExecStoreMinimalTuple(mtup, scan_slot, false);
-		econtext->ecxt_outertuple = econtext->ecxt_scantuple = scan_slot;
+		econtext->ecxt_outertuple = ExecStoreMinimalTuple(mtup, scan_slot, false);
 		if (ExecQual(qual, econtext))
-			return projInfo ? ExecProject(projInfo) : scan_slot;
+			return ExecProject(projInfo);
 
 		InstrCountFiltered1(node, 1);
 		ResetExprContext(econtext);
@@ -82,7 +81,7 @@ static TupleTableSlot *ExecReduceScan(PlanState *pstate)
 ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags)
 {
 	Plan	   *outer_plan;
-	TupleDesc	tupDesc;
+	PlanState  *outer_ps;
 	ReduceScanState *rcs = makeNode(ReduceScanState);
 
 	rcs->ps.plan = (Plan*)node;
@@ -96,22 +95,21 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	 */
 	ExecAssignExprContext(estate, &rcs->ps);
 
-	/*
-	 * initialize child expressions
-	 */
-	rcs->ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
-
 	outer_plan = outerPlan(node);
-	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
-	tupDesc = ExecGetResultType(outerPlanState(rcs));
+	outerPlanState(rcs) = outer_ps = ExecInitNode(outer_plan, estate, eflags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
+	rcs->ps.scandesc = ExecGetResultType(outerPlanState(rcs));
 
 	/*
-	 * initialize tuple type.  no need to initialize projection info because
-	 * this node doesn't do projections.
+	 * All we using Var is OUTER_VAR, and we using MinimalTuple except function FetchReduceScanOuter,
+	 * so initialize param, qual and projection using TTSOpsMinimalTuple
 	 */
-	rcs->scan_slot = ExecAllocTableSlot(&estate->es_tupleTable, tupDesc, &TTSOpsMinimalTuple);
-	ExecInitResultTupleSlotTL(&rcs->ps, &TTSOpsVirtual);
-	ExecConditionalAssignProjectionInfo(&rcs->ps, tupDesc, OUTER_VAR);
+	rcs->ps.outerops = &TTSOpsMinimalTuple;
+	rcs->ps.outeropsset = rcs->ps.outeropsfixed = true;
+	rcs->scan_slot = ExecAllocTableSlot(&estate->es_tupleTable, rcs->ps.scandesc, &TTSOpsMinimalTuple);
+	ExecInitResultTupleSlotTL(&rcs->ps, &TTSOpsMinimalTuple);
+	rcs->ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
+	ExecConditionalAssignProjectionInfo(&rcs->ps, rcs->ps.scandesc, OUTER_VAR);
+	Assert(rcs->ps.ps_ProjInfo != NULL);
 
 	if(node->param_hash_keys != NIL)
 	{
@@ -139,8 +137,13 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 		if (rcs->nbatchs > reduce_scan_max_buckets)
 			rcs->nbatchs = reduce_scan_max_buckets;
 		rcs->param_hash_exprs = ExecInitExprList(node->param_hash_keys, (PlanState*)rcs);
-		rcs->scan_hash_exprs = ExecInitExprList(node->scan_hash_keys, (PlanState*)rcs);
 		rcs->param_hash_funs = InitHashFuncList(node->param_hash_keys);
+
+		/* copy ops from outer */
+		rcs->ps.outerops = outer_ps->resultops;
+		rcs->ps.outeropsfixed = outer_ps->resultopsfixed;
+		rcs->ps.outeropsset = outer_ps->resultopsset;
+		rcs->scan_hash_exprs = ExecInitExprList(node->scan_hash_keys, (PlanState*)rcs);
 		rcs->scan_hash_funs = InitHashFuncList(node->scan_hash_keys);
 	}else
 	{
@@ -217,7 +220,6 @@ void FetchReduceScanOuter(ReduceScanState *node)
 			sts_puttuple(ExecGetReduceScanBatch(node, hashvalue),
 						 &hashvalue,
 						 ExecFetchSlotMinimalTuple(slot, &bool_val));
-			
 		}
 	}else
 	{
