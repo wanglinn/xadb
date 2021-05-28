@@ -328,7 +328,6 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags);
 static ClusterGatherType get_gather_type(List *reduce_info_list);
 static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list);
-static bool replace_reduce_replicate_nodes(Path *path, List *nodes);
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags);
 static Plan *create_reducescan_plan(PlannerInfo *root, ReduceScanPath *path, int flags);
 static bool find_cluster_reduce_expr(Path *path, List **pplist);
@@ -7516,16 +7515,17 @@ pgxc_replace_nestloop_params(PlannerInfo *root, Node *expr)
 	return replace_nestloop_params(root, expr);
 }
 
-static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
-							ClusterMergeGatherPath *path, int flags)
+static ClusterMergeGather *
+create_cluster_merge_gather_plan(PlannerInfo *root,
+								 ClusterMergeGatherPath *path, int flags)
 {
 	ClusterMergeGather *plan;
 	Plan *subplan;
 	List *reduce_list;
 
 	plan = makeNode(ClusterMergeGather);
-	plan->rnodes = get_remote_nodes(root, path->subpath, true);
-	replace_reduce_replicate_nodes(path->subpath, plan->rnodes);
+	Assert(path->rnodes != NIL);
+	plan->rnodes = path->rnodes;
 	reduce_list = get_reduce_info_list(path->subpath);
 	plan->gatherType = get_gather_type(reduce_list);
 
@@ -7558,20 +7558,18 @@ static ClusterMergeGather *create_cluster_merge_gather_plan(PlannerInfo *root,
 	return plan;
 }
 
-static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags)
+static ClusterGather *
+create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags)
 {
 	ClusterGather *plan;
 	Plan *subplan;
 	List *reduce_list;
 	Path *subpath = path->subpath;
 	Assert(subpath->reduce_is_valid);
+	Assert(path->rnodes != NIL);
 
 	plan = makeNode(ClusterGather);
-	if (path->rnodes)
-		plan->rnodes = path->rnodes;
-	else
-		plan->rnodes = get_remote_nodes(root, subpath, true);
-	replace_reduce_replicate_nodes(subpath, plan->rnodes);
+	plan->rnodes = path->rnodes;
 	reduce_list = get_reduce_info_list(subpath);
 	plan->gatherType = get_gather_type(reduce_list);
 
@@ -7658,31 +7656,6 @@ static Plan* create_filter_if_replicate(Plan *subplan, List *reduce_list)
 	return subplan;
 }
 
-static bool replace_reduce_replicate_nodes(Path *path, List *nodes)
-{
-	if(path == NULL)
-		return false;
-	if (IsA(path, ClusterReducePath) &&
-		IsReduceInfoListReplicated(path->reduce_info_list))
-	{
-		ReduceInfo *rinfo;
-		Assert(list_length(path->reduce_info_list) == 1);
-		rinfo = linitial(path->reduce_info_list);
-		if(!equal(rinfo->storage_nodes, nodes))
-		{
-			ReduceInfo *new_info = MakeReplicateReduceInfo(nodes);
-			if (list_member_oid(rinfo->storage_nodes, PGXCNodeOid) &&
-				!list_member_oid(new_info->storage_nodes, PGXCNodeOid))
-			{
-				/* maybe path in subplan */
-				new_info->storage_nodes = SortOidList(lappend_oid(new_info->storage_nodes, PGXCNodeOid));
-			}
-			path->reduce_info_list = list_make1(new_info);
-		}
-	}
-	return path_tree_walker(path, replace_reduce_replicate_nodes, nodes);
-}
-
 /* return remote node's Oid */
 List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 {
@@ -7721,8 +7694,8 @@ List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 			info->insert_count > 0)
 			list = lappend_oid(list, info->nodeOid);
 	}
-	list = list_delete_oid(list, PGXCNodeOid);
-	if(list == NIL)
+	if (list == NIL ||
+		(list_length(list) == 1 && linitial_oid(list) == PGXCNodeOid))
 	{
 		ExecNodeInfo *best = NULL;
 		hash_seq_init(&seq_status, htab);
@@ -7742,8 +7715,8 @@ List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroot)
 				}
 			}
 		}
-		Assert(best);
-		list = lappend_oid(list, best->nodeOid);
+		if (best != NULL)
+			list = lappend_oid(list, best->nodeOid);
 	}
 	hash_destroy(htab);
 
@@ -7770,8 +7743,10 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
 	Assert(!IsA(path->subpath, ClusterReducePath));
+	Assert(path->rnodes != NIL);
 	to = linitial(path->path.reduce_info_list);
-	include_coord = IsReduceInfoFinalReplicated(to) || list_member_oid(to->storage_nodes, PGXCNodeOid);
+	Assert(!IsReduceInfoFinalReplicated(to));
+	include_coord = list_member_oid(to->storage_nodes, PGXCNodeOid);
 	reduce_list = get_reduce_info_list(path->subpath);
 	foreach(lc, reduce_list)
 	{
@@ -7779,8 +7754,7 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 		if(IsReduceInfoEqual(info, to))
 			return create_plan_recurse(root, path->subpath, flags);
 		if (include_coord == false &&
-			(IsReduceInfoFinalReplicated(info) ||
-			 list_member_oid(info->storage_nodes, PGXCNodeOid)))
+			list_member_oid(info->storage_nodes, PGXCNodeOid))
 			include_coord = true;
 	}
 
@@ -7788,12 +7762,50 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	if (include_coord)
 		plan->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
 	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
-	plan->reduce = CreateExprUsingReduceInfo(to);
-	plan->reduce_oids = list_copy(to->storage_nodes);
 	from_oids = ReduceInfoListGetExecuteOidList(reduce_list);
+	plan->special_node = path->special_node;
+	plan->special_reduce = path->special_reduce;
+
+	/* Is replicate to replicate? */
+	if (IsReduceInfoReplicated(to) &&
+		IsReduceInfoListReplicated(reduce_list))
+	{
+		List	   *tmp_list = NIL;
+
+		foreach (lc, to->storage_nodes)
+		{
+			if (list_member_oid(from_oids, lfirst_oid(lc)) == false)
+				tmp_list = lappend_oid(tmp_list, lfirst_oid(lc));
+		}
+
+		if (tmp_list == NIL)
+		{
+			/* same as subplan, don't need reduce */
+			pfree(plan);
+			list_free(from_oids);
+			return subplan;
+		}else
+		{
+			plan->special_node = get_preferred_nodeoid(path->rnodes);
+			Assert(list_member_oid(tmp_list, plan->special_node) == false);
+			tmp_list = lappend_oid(tmp_list, plan->special_node);
+			plan->special_reduce = CreateReplicateUsingList(tmp_list);
+			list_free(tmp_list);
+		}
+
+		/* reduce to itself(except special node) */
+		plan->reduce = CreateNodeSelfExpr();
+	}else
+	{
+		plan->reduce = CreateExprUsingReduceInfo(to);
+	}
+
+	foreach(lc, to->storage_nodes)
+		plan->reduce_oids = list_append_unique_oid(plan->reduce_oids, lfirst_oid(lc));
 	foreach(lc, from_oids)
 		plan->reduce_oids = list_append_unique_oid(plan->reduce_oids, lfirst_oid(lc));
 	list_free(from_oids);
+
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 	plan->plan.targetlist = subplan->targetlist;
 

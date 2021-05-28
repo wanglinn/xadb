@@ -6344,9 +6344,15 @@ void cost_cluster_reduce(ClusterReducePath *path)
 	{
 		if (IsReduceInfoListReplicated(reduce_from_list))
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("cluster reduce not support from REPLICATED to REPLICATED yet")));
+			/*
+			 * We don't know how many node to reduce for now,
+			 * may be reduce to coordinator if IsReduceInfoFinalReplicated(reduce_to).
+			 * here we just only compare reduce to coordinator
+			 */
+			path->path.rows = subpath->rows;
+			reduce_out_rows = subpath->rows;
+
+			goto end_compare_in_out_;
 		}
 
 		compare = compare_reduce_info(reduce_to, reduce_from_list, &storage_count, &exclude_count);
@@ -6427,6 +6433,7 @@ void cost_cluster_reduce(ClusterReducePath *path)
 			}
 		}
 	}
+end_compare_in_out_:
 
 	reduce_max_rows = Max(reduce_out_rows, reduce_in_rows);
 	reduce_run_cost = remote_tuple_cost * reduce_max_rows	/* rows cost */

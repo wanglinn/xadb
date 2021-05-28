@@ -344,7 +344,7 @@ static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, void *context);
-static bool replace_replicate_reduce(Path *path, List *reduce_replicate);
+static bool final_cluster_path(Path *path, List *remote_nodes);
 static void create_cluster_window_path(PlannerInfo *root,
 									   RelOptInfo *window_rel,
 									   Path *path,
@@ -404,6 +404,9 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 			   *lr;
 
 #ifdef ADB
+	List	   *remote_nodes;
+	bool		is_cluster_plan;
+
 	/*
 	 * first try PGXC planner if coordinator
 	 * receiving a query not from another coordinator
@@ -540,18 +543,17 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 	best_path = get_cheapest_fractional_path(final_rel, tuple_fraction);
 
 #ifdef ADB
+	remote_nodes = NIL;
+	is_cluster_plan = have_cluster_gather_path(best_path);
 	if (glob->subplans != NIL)
 	{
-		ListCell *lc_subroot;
-		ListCell *lc_subplan;
+		ListCell   *lc_subroot;
+		ListCell   *lc_subplan;
 		PlannerInfo *subroot;
 		RelOptInfo *sub_final;
-		Path *path;
-		Bitmapset *cte_planids = NULL;
-		List *nodeOids;
-		List *reduce_list;
-		int sub_plan_id;
-		bool is_cluster_plan = have_cluster_gather_path(best_path);
+		Path	   *path;
+		Bitmapset  *cte_planids = NULL;
+		int			sub_plan_id;
 
 		/* find all CTE plan ids if generate cluster plan */
 		if (is_cluster_plan)
@@ -602,12 +604,9 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 			Assert(glob->clusterPlanOK);
 
 			/* we need change subplan as cluster */
-			nodeOids = get_remote_nodes(root, best_path, false);
+			remote_nodes = get_remote_nodes(root, best_path, true);
 
 			sub_plan_id = 0;
-			if (enable_coordinator_calculate)
-				nodeOids = list_append_unique_oid(nodeOids, PGXCNodeOid);
-			reduce_list = list_make1(MakeReplicateReduceInfo(nodeOids));
 			forboth(lc_subroot, root->glob->subroots, lc_subplan, root->glob->subplans)
 			{
 				++sub_plan_id;
@@ -633,12 +632,17 @@ standard_planner(Query *parse, const char *query_string, int cursorOptions,
 						path = (Path*)create_material_path(path->parent, path);
 				}
 
-				replace_replicate_reduce(path, reduce_list);
+				final_cluster_path(path, remote_nodes);
 				lfirst(lc_subplan) = create_plan(subroot, path);
 			}
 			bms_free(cte_planids);
-			replace_replicate_reduce(best_path, reduce_list);
 		}
+	}
+	if (is_cluster_plan)
+	{
+		if (remote_nodes == NIL)
+			remote_nodes = get_remote_nodes(root, best_path, true);
+		final_cluster_path(best_path, remote_nodes);
 	}
 #endif /* ADB */
 
@@ -10994,7 +10998,8 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 	return 0;
 }
 
-static bool replace_replicate_reduce(Path *path, List *reduce_replicate)
+static bool
+final_cluster_path(Path *path, List *remote_nodes)
 {
 	ReduceInfo *rinfo;
 	if(path == NULL)
@@ -11003,9 +11008,24 @@ static bool replace_replicate_reduce(Path *path, List *reduce_replicate)
 	{
 		rinfo = linitial(path->reduce_info_list);
 		if(IsReduceInfoFinalReplicated(rinfo))
-			path->reduce_info_list = reduce_replicate;
+			rinfo->storage_nodes = remote_nodes;
 	}
-	return path_tree_walker(path, replace_replicate_reduce, reduce_replicate);
+
+	switch (path->type)
+	{
+	case T_ClusterGatherPath:
+		((ClusterGatherPath*)path)->rnodes = remote_nodes;
+		break;
+	case T_ClusterMergeGatherPath:
+		((ClusterMergeGatherPath*)path)->rnodes = remote_nodes;
+		break;
+	case T_ClusterReducePath:
+		((ClusterReducePath*)path)->rnodes = remote_nodes;
+		break;
+	default:
+		break;
+	}
+	return path_tree_walker(path, final_cluster_path, remote_nodes);
 }
 
 static bool rti_is_base_rel(PlannerInfo *root, Index rti)

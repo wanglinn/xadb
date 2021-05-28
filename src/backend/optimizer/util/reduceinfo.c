@@ -34,7 +34,7 @@
 
 #include "optimizer/reduceinfo.h"
 
-static oidvector *makeOidVector(List *list);
+static oidvector *makeOidVector(const List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
 static inline Const* MakeInt4Const(int32 value)
 {
@@ -2347,32 +2347,14 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		}
 		break;
 	case REDUCE_TYPE_REPLICATED:
+		if(reduce->exclude_exec != NIL)
 		{
-			oidvector *vector;
-			Const *c;
-			FuncExpr *func;
-			if(reduce->exclude_exec != NIL)
-			{
-				List *list_exec = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
-				vector = makeOidVector(list_exec);
-				list_free(list_exec);
-			}else
-			{
-				vector = makeOidVector(reduce->storage_nodes);
-			}
-			c = makeConst(OIDARRAYOID,
-						  -1,
-						  InvalidOid,
-						  -1,
-						  PointerGetDatum(vector),
-						  false,
-						  false);
-			func = makeSimpleFuncExpr(F_ARRAY_UNNEST,
-									  OIDOID,
-									  list_make1(c));
-			/* unnest(array) return set */
-			func->funcretset = true;
-			result = (Expr*)func;
+			List *list_exec = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
+			result = CreateReplicateUsingList(list_exec);
+			list_free(list_exec);
+		}else
+		{
+			result = CreateReplicateUsingList(reduce->storage_nodes);
 		}
 		break;
 	case REDUCE_TYPE_RANDOM:
@@ -2480,16 +2462,45 @@ Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, int modul
 	return result;
 }
 
+Expr *
+CreateReplicateUsingList(const List *oidlist)
+{
+	oidvector  *vector;
+	Const	   *c;
+	FuncExpr  *func;
+
+	vector = makeOidVector(oidlist);
+	c = makeConst(OIDARRAYOID,
+				  -1,
+				  InvalidOid,
+				  -1,
+				  PointerGetDatum(vector),
+				  false,
+				  false);
+	func = makeSimpleFuncExpr(F_ARRAY_UNNEST,
+							  OIDOID,
+							  list_make1(c));
+	/* unnest(array) return set */
+	func->funcretset = true;
+
+	return (Expr*)func;
+}
+
+Expr *
+CreateNodeSelfExpr(void)
+{
+	return (Expr*)makeFuncExpr(F_ADB_NODE_OID,
+							   OIDOID,
+							   NIL,
+							   InvalidOid,
+							   InvalidOid,
+							   COERCE_EXPLICIT_CALL);
+}
+
 static Expr* CreateNodeOidOperatorOid(Oid opno, Expr *expr)
 {
 	OpExpr *op = makeNode(OpExpr);
-	op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
-									   OIDOID,
-									   NIL,
-									   InvalidOid,
-									   InvalidOid,
-									   COERCE_EXPLICIT_CALL),
-						  expr);
+	op->args = list_make2(CreateNodeSelfExpr(), expr);
 	op->opno = opno;
 	Assert(OidIsValid(opno));
 	op->opfuncid = get_opcode(opno);
@@ -2559,10 +2570,11 @@ bool EqualReduceExpr(Expr *left, Expr *right)
 	return false;
 }
 
-static oidvector *makeOidVector(List *list)
+static oidvector *
+makeOidVector(const List *list)
 {
 	oidvector *oids;
-	ListCell *lc;
+	const ListCell *lc;
 	Size i;
 	int length;
 	int size;
@@ -2679,11 +2691,19 @@ typedef struct ReduceSetExprState
 	Oid		oids[FLEXIBLE_ARRAY_MEMBER];
 }ReduceSetExprState;
 
-static Datum ExecReduceExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
+static Datum
+ExecReduceExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
 {
-	Datum datum = ExecEvalExpr(state, econtext, isnull);
 	*isDone = ExprSingleResult;
-	return datum;
+	return ExecEvalExpr(state, econtext, isnull);
+}
+
+static Datum
+ExecReduceSelfNodeExpr(void *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
+{
+	*isDone = ExprSingleResult;
+	*isnull = false;
+	return ObjectIdGetDatum(PGXCNodeOid);
 }
 
 static Datum ExecReduceSetExpr(ReduceSetExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond *isDone)
@@ -2716,7 +2736,8 @@ re_start_:
 
 ReduceExprState* ExecInitReduceExpr(Expr *expr)
 {
-	ReduceExprState *result;
+	ReduceExprState *result = palloc(sizeof(ReduceExprState));
+
 	if (IsA(expr, FuncExpr) &&
 		((FuncExpr*)expr)->funcid == F_ARRAY_UNNEST)
 	{
@@ -2755,12 +2776,15 @@ ReduceExprState* ExecInitReduceExpr(Expr *expr)
 		set->count = ov->dim1;
 		memcpy(set->oids, ov->values, sizeof(Oid)*ov->dim1);
 
-		result = palloc(sizeof(ReduceExprState));
 		result->state = set;
 		result->evalfunc = (Datum(*)(void*, ExprContext*, bool*,ExprDoneCond*))ExecReduceSetExpr;
+	}else if (IsA(expr, FuncExpr) &&
+			  ((FuncExpr*)expr)->funcid == F_ADB_NODE_OID)
+	{
+		result->state = NULL;
+		result->evalfunc = ExecReduceSelfNodeExpr;
 	}else
 	{
-		result = palloc(sizeof(ReduceExprState));
 		result->state = ExecInitExpr(expr, NULL);
 		result->evalfunc = (Datum(*)(void*, ExprContext*, bool*,ExprDoneCond*))ExecReduceExpr;
 	}

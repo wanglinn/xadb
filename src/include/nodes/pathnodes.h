@@ -1975,12 +1975,14 @@ typedef struct ClusterMergeGatherPath
 {
 	Path		path;
 	Path	   *subpath;
+	List	   *rnodes;
 } ClusterMergeGatherPath;
 
 typedef struct ClusterReducePath
 {
 	Path		path;
 	Path	   *subpath;
+	List	   *rnodes;
 	Expr	   *special_reduce;
 	Oid			special_node;
 } ClusterReducePath;

@@ -243,6 +243,8 @@ extern bool HaveOnceWindowAggClusterPath(List *wclauses, List *tlist, Path *path
 extern Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index);
 extern Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce);
 extern Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, int modulus, Index relid);
+extern Expr *CreateReplicateUsingList(const List *oidlist);
+extern Expr *CreateNodeSelfExpr(void);
 extern Expr *CreateNodeOidEqualOid(Oid nodeoid);
 extern Expr *CreateNodeOidEqualExpr(Expr *expr);
 extern Expr *CreateNodeOidNotEqualOid(Oid nodeoid);
