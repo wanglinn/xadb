@@ -7368,6 +7368,22 @@ simple_select:
 				n->groupClause = $8;
 				n->havingClause = $9;
 				n->ora_connect_by = $7;
+				
+				if(n->fromClause)
+				{
+					if(list_length(n->fromClause) == 1)
+					{
+						RangeVar *var = (RangeVar*) linitial(n->fromClause);
+						Alias *alias = var->alias;
+
+						if((strcmp(alias->aliasname,"partition") == 0) && list_length(alias->colnames) == 1)
+						{
+							var->relname = pstrdup(strVal(linitial(alias->colnames)));
+							var->alias = NULL;
+						}
+					}
+				}
+
 				$$ = (Node*)n;
 			}
 		| select_clause UNION opt_all select_clause
