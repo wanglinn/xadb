@@ -21,15 +21,13 @@
 
 typedef enum
 {
-	ADB_NODE_COORDINATOR,
-	ADB_NODE_COORDINATOR_GTM,
-	ADB_NODE_DATANODE,
-	ADB_NODE_GTM
+	ADB_NODE_INVALID = 0,
+	ADB_NODE_GTM = 1,
+	ADB_NODE_COORDINATOR = 2,
+	ADB_NODE_DATANODE = 4,
+	ADB_NODE_COORDINATOR_GTM = ADB_NODE_GTM | ADB_NODE_COORDINATOR
 } AdbNodeTypes;
 
-extern bool isPGXCCoordinator;
-extern bool isPGXCDataNode;
-extern bool isAntDB_GTM;
 extern bool isRestoreMode;
 extern bool isRestoreCoordType;
 
@@ -45,7 +43,7 @@ typedef enum
 /* Determine remote connection type for a PGXC backend */
 extern int		remoteConnType;
 
-extern int adb_node_type;
+extern PGDLLIMPORT int adb_node_type;
 
 /* Local node name and numer */
 extern char	*PGXCNodeName;
@@ -55,8 +53,8 @@ extern uint32 PGXCNodeIdentifier;
 extern Datum xc_lockForBackupKey1;
 extern Datum xc_lockForBackupKey2;
 
-#define IS_PGXC_COORDINATOR		isPGXCCoordinator
-#define IS_PGXC_DATANODE		isPGXCDataNode
+#define IS_PGXC_COORDINATOR		((adb_node_type & ADB_NODE_COORDINATOR) != 0)
+#define IS_PGXC_DATANODE		(adb_node_type == ADB_NODE_DATANODE)
 #define REMOTE_CONN_TYPE		remoteConnType
 
 #define IsConnFromApp()			(remoteConnType == REMOTE_CONN_APP)
@@ -65,12 +63,12 @@ extern Datum xc_lockForBackupKey2;
 #define IsConnFromDatanode()	(remoteConnType == REMOTE_CONN_DATANODE)
 #define IsConnFromRxactMgr()	(remoteConnType == REMOTE_CONN_RXACTMGR)
 
-#define IsDnNode()				isPGXCDataNode
-#define IsCnNode()				isPGXCCoordinator
+#define IsDnNode()				(adb_node_type == ADB_NODE_DATANODE)
+#define IsCnNode()				((adb_node_type & ADB_NODE_COORDINATOR) != 0)
 #define IsCnMaster()			(IS_PGXC_COORDINATOR && !IsConnFromCoord())
 #define IsCnCandidate()			(IS_PGXC_COORDINATOR && IsConnFromCoord())
-#define IsGTMNode()				isAntDB_GTM
-#define IsGTMCnNode()			(isAntDB_GTM && isPGXCCoordinator)
+#define IsGTMNode()				((adb_node_type & ADB_NODE_GTM) != 0)
+#define IsGTMCnNode()			(adb_node_type == ADB_NODE_COORDINATOR_GTM)
 
 
 /* key pair to be used as object id while using advisory lock for backup */

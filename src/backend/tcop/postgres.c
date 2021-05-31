@@ -4379,7 +4379,6 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 					if (strcmp(name, "coordinator") == 0 &&
 						!value)
 					{
-						isPGXCCoordinator = true;
 						adb_node_type = ADB_NODE_COORDINATOR;
 					}
 						
@@ -4387,14 +4386,11 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 					else if (strcmp(name, "datanode") == 0 &&
 							 !value)
 					{
-						isPGXCDataNode = true;
 						adb_node_type = ADB_NODE_DATANODE;
 					}
 					/* A AntDB GTM and Coordinator is being activated */
 					else if (strcmp(name, "gtm_coord") == 0 && !value)
 					{
-						isPGXCCoordinator = true;
-						isAntDB_GTM = true;
 						adb_node_type = ADB_NODE_COORDINATOR_GTM;
 					}
 					else if (strcmp(name, "localxid") == 0 &&
@@ -4457,7 +4453,7 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	if (!IsPostmasterEnvironment)
 	{
 		/* Treat it as a Datanode for initdb to work properly */
-		isPGXCDataNode = true;
+		adb_node_type = ADB_NODE_DATANODE;
 	}
 #endif
 

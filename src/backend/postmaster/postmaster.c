@@ -606,10 +606,7 @@ static void ShmemBackendArrayRemove(Backend *bn);
 #endif							/* EXEC_BACKEND */
 
 #ifdef ADB
-int adb_node_type = ADB_NODE_COORDINATOR;
-bool isPGXCCoordinator = false;
-bool isPGXCDataNode = false;
-bool isAntDB_GTM = false;
+int adb_node_type = ADB_NODE_INVALID;
 
 /*
  * While adding a new node to the cluster we need to restore the schema of
@@ -931,21 +928,17 @@ PostmasterMain(int argc, char *argv[])
 					if (strcmp(name, "coordinator") == 0 &&
 						!value)
 					{
-						isPGXCCoordinator = true;
 						adb_node_type = ADB_NODE_COORDINATOR;
 					}
 						
 					/* A AntDB GTM and Coordinator is being activated */
 					else if (strcmp(name, "gtm_coord") == 0 && !value)
 					{
-						isPGXCCoordinator = true;
-						isAntDB_GTM = true;
 						adb_node_type = ADB_NODE_COORDINATOR_GTM;
 					}
 					else if (strcmp(name, "datanode") == 0 &&
 						!value)
 					{
-						isPGXCDataNode = true;
 						adb_node_type = ADB_NODE_DATANODE;
 					}	
 					else if (strcmp(name, "restoremode") == 0 && !value)
@@ -956,7 +949,6 @@ PostmasterMain(int argc, char *argv[])
 						 */
 						
 						isRestoreMode = true;
-						isPGXCDataNode = true;
 						adb_node_type = ADB_NODE_DATANODE;
 					}
 					else /* default case */
@@ -1006,9 +998,9 @@ PostmasterMain(int argc, char *argv[])
 	}
 
 #ifdef ADB
-	if (!IS_PGXC_COORDINATOR && !IS_PGXC_DATANODE)
+	if (adb_node_type == ADB_NODE_INVALID)
 	{
-		write_stderr("%s: Postgres-XC: must start as either a Coordinator (--coordinator) or Datanode (--datanode)\n",
+		write_stderr("%s: Postgres-XC: must start as either a Coordinator (--coordinator) or Datanode (--datanode) or Coordinator GTM (--gtm_coord)\n",
 					 progname);
 		ExitPostmaster(1);
 	}

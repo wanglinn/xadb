@@ -367,6 +367,7 @@ help(const char *progname)
 	printf(_("  -R NODE-TYPE       can be \"coordinator\" or \"datanode\", just when the node in restore mode\n"));
 	printf(_("\nNode options:\n"));
 	printf(_("  --coordinator      start as a Coordinator\n"));
+	printf(_("  --gtm_coord        start as a GTM Coordinator\n"));
 	printf(_("  --datanode         start as a Datanode\n"));
 	printf(_("  --restoremode      start to restore existing schema on the new node to be added\n"));
 #endif

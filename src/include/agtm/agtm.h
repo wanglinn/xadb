@@ -24,10 +24,10 @@
 #define IsNormalDatabase()	(MyDatabaseId != InvalidOid &&		\
 							 MyDatabaseId != TemplateDbOid)
 
-#define IsUnderAGTM()		(!useLocalXid&&!isRestoreMode && \
-							(isPGXCCoordinator || isPGXCDataNode) &&	\
-							  IsUnderPostmaster &&						\
-							  (IsNormalProcessingMode() || IsInitProcessingMode()))
+#define IsUnderAGTM()		(!useLocalXid && !isRestoreMode && 										\
+							 ((adb_node_type & (ADB_NODE_COORDINATOR|ADB_NODE_DATANODE)) != 0) &&	\
+							 IsUnderPostmaster &&													\
+							 (IsNormalProcessingMode() || IsInitProcessingMode()))
 
 /* Type of sequence name used when dropping it */
 typedef enum AGTM_SequenceKeyType
