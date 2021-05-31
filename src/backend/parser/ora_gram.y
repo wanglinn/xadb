@@ -7376,7 +7376,7 @@ simple_select:
 						RangeVar *var = (RangeVar*) linitial(n->fromClause);
 						Alias *alias = var->alias;
 
-						if((strcmp(alias->aliasname,"partition") == 0) && list_length(alias->colnames) == 1)
+						if(alias && alias->aliasname && (strcmp(alias->aliasname,"partition") == 0) && list_length(alias->colnames) == 1)
 						{
 							var->relname = pstrdup(strVal(linitial(alias->colnames)));
 							var->alias = NULL;
