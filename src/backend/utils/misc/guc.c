@@ -1860,7 +1860,15 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
-
+	{
+		{"enable_rewind_backup", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Enables backup file in the process of rewind in slave node."),
+			NULL
+		},
+		&enable_rewind_backup,
+		false,
+		NULL, NULL, NULL
+	},
 #if defined(ADBMGRD)
 	{
 		{"adbmonitor", PGC_SIGHUP, ADBMONITOR,
@@ -1869,15 +1877,6 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&adbmonitor_start_daemon,
 		true,
-		NULL, NULL, NULL
-	},
-	{
-		{"enable_rewind_backup", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Enables backup file in the process of rewind."),
-			NULL
-		},
-		&enable_rewind_backup,
-		false,
 		NULL, NULL, NULL
 	},
 #endif /* ADBMGRD */

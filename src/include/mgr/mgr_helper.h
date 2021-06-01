@@ -574,6 +574,7 @@ extern bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 									char *nodename,
 									bool localSqlCheck,
 									MgrNodeWrapper *gtmMaster);
+extern bool checkRewindBackup(MgrNodeWrapper *mgrNode);
 extern void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 									   MgrNodeWrapper *mgrNode,
 									   PGconn *pgConn,

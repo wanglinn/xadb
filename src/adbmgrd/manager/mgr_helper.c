@@ -2737,6 +2737,34 @@ bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 	return execOk;
 }
 
+bool 
+checkRewindBackup(MgrNodeWrapper *mgrNode)
+{
+	char *sql;
+	PGconn *pgConn = NULL;
+	PGresult *pgResult = NULL;
+	int i;
+	char *paramName;
+	char *paramValue;
+	bool execOk = false;
+
+	pgConn = getNodeDefaultDBConnection(mgrNode, 10);
+	sql = psprintf("select name, setting from pg_settings where name = 'enable_rewind_backup';");
+	pgResult = PQexec(pgConn, sql);
+
+	for (i = 0; i < PQntuples(pgResult); i++)
+	{
+		paramName = PQgetvalue(pgResult, i, 0);
+		paramValue = PQgetvalue(pgResult, i, 1);
+		if ((strcmp(paramName, "enable_rewind_backup") == 0) && (strcmp(paramValue, "on") == 0))
+		{
+			execOk = true;
+			break;
+		}
+	}
+	return execOk;
+}
+
 void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 								MgrNodeWrapper *mgrNode,
 								PGconn *pgConn,

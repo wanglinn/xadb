@@ -76,9 +76,10 @@ static XLogRecPtr parse_lsn(const char *str);
 static TupleDesc get_list_nodesize_tuple_desc(void);
 static int mgr_send_node_message_to_agent(char *host_addr, int32 agent_port, char *node_port, char *node_user, char *pid_file_path);
 
-static void restore_node(char *nodepath);
-static void create_rewind_dir(char *nodepath);
-static void delete_rewind_dir(char *nodepath);
+static bool mgr_get_rewind_backup(char *nodename, char nodetype);
+static void restore_node(bool rewind_backup, char *nodepath);
+static void create_rewind_dir(bool rewind_backup, char *nodepath);
+static void delete_rewind_dir(bool rewind_backup, char *nodepath);
 static char *get_nodepath_bytuple(HeapTuple node_tuple, Relation rel_node);
 
 bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
@@ -1359,12 +1360,50 @@ bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport)
 
 	return true;
 }
+static bool
+mgr_get_rewind_backup(char *nodename, char nodetype)
+{
+	int 				spiRes;
+	MgrNodeWrapper 		*mgrNode = NULL;
+	MemoryContext 		oldContext;
+	MemoryContext 		spiContext = NULL;
+	MemoryContext   	switchContext = NULL;
+	bool				rewindBackup = false;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_get_rewind_backup", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		mgrNode = selectMgrNodeByNodenameType(nodename,
+												nodetype,
+												spiContext);
+		Assert(mgrNode);
+		rewindBackup = checkRewindBackup(mgrNode);
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+	
+	return rewindBackup;
+}
 
 /*
 * rewind the node
 *
 */
-
 bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 {
 	char cmdtype;
@@ -1406,6 +1445,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	Datum datumPath;
 	NameData masterNameData;
 	char *nodepath = NULL;
+	bool rewind_backup = false;
 	/*check node type*/
 	if (!isSlaveNode(nodetype, false))
 	{
@@ -1421,6 +1461,9 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	namestrcpy(&masterNameData, masternode);
 	pfree(masternode);
 	nodetypestr = mgr_nodetype_str(nodetype);
+
+	rewind_backup = mgr_get_rewind_backup(NameStr(masterNameData), getMgrMasterNodetype(nodetype));
+
 	/* check exists */
 	rel_node = table_open(NodeRelationId, AccessShareLock);
 	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename);
@@ -1439,8 +1482,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	snprintf(portBuf, sizeof(portBuf), "%d", mgr_node->nodeport);
 
     nodepath = get_nodepath_bytuple(tuple, rel_node);
-	restore_node(nodepath);
-	create_rewind_dir(nodepath);
+	restore_node(rewind_backup, nodepath);
+	create_rewind_dir(rewind_backup, nodepath);
 
 	/*restart the node then stop it with fast mode*/
 	initStringInfo(&(getAgentCmdRst.description));
@@ -1723,7 +1766,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	pg_usleep(3000000L);
 	/*node rewind*/
 	resetStringInfo(&infosendmsg);
-	if (enable_rewind_backup)
+	if (rewind_backup)
 		appendStringInfo(&infosendmsg,
 						" --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s -B",
 						slave_nodeinfo.nodepath,
@@ -1745,7 +1788,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
 	if (res)
 	{
-		delete_rewind_dir(nodepath);
+		delete_rewind_dir(rewind_backup, nodepath);
 
 		if (slave_nodeinfo.nodetype  == CNDN_TYPE_DATANODE_SLAVE)
 		{
@@ -4177,7 +4220,7 @@ bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8])
 }
 /* restore node data from rewind backup file */
 static void
-restore_node(char *nodepath)
+restore_node(bool rewind_backup, char *nodepath)
 {
 	char 	datadir_rewind[MAXPGPATH] = {0};
 	char 	rewindCmd[MAXPGPATH] = {0};
@@ -4187,7 +4230,7 @@ restore_node(char *nodepath)
 	dlist_iter 			iter;
 	dlist_mutable_iter  miter;
 	
-	if (!enable_rewind_backup)
+	if (!rewind_backup)
 		return;
 
 	snprintf(datadir_rewind, MAXPGPATH, 
@@ -4237,28 +4280,28 @@ restore_node(char *nodepath)
 }
 
 static void
-create_rewind_dir(char *nodepath)
+create_rewind_dir(bool rewind_backup, char *nodepath)
 {
 	char 	path[MAXPGPATH] = {0};
-	if (!enable_rewind_backup)
+	if (!rewind_backup)
 		return;
 	
 	snprintf(path, MAXPGPATH, 
 			"%s%s",
 			nodepath, ADB_REWIND_TMP_DIR);
 	if (access(path, F_OK) == 0)
-		delete_rewind_dir(nodepath);
+		delete_rewind_dir(rewind_backup, nodepath);
 
 	if (mkdir(path, S_IRWXU) != 0)
 		ereportErrorLog(errmsg("could not create directory \"%s\": %m", path));
 }
 
 static void
-delete_rewind_dir(char *nodepath)
+delete_rewind_dir(bool rewind_backup, char *nodepath)
 {
 	char 	path[MAXPGPATH] = {0};
 
-	if (!enable_rewind_backup)
+	if (!rewind_backup)
 		return;
 
 	snprintf(path, MAXPGPATH, 
