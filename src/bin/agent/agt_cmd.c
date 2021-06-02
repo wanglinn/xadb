@@ -635,7 +635,6 @@ static void cmd_node_refresh_pghba_parse_separator(StringInfo msg)
 	StringInfoData infoparastr;
 	StringInfoData pgconffile;
 	char datapath[MAXPGPATH];
-	char *ptmp;
 	FILE *out_file;
 
 	rec_msg_string = agt_getmsgstring(msg);

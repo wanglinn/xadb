@@ -1115,13 +1115,9 @@ void add_hba_table_to_file(char *coord_name)
 void add_seprator_to_hba_file(void)
 {
 	Relation rel_node;
-	HeapScanDesc rel_scan;
-	char *cnuser;
-	char *cnaddress;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
-	NameData self_address;
-	bool bgetAddress;
 	StringInfoData infosendhbamsg;
 	bool is_valid;
 	AppendNodeInfo nodeinfo;
@@ -1131,9 +1127,9 @@ void add_seprator_to_hba_file(void)
 	initStringInfo(&getAgentCmdRst.description);
 	appendStringInfo(&infosendhbamsg, "%s%s%s", "\n", HBA_CONFIG_SEPARATOR, "\n");
 
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
 	/*for datanode or gtm or coordinator replication*/
-	rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
+	rel_scan = table_beginscan_catalog(rel_node, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1142,7 +1138,7 @@ void add_seprator_to_hba_file(void)
 		if (!is_valid)
 		{
 			heap_endscan(rel_scan);
-			heap_close(rel_node, AccessShareLock);
+			table_close(rel_node, AccessShareLock);
 			MgrFree(infosendhbamsg.data);
 			MgrFree(getAgentCmdRst.description.data);
 			ereport(ERROR, (errmsg("%s \"%s\" is not running normal"
@@ -1156,7 +1152,7 @@ void add_seprator_to_hba_file(void)
 								,&getAgentCmdRst);
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_close(rel_node, AccessShareLock);
 	MgrFree(infosendhbamsg.data);
 	MgrFree(getAgentCmdRst.description.data);
 }
