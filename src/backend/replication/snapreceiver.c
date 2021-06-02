@@ -2154,6 +2154,7 @@ TransactionId SnapRcvGetGlobalXmin(void)
 
 void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 {
+	elog(LOG, "SnapRcvTransferLock for xid %u", xid);
 	SnapTransferLock(&SnapRcv->comm_lock, param, xid, from);
 }
 

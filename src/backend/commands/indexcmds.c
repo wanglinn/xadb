@@ -81,6 +81,7 @@
 #include "executor/executor.h"
 #include "executor/execCluster.h"
 #include "storage/mem_toc.h"
+#include "agtm/agtm.h"
 
 
 #define REMOTE_KEY_REINDEX_INFO	0x1
@@ -91,6 +92,18 @@ typedef struct ClusterReindexHookFuncs
 	PQNHookFunctions pub;
 	PGconn *conn;			/* last exec end PGconn* */
 }ClusterReindexHookFuncs;
+
+#define REMOTE_KEY_INDEX_CONCUR_TYPE		0x1
+#define REMOTE_KEY_CREATE_INDEX_INFO		0x2
+#define REMOTE_KEY_RECREATE_INDEX_INFO		0x3
+#define REMOTE_KEY_DEFINE_INDEX_STMT		0x4
+#define REMOTE_KEY_DEFINE_INDEX_CONTINUE	0x5
+
+typedef enum Adb_Index_Concur_Type
+{
+	ADB_INDEX_TYPE_CREATE = 1, /* avoid the default value 0 */
+	ADB_INDEX_TYPE_REINDEX,
+} Adb_Index_Concur_Type;
 #endif
 
 /* non-export function prototypes */
@@ -476,7 +489,217 @@ WaitForOlderSnapshots(TransactionId limitXmin, bool progress)
 	}
 }
 
+#ifdef ADB
+static void cluster_adb_create_index_concurrent(struct StringInfoData *msg)
+{
+	StringInfoData	buf;
+	IndexStmt		*stmt;
+	char			*namespace;
+	char			*relname;
+	Oid				relid;
+	RangeVar		*range = NULL;
 
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_CREATE_INDEX_INFO, &buf.len);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found define index info")));
+	}
+
+	buf.maxlen = buf.len;
+	buf.cursor = 0;
+	namespace = load_node_string(&buf, false);
+	relname = load_node_string(&buf, false);
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_DEFINE_INDEX_STMT, &buf.len);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found define index stmt info")));
+	}
+	buf.maxlen = buf.len;
+	buf.cursor = 0;
+
+	stmt = (IndexStmt*)loadNode(&buf);
+	range = makeRangeVar(namespace, relname, -1);
+	relid = RangeVarGetRelid(range, NoLock, false);
+
+	DefineIndex(relid,	/* OID of heap relation */
+					stmt,
+					InvalidOid, /* no predefined OID */
+					InvalidOid, /* no parent index */
+					InvalidOid, /* no parent constraint */
+					false,	/* is_alter_table */
+					true,	/* check_rights */
+					true,	/* check_not_in_use */
+					false,	/* skip_build */
+					false); /* quiet */
+}
+
+static void cluster_adb_reindex_concurrent(struct StringInfoData *msg)
+{
+	StringInfoData	buf;
+	char			*namespace;
+	char			*relname;
+	Oid				relid;
+	int				options;
+	RangeVar		*range = NULL;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_RECREATE_INDEX_INFO, &buf.len);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found reindex info")));
+	}
+
+	buf.maxlen = buf.len;
+	buf.cursor = 0;
+	namespace = load_node_string(&buf, false);
+	relname = load_node_string(&buf, false);
+	options = pg_strtoint32(load_node_string(&buf, false));
+
+	range = makeRangeVar(namespace, relname, -1);
+	relid = RangeVarGetRelid(range, NoLock, false);
+
+	ReindexRelationConcurrently(relid, options);
+}
+
+void cluster_adb_index_concurrent(struct StringInfoData *msg)
+{
+	StringInfoData	buf;
+	Adb_Index_Concur_Type index_type;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_INDEX_CONCUR_TYPE, &buf.len);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found adb index type")));
+	}
+
+	buf.cursor = 0;
+	buf.len = buf.maxlen;
+	index_type = pq_getmsgint(&buf, sizeof(index_type));
+
+	switch (index_type)
+	{
+		case ADB_INDEX_TYPE_CREATE:
+			cluster_adb_create_index_concurrent(msg);
+			break;
+
+		case ADB_INDEX_TYPE_REINDEX:
+			cluster_adb_reindex_concurrent(msg);
+			break;
+
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("Unkown index type \"%d\"",
+							index_type)));
+			break;
+	}
+}
+
+static void WaitExecutorEndMessage(List *remotes)
+{
+	ListCell *lc;
+	PQNFlush(remotes, true);
+	foreach (lc, remotes)
+		wait_executor_end_msg(lfirst(lc));
+}
+
+typedef struct ClusterDefineIndexHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterDefineIndexHookFuncs;
+
+static bool ClusterDefineIndexExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterDefineIndexHookFuncs *context = (ClusterDefineIndexHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void cluster_recv_exec_end(List *conns)
+{
+	ClusterDefineIndexHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
+	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterDefineIndexExecEndHookCopyOut;
+	while (conns)
+	{
+		context.conn = NULL;
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
+	}
+}
+
+static int process_master_define_index_cmd(void *context, const char *data, int len)
+{
+	put_executor_end_msg(true);
+	return 1;
+}
+
+static void slave_node_wait_cn_master()
+{
+	if (IsConnFromCoord())
+		SimpleNextCopyFromNewFE((SimpleCopyDataFunction)process_master_define_index_cmd, NULL);
+}
+
+static void slave_node_send_end_msg(void)
+{
+	if (IsConnFromCoord())
+		put_executor_end_msg(true);
+}
+
+/* we must make sure, slave node commit first. As slave node get the xid from cn master.
+ * If cn master commit first, when the slave node commit, it will transfer the lock and invalid msg.
+ * As cm master has commited xid, the lock cannot be released by snapsender/snapreceiver process.
+ * For the new start transacton， the slave node must wait the cn master commit the last xid.
+ * As if cn master hasn't commited the older xid, the slave node has started a new transaction,
+ * It maybe get the older transaction id from cn master. */
+static void sync_new_transaction_start(List *list_conns)
+{
+	/* 1, slave node send end msg to cn master, end the older transaction in cn master. */
+	slave_node_send_end_msg();
+
+	/* 2, salve node wait cn master commit older transaction */
+	slave_node_wait_cn_master();
+
+	/* 3, cn master send continue msg to slave node, slave node continue work. */
+	if (list_conns != NIL)
+	{
+		StringInfoData buf;
+		initStringInfo(&buf);
+		appendStringInfoChar(&buf, REMOTE_KEY_DEFINE_INDEX_CONTINUE);
+		PQNputCopyData(list_conns, buf.data, buf.len);
+		PQNFlush(list_conns, true);
+		pfree(buf.data);
+
+		cluster_recv_exec_end(list_conns);
+	}
+}
+
+static void cn_master_sync_transaction_end(List *list_conns)
+{
+	if (list_conns != NIL)
+		cluster_recv_exec_end(list_conns);
+}
+#endif
 /*
  * DefineIndex
  *		Creates a new index.
@@ -548,6 +771,16 @@ DefineIndex(Oid relationId,
 	int			save_nestlevel = -1;
 	int			i;
 
+#ifdef ADB
+	bool		volatile use_own_xacts;
+	List		*list_datanode = NIL;
+	List		*list_coordinator = NIL;
+	List		*list_all_node = NIL;
+	List 		*list_conns = NIL;
+	bool		under_agtm = IsUnderAGTM();
+	MemoryContext	old_context;
+	MemoryContext	cluster_index_context = NULL;
+#endif /* ADB */
 	/*
 	 * Some callers need us to run with an empty default_tablespace; this is a
 	 * necessary hack to be able to reproduce catalog state accurately when
@@ -620,6 +853,37 @@ DefineIndex(Oid relationId,
 				 errmsg("cannot use more than %d columns in an index",
 						INDEX_MAX_KEYS)));
 
+#ifdef ADB
+	if (concurrent)
+	{
+		IndexStmt	*stmt_cpy;
+		List		*allIndexParamsCpy = NIL;
+		use_own_xacts = true;
+		cluster_index_context = AllocSetContextCreate(PortalContext,
+								"ClusterIndexConcurrent",
+								ALLOCSET_SMALL_SIZES);
+		old_context = MemoryContextSwitchTo(cluster_index_context);
+
+		stmt_cpy = copyObject(stmt);
+		allIndexParamsCpy = copyObject(allIndexParams);
+		MemoryContextSwitchTo(old_context);
+
+		/* ActiveSnapshot is not set by autovacuum */
+		if (ActiveSnapshotSet())
+			PopActiveSnapshot();
+
+		/* matches the StartTransaction in PostgresMain() */
+		CommitTransactionCommand();
+
+		StartTransactionCommand();
+		/* functions in indexes may want a snapshot set */
+		PushActiveSnapshot(GetTransactionSnapshot());
+		stmt = stmt_cpy;
+		allIndexParams = allIndexParamsCpy;
+	}
+	else
+		use_own_xacts = false;
+#endif
 	/*
 	 * Only SELECT ... FOR UPDATE/SHARE are allowed while doing a standard
 	 * index build; but for concurrent builds we allow INSERT/UPDATE/DELETE
@@ -774,6 +1038,63 @@ DefineIndex(Oid relationId,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("only shared relations can be placed in pg_global tablespace")));
 
+#ifdef ADB
+	if (cluster_index_context)
+		old_context = MemoryContextSwitchTo(cluster_index_context);
+
+	if(concurrent&& IsCnMaster() && under_agtm && RelationGetLocInfo(rel))
+		list_datanode = RelationGetLocInfo(rel)->nodeids;
+	else
+		list_datanode = NIL;
+
+	if (!under_agtm || IS_PGXC_DATANODE)
+	{
+		list_coordinator = NIL;
+	}else if (list_datanode != NIL)
+	{
+		list_coordinator = GetAllCnIDL(false);
+	}
+
+	if (list_datanode != NIL ||
+		list_coordinator != NIL)
+	{
+		char *namespace;
+		StringInfoData buf;
+		List		*list_all_tmp = NIL;
+		Adb_Index_Concur_Type index_type = ADB_INDEX_TYPE_CREATE;
+
+		initStringInfo(&buf);
+		ClusterTocSetCustomFun(&buf, cluster_adb_index_concurrent);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_INDEX_CONCUR_TYPE);
+		pq_sendint(&buf, index_type, sizeof(index_type));
+		end_mem_toc_insert(&buf, REMOTE_KEY_INDEX_CONCUR_TYPE);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_CREATE_INDEX_INFO);
+		namespace = get_namespace_name(RelationGetNamespace(rel));
+		save_node_string(&buf, namespace);
+		save_node_string(&buf, RelationGetRelationName(rel));
+		pfree(namespace);
+		end_mem_toc_insert(&buf, REMOTE_KEY_CREATE_INDEX_INFO);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_DEFINE_INDEX_STMT);
+		saveNode(&buf, (const Node*)stmt);
+		end_mem_toc_insert(&buf, REMOTE_KEY_DEFINE_INDEX_STMT);
+
+		list_all_tmp = list_union_oid(list_coordinator, list_datanode);
+
+		list_all_node = copyObject(list_all_tmp);
+		Assert(use_own_xacts);
+
+		if (ActiveSnapshotSet() == false)
+			PushActiveSnapshot(GetTransactionSnapshot());
+
+		list_conns = ExecClusterCustomFunction(list_all_node, &buf, EXEC_CLUSTER_FLAG_NOT_START_TRANS);
+	}
+
+	if (cluster_index_context)
+		MemoryContextSwitchTo(old_context);
+#endif
 	/*
 	 * Choose the index column names.
 	 */
@@ -890,7 +1211,7 @@ DefineIndex(Oid relationId,
 					  amcanorder, stmt->isconstraint);
 #ifdef ADB
 	/* Check if index is safely shippable */
-	if (!IsBootstrapProcessingMode() && IS_PGXC_COORDINATOR)
+	if (!IsBootstrapProcessingMode() && !concurrent && IS_PGXC_COORDINATOR)
 	{
 		List *indexAttrs = NIL;
 
@@ -1484,12 +1805,21 @@ DefineIndex(Oid relationId,
 	 * because there are no operations that could change its state while we
 	 * hold lock on the parent table.  This might need to change later.
 	 */
+
+	ADB_ONLY_CODE(if (use_own_xacts) cn_master_sync_transaction_end(list_conns));
+#ifndef ADB
+	/* We cannot get the session lock. As when commit, it will transfer lock to
+	 * SnapSender/SnapReceiver. When finish the transaction number, it will releas 
+	 * all lock. So the session lock will not work. But for DDL, we must transfer lock.
+	 */
 	LockRelationIdForSession(&heaprelid, ShareUpdateExclusiveLock);
+#endif
 
 	PopActiveSnapshot();
 	CommitTransactionCommand();
 	StartTransactionCommand();
 
+	ADB_ONLY_CODE(if (use_own_xacts) sync_new_transaction_start(list_conns));
 	/*
 	 * The index is now visible, so we can report the OID.
 	 */
@@ -1540,6 +1870,7 @@ DefineIndex(Oid relationId,
 	/* Perform concurrent build of index */
 	index_concurrently_build(relationId, indexRelationId);
 
+	ADB_ONLY_CODE(if (use_own_xacts) cn_master_sync_transaction_end(list_conns));
 	/* we can do away with our snapshot */
 	PopActiveSnapshot();
 
@@ -1549,6 +1880,7 @@ DefineIndex(Oid relationId,
 	CommitTransactionCommand();
 	StartTransactionCommand();
 
+	ADB_ONLY_CODE(if (use_own_xacts) sync_new_transaction_start(list_conns));
 	/*
 	 * Phase 3 of concurrent index build
 	 *
@@ -1591,6 +1923,7 @@ DefineIndex(Oid relationId,
 	 */
 	limitXmin = snapshot->xmin;
 
+	ADB_ONLY_CODE(if (use_own_xacts) cn_master_sync_transaction_end(list_conns));
 	PopActiveSnapshot();
 	UnregisterSnapshot(snapshot);
 
@@ -1605,6 +1938,7 @@ DefineIndex(Oid relationId,
 	CommitTransactionCommand();
 	StartTransactionCommand();
 
+	ADB_ONLY_CODE(if (use_own_xacts) sync_new_transaction_start(list_conns));
 	/* We should now definitely not be advertising any xmin. */
 	Assert(MyPgXact->xmin == InvalidTransactionId);
 
@@ -1633,13 +1967,43 @@ DefineIndex(Oid relationId,
 	 */
 	CacheInvalidateRelcacheByRelid(heaprelid.relId);
 
+#ifndef ADB
 	/*
 	 * Last thing to do is release the session-level lock on the parent table.
 	 */
 	UnlockRelationIdForSession(&heaprelid, ShareUpdateExclusiveLock);
+#endif
 
 	pgstat_progress_end_command();
 
+#ifdef ADB
+	if (list_all_node)
+	{
+		ListCell	*lc;
+		List 		*list_conns_new = NIL;
+		foreach(lc, list_all_node)
+		{
+			PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+			if (conn == NULL)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						errmsg("remote node %u not connected", lfirst_oid(lc))));
+			}
+			list_conns_new = lappend(list_conns_new, conn);
+		}
+		WaitExecutorEndMessage(list_conns_new);
+	}
+
+	if (IsConnFromCoord())
+		put_executor_end_msg(true);
+
+	if (cluster_index_context)
+	{
+		MemoryContextDelete(cluster_index_context);
+		cluster_index_context = NULL;
+	}
+#endif
 	return address;
 }
 
@@ -3145,6 +3509,14 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 	char	   *relationNamespace = NULL;
 	PGRUsage	ru0;
 
+#ifdef ADB
+	RelationLocInfo	*rel_loc_info = NULL;
+	List		*list_datanode = NIL;
+	List		*list_coordinator = NIL;
+	List		*list_all_node = NIL;
+	List 		*list_conns = NIL;
+	bool		under_agtm = IsUnderAGTM();
+#endif /* ADB */
 	/*
 	 * Create a memory context that will survive forced transaction commits we
 	 * do below.  Since it is a child of PortalContext, it will go away
@@ -3155,7 +3527,11 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 											"ReindexConcurrent",
 											ALLOCSET_SMALL_SIZES);
 
+#ifdef ADB
+	if ((IsCnMaster() && under_agtm) || options & REINDEXOPT_VERBOSE)
+#else
 	if (options & REINDEXOPT_VERBOSE)
+#endif
 	{
 		/* Save data needed by REINDEX VERBOSE in private context */
 		oldcontext = MemoryContextSwitchTo(private_context);
@@ -3201,6 +3577,11 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 
 				/* Open relation to get its indexes */
 				heapRelation = table_open(relationOid, ShareUpdateExclusiveLock);
+#ifdef ADB
+				rel_loc_info = RelationGetLocInfo(heapRelation);
+				if(IsCnMaster() && under_agtm && rel_loc_info)
+					list_datanode = RelationGetLocInfo(heapRelation)->nodeids;
+#endif
 
 				/* Add all the valid indexes of relation to list */
 				foreach(lc, RelationGetIndexList(heapRelation))
@@ -3341,6 +3722,44 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 
 	Assert(heapRelationIds != NIL);
 
+#ifdef ADB
+	if (list_datanode != NIL)
+	{
+		list_coordinator = GetAllCnIDL(false);
+	}
+
+	if (list_datanode != NIL ||
+		list_coordinator != NIL)
+	{
+		StringInfoData buf;
+		char options_buf[64];
+		Adb_Index_Concur_Type index_type = ADB_INDEX_TYPE_REINDEX;
+
+		oldcontext = MemoryContextSwitchTo(private_context);
+		initStringInfo(&buf);
+		ClusterTocSetCustomFun(&buf, cluster_adb_index_concurrent);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_INDEX_CONCUR_TYPE);
+		pq_sendint(&buf, index_type, sizeof(index_type));
+		end_mem_toc_insert(&buf, REMOTE_KEY_INDEX_CONCUR_TYPE);
+
+		begin_mem_toc_insert(&buf, REMOTE_KEY_RECREATE_INDEX_INFO);
+		save_node_string(&buf, relationNamespace);
+		save_node_string(&buf, relationName);
+		snprintf(options_buf, sizeof(options_buf), "%d", options);
+		save_node_string(&buf, options_buf);
+		end_mem_toc_insert(&buf, REMOTE_KEY_RECREATE_INDEX_INFO);
+
+		list_all_node = list_union_oid(list_coordinator, list_datanode);
+
+		if (ActiveSnapshotSet() == false)
+			PushActiveSnapshot(GetTransactionSnapshot());
+
+		list_conns = ExecClusterCustomFunction(list_all_node, &buf, EXEC_CLUSTER_FLAG_NOT_START_TRANS);
+		MemoryContextSwitchTo(oldcontext);
+	}	
+#endif
+
 	/*-----
 	 * Now we have all the indexes we want to process in indexIds.
 	 *
@@ -3468,6 +3887,8 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		table_close(heapRelation, NoLock);
 	}
 
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
+#ifndef ADB
 	/* Get a session-level lock on each table. */
 	foreach(lc, relationLocks)
 	{
@@ -3475,11 +3896,13 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 
 		LockRelationIdForSession(lockrelid, ShareUpdateExclusiveLock);
 	}
+#endif
 
 	PopActiveSnapshot();
 	CommitTransactionCommand();
 	StartTransactionCommand();
 
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 	/*
 	 * Phase 2 of REINDEX CONCURRENTLY
 	 *
@@ -3493,7 +3916,10 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_PHASE,
 								 PROGRESS_CREATEIDX_PHASE_WAIT_1);
 	WaitForLockersMultiple(lockTags, ShareLock, true);
+
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 	CommitTransactionCommand();
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 
 	forboth(lc, indexIds, lc2, newIndexIds)
 	{
@@ -3526,8 +3952,10 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		/* Perform concurrent build of new index */
 		index_concurrently_build(heapId, newIndexId);
 
+		ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 		PopActiveSnapshot();
 		CommitTransactionCommand();
+		ADB_ONLY_CODE(slave_node_send_end_msg());
 	}
 	StartTransactionCommand();
 
@@ -3542,7 +3970,10 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_PHASE,
 								 PROGRESS_CREATEIDX_PHASE_WAIT_2);
 	WaitForLockersMultiple(lockTags, ShareLock, true);
+
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 	CommitTransactionCommand();
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 
 	foreach(lc, newIndexIds)
 	{
@@ -3577,6 +4008,7 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		 */
 		limitXmin = snapshot->xmin;
 
+		ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 		PopActiveSnapshot();
 		UnregisterSnapshot(snapshot);
 
@@ -3587,6 +4019,7 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		 */
 		CommitTransactionCommand();
 		StartTransactionCommand();
+		ADB_ONLY_CODE(slave_node_send_end_msg());
 
 		/*
 		 * The index is now valid in the sense that it contains all currently
@@ -3598,7 +4031,9 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 									 PROGRESS_CREATEIDX_PHASE_WAIT_3);
 		WaitForOlderSnapshots(limitXmin, true);
 
+		ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 		CommitTransactionCommand();
+		ADB_ONLY_CODE(slave_node_send_end_msg());
 	}
 
 	/*
@@ -3660,9 +4095,11 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		CommandCounterIncrement();
 	}
 
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 	/* Commit this transaction and make index swaps visible */
 	CommitTransactionCommand();
 	StartTransactionCommand();
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 
 	/*
 	 * Phase 5 of REINDEX CONCURRENTLY
@@ -3692,10 +4129,11 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		index_concurrently_set_dead(heapId, oldIndexId);
 	}
 
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 	/* Commit this transaction to make the updates visible. */
 	CommitTransactionCommand();
 	StartTransactionCommand();
-
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 	/*
 	 * Phase 6 of REINDEX CONCURRENTLY
 	 *
@@ -3731,21 +4169,25 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 								 PERFORM_DELETION_CONCURRENT_LOCK | PERFORM_DELETION_INTERNAL);
 	}
 
+	ADB_ONLY_CODE(cn_master_sync_transaction_end(list_conns));
 	PopActiveSnapshot();
 	CommitTransactionCommand();
 
 	/*
 	 * Finally, release the session-level lock on the table.
 	 */
+#ifndef ADB
 	foreach(lc, relationLocks)
 	{
 		LockRelId  *lockrelid = (LockRelId *) lfirst(lc);
 
 		UnlockRelationIdForSession(lockrelid, ShareUpdateExclusiveLock);
 	}
+#endif
 
 	/* Start a new transaction to finish process properly */
 	StartTransactionCommand();
+	ADB_ONLY_CODE(slave_node_send_end_msg());
 
 	/* Log what we did */
 	if (options & REINDEXOPT_VERBOSE)
@@ -3777,6 +4219,13 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 		}
 	}
 
+#ifdef ADB
+	if (list_conns)
+		WaitExecutorEndMessage(list_conns);
+
+	if (IsConnFromCoord())
+		put_executor_end_msg(true);
+#endif
 	MemoryContextDelete(private_context);
 
 	pgstat_progress_end_command();

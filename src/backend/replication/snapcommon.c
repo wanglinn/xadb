@@ -274,6 +274,7 @@ void SnapTransferLock(SnapCommonLock *comm_lock, void **param_io,
 
 void SnapReleaseTransactionLocks(SnapCommonLock *comm_lock, TransactionId xid)
 {
+	elog(LOG, "SnapReleaseTransactionLocks for xid %u", xid);
 	MemoryContext		old_context = MemoryContextSwitchTo(TopMemoryContext);
 	SnapLockIvdInfo		*lock,*prev;
 	dsa_pointer			dp, prev_dp;

@@ -177,6 +177,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterExpansionClean, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(execClusterFinishActiveBackend, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_reindex, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_adb_index_concurrent, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
 static void set_cluster_display(const char *activity, ClusterCoordInfo *info);

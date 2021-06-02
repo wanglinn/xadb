@@ -37,6 +37,10 @@ extern ObjectAddress DefineIndex(Oid relationId,
 								 bool check_not_in_use,
 								 bool skip_build,
 								 bool quiet);
+#ifdef ADB
+extern void cluster_adb_index_concurrent(struct StringInfoData *msg);
+extern void cluster_redefine_index_concurrent(struct StringInfoData *msg);
+#endif
 extern void ReindexIndex(RangeVar *indexRelation, int options, bool concurrent);
 extern Oid	ReindexTable(RangeVar *relation, int options, bool concurrent);
 extern void ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,

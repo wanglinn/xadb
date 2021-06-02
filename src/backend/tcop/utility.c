@@ -1288,13 +1288,13 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				ReindexStmt *stmt = (ReindexStmt *) parsetree;
 #ifdef ADB
 				bool send_to_remote = true;
-				if (stmt->concurrent)
+				/*if (stmt->concurrent)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							 errmsg("AntDB does not support concurrent REINDEX yet"),
 							 errdetail("The feature is not currently supported")));
-				}
+				}*/
 #endif /* ADB */
 
 				if (stmt->concurrent)
@@ -1331,8 +1331,8 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 				}
 #ifdef ADB
-				if (stmt->kind == REINDEX_OBJECT_INDEX ||
-					stmt->kind == REINDEX_OBJECT_TABLE)
+				if ((!stmt->concurrent ) && (stmt->kind == REINDEX_OBJECT_INDEX ||
+					stmt->kind == REINDEX_OBJECT_TABLE))
 				{
 					Relation rel = relation_openrv(stmt->relation, NoLock);
 					if (RelationUsesLocalBuffers(rel))
@@ -2179,13 +2179,13 @@ ProcessUtilitySlow(ParseState *pstate,
 					bool		is_temp = false;
 					RemoteQueryExecType	exec_type = EXEC_ON_ALL_NODES;
 
-					if (stmt->concurrent)
+					/*if (stmt->concurrent)
 					{
 						ereport(ERROR,
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 								 errmsg("PGXC does not support concurrent INDEX yet"),
 								 errdetail("The feature is not currently supported")));
-					}
+					}*/
 
 					/* INDEX on a temporary table cannot use 2PC at commit */
 					relid = RangeVarGetRelid(stmt->relation, NoLock, true);
@@ -2284,14 +2284,14 @@ ProcessUtilitySlow(ParseState *pstate,
 					EventTriggerAlterTableEnd();
 
 #ifdef ADB
-					if (!stmt->isconstraint && !is_temp)
+					/*if (!stmt->isconstraint && !is_temp)
 					{
 						utilityContext.force_autocommit = stmt->concurrent;
 						utilityContext.exec_type = exec_type;
 						utilityContext.is_temp = is_temp;
 						utilityContext.stmt = (Node *) stmt;
 						ExecRemoteUtilityStmt(&utilityContext);
-					}
+					}*/
 #endif
 				}
 				break;
