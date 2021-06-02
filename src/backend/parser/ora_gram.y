@@ -7371,7 +7371,7 @@ simple_select:
 				
 				if(n->fromClause)
 				{
-					if(list_length(n->fromClause) == 1)
+					if(list_length(n->fromClause) == 1 && IsA(linitial(n->fromClause),RangeVar))
 					{
 						RangeVar *var = (RangeVar*) linitial(n->fromClause);
 						Alias *alias = var->alias;
