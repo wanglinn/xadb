@@ -11014,7 +11014,8 @@ final_cluster_path(Path *path, List *remote_nodes)
 	switch (path->type)
 	{
 	case T_ClusterGatherPath:
-		((ClusterGatherPath*)path)->rnodes = remote_nodes;
+		if (((ClusterGatherPath*)path)->rnodes == NIL)
+			((ClusterGatherPath*)path)->rnodes = remote_nodes;
 		break;
 	case T_ClusterMergeGatherPath:
 		((ClusterMergeGatherPath*)path)->rnodes = remote_nodes;
