@@ -890,7 +890,7 @@ DefineIndex(Oid relationId,
 					  amcanorder, stmt->isconstraint);
 #ifdef ADB
 	/* Check if index is safely shippable */
-	if (IS_PGXC_COORDINATOR)
+	if (!IsBootstrapProcessingMode() && IS_PGXC_COORDINATOR)
 	{
 		List *indexAttrs = NIL;
 

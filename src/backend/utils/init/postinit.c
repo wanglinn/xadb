@@ -1110,7 +1110,8 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	InitializeNodeExecutor();
 
 	/* initialize node identifier */
-	InitPGXCNodeIdentifier();
+	if (!bootstrap)
+		InitPGXCNodeIdentifier();
 #endif
 
 	/* Initialize this backend's session state. */
