@@ -1,6 +1,6 @@
 <!-- doc/src/sgml/spi.sgml -->
 
-<chapter id="spi" xreflabel="spi">
+<chapter id="spi">
  <title>Server Programming Interface</title>
 
  <indexterm zone="spi">
@@ -11,7 +11,7 @@
   The <firstterm>Server Programming Interface</firstterm>
   (<acronym>SPI</acronym>) gives writers of user-defined
   <acronym>C</acronym> functions the ability to run
-  <acronym>SQL</acronym> commands inside their functions.
+  <acronym>SQL</acronym> commands inside their functions or procedures.
   <acronym>SPI</acronym> is a set of
   interface functions to simplify access to the parser, planner,
   and executor. <acronym>SPI</acronym> also does some

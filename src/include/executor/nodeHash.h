@@ -71,7 +71,7 @@ extern bool ExecScanHashBucketExt(ExprContext *econtext, ExprState *hjclauses,
 extern void ExecHashTableReset(HashJoinTable hashtable);
 extern void ExecHashTableResetMatchFlags(HashJoinTable hashtable);
 extern void ExecChooseHashTableSize(double ntuples, int tupwidth, bool useskew,
-									bool try_combined_work_mem,
+									bool try_combined_hash_mem,
 									int parallel_workers,
 									size_t *space_allowed,
 									int *numbuckets,

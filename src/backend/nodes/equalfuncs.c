@@ -1344,6 +1344,7 @@ _equalTableLikeClause(const TableLikeClause *a, const TableLikeClause *b)
 {
 	COMPARE_NODE_FIELD(relation);
 	COMPARE_SCALAR_FIELD(options);
+	COMPARE_SCALAR_FIELD(relationOid);
 
 	return true;
 }

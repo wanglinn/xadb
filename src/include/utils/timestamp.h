@@ -77,6 +77,8 @@ extern TimestampTz GetSQLCurrentTimestamp(int32 typmod);
 extern Timestamp GetSQLLocalTimestamp(int32 typmod);
 extern void TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
 								long *secs, int *microsecs);
+extern long TimestampDifferenceMilliseconds(TimestampTz start_time,
+											TimestampTz stop_time);
 extern bool TimestampDifferenceExceeds(TimestampTz start_time,
 									   TimestampTz stop_time,
 									   int msec);
@@ -104,6 +106,8 @@ extern int	timestamp_cmp_internal(Timestamp dt1, Timestamp dt2);
 
 extern TimestampTz timestamp2timestamptz_opt_overflow(Timestamp timestamp,
 													  int *overflow);
+extern int32 timestamp_cmp_timestamptz_internal(Timestamp timestampVal,
+												TimestampTz dt2);
 
 extern int	isoweek2j(int year, int week);
 extern void isoweek2date(int woy, int *year, int *mon, int *mday);

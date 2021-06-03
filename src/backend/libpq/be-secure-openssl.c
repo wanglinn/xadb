@@ -72,6 +72,7 @@ static bool dummy_ssl_passwd_cb_called = false;
 static bool ssl_is_server_start;
 
 static int	ssl_protocol_version_to_openssl(int v);
+static const char *ssl_protocol_version_to_string(int v);
 
 /* ------------------------------------------------------------ */
 /*						 Public interface						*/
@@ -80,7 +81,6 @@ static int	ssl_protocol_version_to_openssl(int v);
 int
 be_tls_init(bool isServerStart)
 {
-	STACK_OF(X509_NAME) * root_cert_list = NULL;
 	SSL_CTX    *context;
 	int			ssl_ver_min = -1;
 	int			ssl_ver_max = -1;
@@ -99,6 +99,10 @@ be_tls_init(bool isServerStart)
 	}
 
 	/*
+	 * Create a new SSL context into which we'll load all the configuration
+	 * settings.  If we fail partway through, we can avoid memory leakage by
+	 * freeing this context; we don't install it as active until the end.
+	 *
 	 * We use SSLv23_method() because it can negotiate use of the highest
 	 * mutually supported protocol version, while alternatives like
 	 * TLSv1_2_method() permit only one specific version.  Note that we don't
@@ -180,6 +184,7 @@ be_tls_init(bool isServerStart)
 		if (ssl_ver_min == -1)
 		{
 			ereport(isServerStart ? FATAL : LOG,
+			/*- translator: first %s is a GUC option name, second %s is its value */
 					(errmsg("\"%s\" setting \"%s\" not supported by this build",
 							"ssl_min_protocol_version",
 							GetConfigOption("ssl_min_protocol_version",
@@ -202,6 +207,7 @@ be_tls_init(bool isServerStart)
 		if (ssl_ver_max == -1)
 		{
 			ereport(isServerStart ? FATAL : LOG,
+			/*- translator: first %s is a GUC option name, second %s is its value */
 					(errmsg("\"%s\" setting \"%s\" not supported by this build",
 							"ssl_max_protocol_version",
 							GetConfigOption("ssl_max_protocol_version",
@@ -266,6 +272,8 @@ be_tls_init(bool isServerStart)
 	 */
 	if (ssl_ca_file[0])
 	{
+		STACK_OF(X509_NAME) * root_cert_list;
+
 		if (SSL_CTX_load_verify_locations(context, ssl_ca_file, NULL) != 1 ||
 			(root_cert_list = SSL_load_client_CA_file(ssl_ca_file)) == NULL)
 		{
@@ -275,6 +283,25 @@ be_tls_init(bool isServerStart)
 							ssl_ca_file, SSLerrmessage(ERR_get_error()))));
 			goto error;
 		}
+
+		/*
+		 * Tell OpenSSL to send the list of root certs we trust to clients in
+		 * CertificateRequests.  This lets a client with a keystore select the
+		 * appropriate client certificate to send to us.  Also, this ensures
+		 * that the SSL context will "own" the root_cert_list and remember to
+		 * free it when no longer needed.
+		 */
+		SSL_CTX_set_client_CA_list(context, root_cert_list);
+
+		/*
+		 * Always ask for SSL client cert, but don't fail if it's not
+		 * presented.  We might fail such connections later, depending on what
+		 * we find in pg_hba.conf.
+		 */
+		SSL_CTX_set_verify(context,
+						   (SSL_VERIFY_PEER |
+							SSL_VERIFY_CLIENT_ONCE),
+						   verify_cb);
 	}
 
 	/*----------
@@ -305,26 +332,6 @@ be_tls_init(bool isServerStart)
 		}
 	}
 
-	if (ssl_ca_file[0])
-	{
-		/*
-		 * Always ask for SSL client cert, but don't fail if it's not
-		 * presented.  We might fail such connections later, depending on what
-		 * we find in pg_hba.conf.
-		 */
-		SSL_CTX_set_verify(context,
-						   (SSL_VERIFY_PEER |
-							SSL_VERIFY_CLIENT_ONCE),
-						   verify_cb);
-
-		/*
-		 * Tell OpenSSL to send the list of root certs we trust to clients in
-		 * CertificateRequests.  This lets a client with a keystore select the
-		 * appropriate client certificate to send to us.
-		 */
-		SSL_CTX_set_client_CA_list(context, root_cert_list);
-	}
-
 	/*
 	 * Success!  Replace any existing SSL_context.
 	 */
@@ -343,6 +350,7 @@ be_tls_init(bool isServerStart)
 
 	return 0;
 
+	/* Clean up by releasing working context. */
 error:
 	if (context)
 		SSL_CTX_free(context);
@@ -365,6 +373,7 @@ be_tls_open_server(Port *port)
 	int			err;
 	int			waitfor;
 	unsigned long ecode;
+	bool		give_proto_hint;
 
 	Assert(!port->ssl);
 	Assert(!port->peer);
@@ -451,10 +460,52 @@ aloop:
 							 errmsg("could not accept SSL connection: EOF detected")));
 				break;
 			case SSL_ERROR_SSL:
+				switch (ERR_GET_REASON(ecode))
+				{
+						/*
+						 * UNSUPPORTED_PROTOCOL, WRONG_VERSION_NUMBER, and
+						 * TLSV1_ALERT_PROTOCOL_VERSION have been observed
+						 * when trying to communicate with an old OpenSSL
+						 * library, or when the client and server specify
+						 * disjoint protocol ranges.  NO_PROTOCOLS_AVAILABLE
+						 * occurs if there's a local misconfiguration (which
+						 * can happen despite our checks, if openssl.cnf
+						 * injects a limit we didn't account for).  It's not
+						 * very clear what would make OpenSSL return the other
+						 * codes listed here, but a hint about protocol
+						 * versions seems like it's appropriate for all.
+						 */
+					case SSL_R_NO_PROTOCOLS_AVAILABLE:
+					case SSL_R_UNSUPPORTED_PROTOCOL:
+					case SSL_R_BAD_PROTOCOL_VERSION_NUMBER:
+					case SSL_R_UNKNOWN_PROTOCOL:
+					case SSL_R_UNKNOWN_SSL_VERSION:
+					case SSL_R_UNSUPPORTED_SSL_VERSION:
+					case SSL_R_WRONG_SSL_VERSION:
+					case SSL_R_WRONG_VERSION_NUMBER:
+					case SSL_R_TLSV1_ALERT_PROTOCOL_VERSION:
+#ifdef SSL_R_VERSION_TOO_HIGH
+					case SSL_R_VERSION_TOO_HIGH:
+					case SSL_R_VERSION_TOO_LOW:
+#endif
+						give_proto_hint = true;
+						break;
+					default:
+						give_proto_hint = false;
+						break;
+				}
 				ereport(COMMERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("could not accept SSL connection: %s",
-								SSLerrmessage(ecode))));
+								SSLerrmessage(ecode)),
+						 give_proto_hint ?
+						 errhint("This may indicate that the client does not support any SSL protocol version between %s and %s.",
+								 ssl_min_protocol_version ?
+								 ssl_protocol_version_to_string(ssl_min_protocol_version) :
+								 MIN_OPENSSL_TLS_VERSION,
+								 ssl_max_protocol_version ?
+								 ssl_protocol_version_to_string(ssl_max_protocol_version) :
+								 MAX_OPENSSL_TLS_VERSION) : 0));
 				break;
 			case SSL_ERROR_ZERO_RETURN:
 				ereport(COMMERROR,
@@ -848,6 +899,7 @@ load_dh_file(char *filename, bool isServerStart)
 				(errcode(ERRCODE_CONFIG_FILE_ERROR),
 				 errmsg("invalid DH parameters: %s",
 						SSLerrmessage(ERR_get_error()))));
+		DH_free(dh);
 		return NULL;
 	}
 	if (codes & DH_CHECK_P_NOT_PRIME)
@@ -855,6 +907,7 @@ load_dh_file(char *filename, bool isServerStart)
 		ereport(isServerStart ? FATAL : LOG,
 				(errcode(ERRCODE_CONFIG_FILE_ERROR),
 				 errmsg("invalid DH parameters: p is not prime")));
+		DH_free(dh);
 		return NULL;
 	}
 	if ((codes & DH_NOT_SUITABLE_GENERATOR) &&
@@ -863,6 +916,7 @@ load_dh_file(char *filename, bool isServerStart)
 		ereport(isServerStart ? FATAL : LOG,
 				(errcode(ERRCODE_CONFIG_FILE_ERROR),
 				 errmsg("invalid DH parameters: neither suitable generator or safe prime")));
+		DH_free(dh);
 		return NULL;
 	}
 
@@ -1326,6 +1380,29 @@ ssl_protocol_version_to_openssl(int v)
 	}
 
 	return -1;
+}
+
+/*
+ * Likewise provide a mapping to strings.
+ */
+static const char *
+ssl_protocol_version_to_string(int v)
+{
+	switch (v)
+	{
+		case PG_TLS_ANY:
+			return "any";
+		case PG_TLS1_VERSION:
+			return "TLSv1";
+		case PG_TLS1_1_VERSION:
+			return "TLSv1.1";
+		case PG_TLS1_2_VERSION:
+			return "TLSv1.2";
+		case PG_TLS1_3_VERSION:
+			return "TLSv1.3";
+	}
+
+	return "(unrecognized)";
 }
 
 

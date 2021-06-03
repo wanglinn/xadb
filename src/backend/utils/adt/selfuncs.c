@@ -143,6 +143,10 @@
 #include "utils/typcache.h"
 
 
+/* source-code-compatibility hacks for pull_varnos() API change */
+#define pull_varnos(a,b) pull_varnos_new(a,b)
+#define NumRelids(a,b) NumRelids_new(a,b)
+
 /* Hooks for plugins to get control when we ask for stats */
 get_relation_stats_hook_type get_relation_stats_hook = NULL;
 get_index_stats_hook_type get_index_stats_hook = NULL;
@@ -2209,7 +2213,7 @@ rowcomparesel(PlannerInfo *root,
 		/*
 		 * Otherwise, it's a join if there's more than one relation used.
 		 */
-		is_join_clause = (NumRelids((Node *) opargs) > 1);
+		is_join_clause = (NumRelids(root, (Node *) opargs) > 1);
 	}
 
 	if (is_join_clause)
@@ -2778,6 +2782,7 @@ neqjoinsel(PG_FUNCTION_ARGS)
 	List	   *args = (List *) PG_GETARG_POINTER(2);
 	JoinType	jointype = (JoinType) PG_GETARG_INT16(3);
 	SpecialJoinInfo *sjinfo = (SpecialJoinInfo *) PG_GETARG_POINTER(4);
+	Oid			collation = PG_GET_COLLATION();
 	float8		result;
 
 	if (jointype == JOIN_SEMI || jointype == JOIN_ANTI)
@@ -2824,12 +2829,14 @@ neqjoinsel(PG_FUNCTION_ARGS)
 
 		if (eqop)
 		{
-			result = DatumGetFloat8(DirectFunctionCall5(eqjoinsel,
-														PointerGetDatum(root),
-														ObjectIdGetDatum(eqop),
-														PointerGetDatum(args),
-														Int16GetDatum(jointype),
-														PointerGetDatum(sjinfo)));
+			result =
+				DatumGetFloat8(DirectFunctionCall5Coll(eqjoinsel,
+													   collation,
+													   PointerGetDatum(root),
+													   ObjectIdGetDatum(eqop),
+													   PointerGetDatum(args),
+													   Int16GetDatum(jointype),
+													   PointerGetDatum(sjinfo)));
 		}
 		else
 		{
@@ -3519,7 +3526,7 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 		 * for remaining Vars on other rels.
 		 */
 		relvarinfos = lappend(relvarinfos, varinfo1);
-		for_each_cell(l, varinfos, list_second_cell(varinfos))
+		for_each_from(l, varinfos, 1)
 		{
 			GroupVarInfo *varinfo2 = (GroupVarInfo *) lfirst(l);
 
@@ -3985,11 +3992,11 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
 
 			attnum = ((Var *) varinfo->var)->varattno;
 
-			if (!AttrNumberIsForUserDefinedAttr(attnum))
+			if (AttrNumberIsForUserDefinedAttr(attnum) &&
+				bms_is_member(attnum, matched))
 				continue;
 
-			if (!bms_is_member(attnum, matched))
-				newlist = lappend(newlist, varinfo);
+			newlist = lappend(newlist, varinfo);
 		}
 
 		*varinfos = newlist;
@@ -4769,7 +4776,7 @@ examine_variable(PlannerInfo *root, Node *node, int varRelid,
 	 * membership.  Note that when varRelid isn't zero, only vars of that
 	 * relation are considered "real" vars.
 	 */
-	varnos = pull_varnos(basenode);
+	varnos = pull_varnos(root, basenode);
 
 	onerel = NULL;
 

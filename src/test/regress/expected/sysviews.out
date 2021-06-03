@@ -67,6 +67,13 @@ select count(*) >= 0 as ok from pg_prepared_xacts;
  t
 (1 row)
 
+-- We expect no walreceiver running in this test
+select count(*) = 0 as ok from pg_stat_wal_receiver;
+ ok 
+----
+ t
+(1 row)
+
 -- This is to record the prevailing planner enable_foo settings during
 -- a regression test run.
 select name, setting from pg_settings where name like 'enable%';
@@ -76,11 +83,9 @@ select name, setting from pg_settings where name like 'enable%';
  enable_batch_sort              | off
  enable_bitmapscan              | on
  enable_gathermerge             | on
- enable_groupingsets_hash_disk  | off
  enable_hashagg                 | on
- enable_hashagg_disk            | on
  enable_hashjoin                | on
- enable_incrementalsort         | on
+ enable_incremental_sort        | on
  enable_indexonlyscan           | on
  enable_indexscan               | on
  enable_material                | on
@@ -94,7 +99,7 @@ select name, setting from pg_settings where name like 'enable%';
  enable_seqscan                 | on
  enable_sort                    | on
  enable_tidscan                 | on
-(22 rows)
+(18 rows)
 
 -- Test that the pg_timezone_names and pg_timezone_abbrevs views are
 -- more-or-less working.  We can't test their contents in any great detail

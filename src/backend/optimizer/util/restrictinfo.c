@@ -25,7 +25,11 @@
 #endif /* ADB_GRAM_ORA */
 
 
-static RestrictInfo *make_restrictinfo_internal(Expr *clause,
+/* source-code-compatibility hacks for pull_varnos() API change */
+#define pull_varnos(a,b) pull_varnos_new(a,b)
+
+static RestrictInfo *make_restrictinfo_internal(PlannerInfo *root,
+												Expr *clause,
 												Expr *orclause,
 												bool is_pushed_down,
 												bool outerjoin_delayed,
@@ -34,7 +38,8 @@ static RestrictInfo *make_restrictinfo_internal(Expr *clause,
 												Relids required_relids,
 												Relids outer_relids,
 												Relids nullable_relids);
-static Expr *make_sub_restrictinfos(Expr *clause,
+static Expr *make_sub_restrictinfos(PlannerInfo *root,
+									Expr *clause,
 									bool is_pushed_down,
 									bool outerjoin_delayed,
 									bool pseudoconstant,
@@ -69,12 +74,35 @@ make_restrictinfo(Expr *clause,
 				  Relids outer_relids,
 				  Relids nullable_relids)
 {
+	return make_restrictinfo_new(NULL,
+								 clause,
+								 is_pushed_down,
+								 outerjoin_delayed,
+								 pseudoconstant,
+								 security_level,
+								 required_relids,
+								 outer_relids,
+								 nullable_relids);
+}
+
+RestrictInfo *
+make_restrictinfo_new(PlannerInfo *root,
+					  Expr *clause,
+					  bool is_pushed_down,
+					  bool outerjoin_delayed,
+					  bool pseudoconstant,
+					  Index security_level,
+					  Relids required_relids,
+					  Relids outer_relids,
+					  Relids nullable_relids)
+{
 	/*
 	 * If it's an OR clause, build a modified copy with RestrictInfos inserted
 	 * above each subclause of the top-level AND/OR structure.
 	 */
 	if (is_orclause(clause))
-		return (RestrictInfo *) make_sub_restrictinfos(clause,
+		return (RestrictInfo *) make_sub_restrictinfos(root,
+													   clause,
 													   is_pushed_down,
 													   outerjoin_delayed,
 													   pseudoconstant,
@@ -86,7 +114,8 @@ make_restrictinfo(Expr *clause,
 	/* Shouldn't be an AND clause, else AND/OR flattening messed up */
 	Assert(!is_andclause(clause));
 
-	return make_restrictinfo_internal(clause,
+	return make_restrictinfo_internal(root,
+									  clause,
 									  NULL,
 									  is_pushed_down,
 									  outerjoin_delayed,
@@ -103,7 +132,8 @@ make_restrictinfo(Expr *clause,
  * Common code for the main entry points and the recursive cases.
  */
 static RestrictInfo *
-make_restrictinfo_internal(Expr *clause,
+make_restrictinfo_internal(PlannerInfo *root,
+						   Expr *clause,
 						   Expr *orclause,
 						   bool is_pushed_down,
 						   bool outerjoin_delayed,
@@ -141,8 +171,8 @@ make_restrictinfo_internal(Expr *clause,
 	 */
 	if (is_opclause(clause) && list_length(((OpExpr *) clause)->args) == 2)
 	{
-		restrictinfo->left_relids = pull_varnos(get_leftop(clause));
-		restrictinfo->right_relids = pull_varnos(get_rightop(clause));
+		restrictinfo->left_relids = pull_varnos(root, get_leftop(clause));
+		restrictinfo->right_relids = pull_varnos(root, get_rightop(clause));
 
 		restrictinfo->clause_relids = bms_union(restrictinfo->left_relids,
 												restrictinfo->right_relids);
@@ -169,7 +199,7 @@ make_restrictinfo_internal(Expr *clause,
 		restrictinfo->left_relids = NULL;
 		restrictinfo->right_relids = NULL;
 		/* and get the total relid set the hard way */
-		restrictinfo->clause_relids = pull_varnos((Node *) clause);
+		restrictinfo->clause_relids = pull_varnos(root, (Node *) clause);
 	}
 
 	/* required_relids defaults to clause_relids */
@@ -229,7 +259,8 @@ make_restrictinfo_internal(Expr *clause,
  * contained rels.
  */
 static Expr *
-make_sub_restrictinfos(Expr *clause,
+make_sub_restrictinfos(PlannerInfo *root,
+					   Expr *clause,
 					   bool is_pushed_down,
 					   bool outerjoin_delayed,
 					   bool pseudoconstant,
@@ -245,7 +276,8 @@ make_sub_restrictinfos(Expr *clause,
 
 		foreach(temp, ((BoolExpr *) clause)->args)
 			orlist = lappend(orlist,
-							 make_sub_restrictinfos(lfirst(temp),
+							 make_sub_restrictinfos(root,
+													lfirst(temp),
 													is_pushed_down,
 													outerjoin_delayed,
 													pseudoconstant,
@@ -253,7 +285,8 @@ make_sub_restrictinfos(Expr *clause,
 													NULL,
 													outer_relids,
 													nullable_relids));
-		return (Expr *) make_restrictinfo_internal(clause,
+		return (Expr *) make_restrictinfo_internal(root,
+												   clause,
 												   make_orclause(orlist),
 												   is_pushed_down,
 												   outerjoin_delayed,
@@ -270,7 +303,8 @@ make_sub_restrictinfos(Expr *clause,
 
 		foreach(temp, ((BoolExpr *) clause)->args)
 			andlist = lappend(andlist,
-							  make_sub_restrictinfos(lfirst(temp),
+							  make_sub_restrictinfos(root,
+													 lfirst(temp),
 													 is_pushed_down,
 													 outerjoin_delayed,
 													 pseudoconstant,
@@ -281,7 +315,8 @@ make_sub_restrictinfos(Expr *clause,
 		return make_andclause(andlist);
 	}
 	else
-		return (Expr *) make_restrictinfo_internal(clause,
+		return (Expr *) make_restrictinfo_internal(root,
+												   clause,
 												   NULL,
 												   is_pushed_down,
 												   outerjoin_delayed,
@@ -616,7 +651,7 @@ static bool have_prior_expr(Expr *expr, void *context)
 	return expression_tree_walker((Node*)expr, have_prior_expr, NULL);
 }
 
-RestrictInfo* make_connect_by_restrictinfo(Expr *expr)
+RestrictInfo* make_connect_by_restrictinfo(PlannerInfo *root, Expr *expr)
 {
 	RestrictInfo   *ri = NULL;
 	OpExpr		   *op;
@@ -644,10 +679,10 @@ RestrictInfo* make_connect_by_restrictinfo(Expr *expr)
 		ri->left_relids = ri->right_relids = ri->clause_relids = NULL;
 
 		left_have_prior = have_prior_expr(larg, NULL);
-		left_relids = left_have_prior ? pull_varnos((Node*)larg) : pull_varnos_no_prior((Node*)larg);
+		left_relids = left_have_prior ? pull_varnos(root, (Node*)larg) : pull_varnos_no_prior((Node*)larg);
 
 		right_have_prior = have_prior_expr(rarg, NULL);
-		right_relids = right_have_prior ? pull_varnos((Node*)rarg) : pull_varnos_no_prior((Node*)rarg);
+		right_relids = right_have_prior ? pull_varnos(root, (Node*)rarg) : pull_varnos_no_prior((Node*)rarg);
 
 		ri->clause_relids = bms_union(left_relids, right_relids);
 

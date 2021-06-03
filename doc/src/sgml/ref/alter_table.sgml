@@ -76,7 +76,7 @@ ALTER TABLE [ IF EXISTS ] <replaceable class="parameter">name</replaceable>
     SET WITHOUT OIDS
     SET TABLESPACE <replaceable class="parameter">new_tablespace</replaceable>
     SET { LOGGED | UNLOGGED }
-    SET ( <replaceable class="parameter">storage_parameter</replaceable> = <replaceable class="parameter">value</replaceable> [, ... ] )
+    SET ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] )
     RESET ( <replaceable class="parameter">storage_parameter</replaceable> [, ... ] )
     INHERIT <replaceable class="parameter">parent_table</replaceable>
     NO INHERIT <replaceable class="parameter">parent_table</replaceable>
@@ -510,6 +510,9 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       (See <xref linkend="sql-altertable-notes"/> below for an explanation
       of the usefulness of this command.)
      </para>
+     <para>
+      This command acquires a <literal>SHARE UPDATE EXCLUSIVE</literal> lock.
+     </para>
     </listitem>
    </varlistentry>
 
@@ -673,7 +676,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       When applied to a partitioned table, nothing is moved, but any
       partitions created afterwards with
       <command>CREATE TABLE PARTITION OF</command> will use that tablespace,
-      unless the <literal>TABLESPACE</literal> clause is used to override it.
+      unless overridden by a <literal>TABLESPACE</literal> clause.
      </para>
 
      <para>
@@ -706,7 +709,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
    </varlistentry>
 
    <varlistentry>
-    <term><literal>SET ( <replaceable class="parameter">storage_parameter</replaceable> = <replaceable class="parameter">value</replaceable> [, ... ] )</literal></term>
+    <term><literal>SET ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] )</literal></term>
     <listitem>
      <para>
       This form changes one or more storage parameters for the table.  See
@@ -970,7 +973,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       from the parent table will be created in the partition, if they don't
       already exist.
       If any of the <literal>CHECK</literal> constraints of the table being
-      attached is marked <literal>NO INHERIT</literal>, the command will fail;
+      attached are marked <literal>NO INHERIT</literal>, the command will fail;
       such constraints must be recreated without the
       <literal>NO INHERIT</literal> clause.
      </para>
@@ -1027,6 +1030,8 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       ties to the table from which it was detached.  Any indexes that were
       attached to the target table's indexes are detached.  Any triggers that
       were created as clones of those in the target table are removed.
+      <literal>SHARE</literal> lock is obtained on any tables that reference
+      this partitioned table in foreign key constraints.
      </para>
     </listitem>
    </varlistentry>

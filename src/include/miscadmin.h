@@ -242,6 +242,7 @@ extern PGDLLIMPORT int IntervalStyle;
 extern bool enableFsync;
 extern PGDLLIMPORT bool allowSystemTableMods;
 extern PGDLLIMPORT int work_mem;
+extern PGDLLIMPORT double hash_mem_multiplier;
 extern PGDLLIMPORT int maintenance_work_mem;
 extern PGDLLIMPORT int max_parallel_maintenance_workers;
 
@@ -500,5 +501,7 @@ void PGXC_init_lock_files(void);
 #ifdef ADBMGRD
 extern char *mgr_zone;
 #endif
+/* in executor/nodeHash.c */
+extern int	get_hash_mem(void);
 
 #endif							/* MISCADMIN_H */

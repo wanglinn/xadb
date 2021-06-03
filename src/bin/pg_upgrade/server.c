@@ -9,7 +9,7 @@
 
 #include "postgres_fe.h"
 
-#include "fe_utils/connect.h"
+#include "common/connect.h"
 #include "fe_utils/string_utils.h"
 #include "pg_upgrade.h"
 
@@ -220,7 +220,7 @@ start_postmaster(ClusterInfo *cluster, bool report_and_exit_on_error)
 		snprintf(socket_string + strlen(socket_string),
 				 sizeof(socket_string) - strlen(socket_string),
 				 " -c %s='%s'",
-				 (GET_MAJOR_VERSION(cluster->major_version) < 903) ?
+				 (GET_MAJOR_VERSION(cluster->major_version) <= 902) ?
 				 "unix_socket_directory" : "unix_socket_directories",
 				 cluster->sockdir);
 #endif
@@ -239,6 +239,9 @@ start_postmaster(ClusterInfo *cluster, bool report_and_exit_on_error)
 	 * we only modify the new cluster, so only use it there.  If there is a
 	 * crash, the new cluster has to be recreated anyway.  fsync=off is a big
 	 * win on ext4.
+	 *
+	 * Force vacuum_defer_cleanup_age to 0 on the new cluster, so that
+	 * vacuumdb --freeze actually freezes the tuples.
 	 */
 	snprintf(cmd, sizeof(cmd),
 			 "\"%s/pg_ctl\" -w -l \"%s\" -D \"%s\" -o \"-p %d%s%s %s%s\" start",
@@ -247,7 +250,7 @@ start_postmaster(ClusterInfo *cluster, bool report_and_exit_on_error)
 			  BINARY_UPGRADE_SERVER_FLAG_CAT_VER) ? " -b" :
 			 " -c autovacuum=off -c autovacuum_freeze_max_age=2000000000",
 			 (cluster == &new_cluster) ?
-			 " -c synchronous_commit=off -c fsync=off -c full_page_writes=off" : "",
+			 " -c synchronous_commit=off -c fsync=off -c full_page_writes=off -c vacuum_defer_cleanup_age=0" : "",
 			 cluster->pgopts ? cluster->pgopts : "", socket_string);
 
 	/*

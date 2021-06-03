@@ -57,12 +57,17 @@ InitializeBackupManifest(backup_manifest_info *manifest,
 						 backup_manifest_option want_manifest,
 						 pg_checksum_type manifest_checksum_type)
 {
+	memset(manifest, 0, sizeof(backup_manifest_info));
+	manifest->checksum_type = manifest_checksum_type;
+
 	if (want_manifest == MANIFEST_OPTION_NO)
 		manifest->buffile = NULL;
 	else
+	{
 		manifest->buffile = BufFileCreateTemp(false);
-	manifest->checksum_type = manifest_checksum_type;
-	pg_sha256_init(&manifest->manifest_ctx);
+		pg_sha256_init(&manifest->manifest_ctx);
+	}
+
 	manifest->manifest_size = UINT64CONST(0);
 	manifest->force_encode = (want_manifest == MANIFEST_OPTION_FORCE_ENCODE);
 	manifest->first_file = true;
@@ -272,7 +277,7 @@ AddWALInfoToBackupManifest(backup_manifest_info *manifest, XLogRecPtr startptr,
 	 */
 	if (!found_start_timeline)
 		ereport(ERROR,
-				errmsg("start timeline %u not found history of timeline %u",
+				errmsg("start timeline %u not found in history of timeline %u",
 					   starttli, endtli));
 
 	/* Terminate the list of WAL ranges. */
@@ -319,7 +324,7 @@ SendBackupManifest(backup_manifest_info *manifest)
 	if (BufFileSeek(manifest->buffile, 0, 0L, SEEK_SET))
 		ereport(ERROR,
 				(errcode_for_file_access(),
-				 errmsg("could not rewind temporary file: %m")));
+				 errmsg("could not rewind temporary file")));
 
 	/* Send CopyOutResponse message */
 	pq_beginmessage(&protobuf, 'H');
@@ -365,15 +370,10 @@ static void
 AppendStringToManifest(backup_manifest_info *manifest, char *s)
 {
 	int			len = strlen(s);
-	size_t		written;
 
 	Assert(manifest != NULL);
 	if (manifest->still_checksumming)
 		pg_sha256_update(&manifest->manifest_ctx, (uint8 *) s, len);
-	written = BufFileWrite(manifest->buffile, s, len);
-	if (written != len)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not write to temporary file: %m")));
+	BufFileWrite(manifest->buffile, s, len);
 	manifest->manifest_size += len;
 }

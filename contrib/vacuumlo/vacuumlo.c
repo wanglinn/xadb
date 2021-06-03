@@ -22,8 +22,8 @@
 #endif
 
 #include "catalog/pg_class_d.h"
+#include "common/connect.h"
 #include "common/logging.h"
-#include "fe_utils/connect.h"
 #include "getopt_long.h"
 #include "libpq-fe.h"
 #include "pg_getopt.h"
@@ -129,7 +129,7 @@ vacuumlo(const char *database, const struct _param *param)
 	if (PQstatus(conn) == CONNECTION_BAD)
 	{
 		pg_log_error("connection to database \"%s\" failed: %s",
-					 database, PQerrorMessage(conn));
+					 PQdb(conn) ? PQdb(conn) : "", PQerrorMessage(conn));
 		PQfinish(conn);
 		return -1;
 	}

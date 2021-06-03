@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PostgreSQL 13\n"
 "Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
-"POT-Creation-Date: 2020-05-09 00:16+0000\n"
-"PO-Revision-Date: 2020-05-09 10:12+0200\n"
+"POT-Creation-Date: 2020-09-14 06:46+0000\n"
+"PO-Revision-Date: 2021-04-18 21:32+0200\n"
 "Last-Translator: Peter Eisentraut <peter@eisentraut.org>\n"
 "Language-Team: German <pgsql-translators@postgresql.org>\n"
 "Language: de\n"
@@ -56,6 +56,19 @@ msgstr "Benutzer existiert nicht"
 #, c-format
 msgid "user name lookup failure: error code %lu"
 msgstr "Fehler beim Nachschlagen des Benutzernamens: Fehlercode %lu"
+
+#: ../../fe_utils/cancel.c:161 ../../fe_utils/cancel.c:206
+msgid "Cancel request sent\n"
+msgstr "Abbruchsanforderung gesendet\n"
+
+#: ../../fe_utils/cancel.c:165
+msgid "Could not send cancel request: "
+msgstr "Konnte Abbruchsanforderung nicht senden: "
+
+#: ../../fe_utils/cancel.c:210
+#, c-format
+msgid "Could not send cancel request: %s"
+msgstr "Konnte Abbruchsanforderung nicht senden: %s"
 
 #: ../../fe_utils/print.c:350
 #, c-format
@@ -841,16 +854,14 @@ msgid "cannot reindex specific index(es) and system catalogs at the same time"
 msgstr "kann nicht bestimmte Indexe und Systemkataloge gleichzeitig reindizieren"
 
 #: reindexdb.c:245
-#, fuzzy, c-format
-#| msgid "cannot reindex system catalogs concurrently"
+#, c-format
 msgid "cannot use multiple jobs to reindex system catalogs"
-msgstr "Systemkataloge können nicht nebenläufig reindiziert werden"
+msgstr "kann nicht mehrere Jobs verwenden, um Systemkataloge zu reindizieren"
 
 #: reindexdb.c:272
-#, fuzzy, c-format
-#| msgid "cannot insert multiple commands into a prepared statement"
+#, c-format
 msgid "cannot use multiple jobs to reindex indexes"
-msgstr "kann nicht mehrere Befehle in vorbereitete Anweisung einfügen"
+msgstr "kann nicht mehrere Jobs verwenden, um Indexe zu reindizieren"
 
 #: reindexdb.c:337 vacuumdb.c:410 vacuumdb.c:418 vacuumdb.c:425 vacuumdb.c:432
 #: vacuumdb.c:439
@@ -926,8 +937,8 @@ msgstr "  -i, --index=INDEX         nur bestimmte(n) Index(e) erneuern\n"
 #, c-format
 msgid "  -j, --jobs=NUM            use this many concurrent connections to reindex\n"
 msgstr ""
-"  -j, --jobs=NUM                  so viele parallele Verbindungen zum\n"
-"                                  Reindizieren verwenden\n"
+"  -j, --jobs=NUM            so viele parallele Verbindungen zum\n"
+"                            Reindizieren verwenden\n"
 
 #: reindexdb.c:763
 #, c-format
@@ -954,11 +965,15 @@ msgstr ""
 "Für weitere Informationen lesen Sie bitte die Beschreibung des\n"
 "SQL-Befehls REINDEX.\n"
 
+#: scripts_parallel.c:234
+#, c-format
+msgid "too many jobs for this platform -- try %d"
+msgstr "zu viele Jobs für diese Plattform -- versuchen Sie %d"
+
 #: vacuumdb.c:194
-#, fuzzy, c-format
-#| msgid "keepalives parameter must be an integer\n"
+#, c-format
 msgid "parallel vacuum degree must be a non-negative integer"
-msgstr "Parameter »keepalives« muss eine ganze Zahl sein\n"
+msgstr "parallele Vacuum-Einstellung muss eine nicht-negative ganze Zahl sein"
 
 #: vacuumdb.c:214
 #, c-format
@@ -976,10 +991,9 @@ msgid "cannot use the \"%s\" option when performing only analyze"
 msgstr "kann Option »%s« nicht verwenden, wenn nur Analyze durchgeführt wird"
 
 #: vacuumdb.c:284
-#, fuzzy, c-format
-#| msgid "cannot use the \"%s\" option when performing only analyze"
-msgid "cannot use the \"%s\" option when performing full"
-msgstr "kann Option »%s« nicht verwenden, wenn nur Analyze durchgeführt wird"
+#, c-format
+msgid "cannot use the \"%s\" option when performing full vacuum"
+msgstr "kann Option »%s« nicht verwenden, wenn volles Vacuum durchgeführt wird"
 
 #: vacuumdb.c:300
 #, c-format
@@ -1089,6 +1103,8 @@ msgstr ""
 #, c-format
 msgid "  -P, --parallel=PARALLEL_DEGREE  use this many background workers for vacuum, if available\n"
 msgstr ""
+"  -P, --parallel=PARALLEL-GRAD    so viele Background-Worker für Vacuum verwenden,\n"
+"                                  wenn verfügbar\n"
 
 #: vacuumdb.c:934
 #, c-format
@@ -1155,12 +1171,3 @@ msgstr ""
 "\n"
 "Für weitere Information lesen Sie bitte die Beschreibung des\n"
 "SQL-Befehls VACUUM.\n"
-
-#~ msgid "Cancel request sent\n"
-#~ msgstr "Abbruchsanforderung gesendet\n"
-
-#~ msgid "Could not send cancel request: %s"
-#~ msgstr "Konnte Abbruchsanforderung nicht senden: %s"
-
-#~ msgid "too many jobs for this platform -- try %d"
-#~ msgstr "zu viele Jobs für diese Plattform -- versuchen Sie %d"

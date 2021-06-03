@@ -45,6 +45,10 @@
 #include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
 
+/* source-code-compatibility hacks for pull_varnos() API change */
+#define pull_varnos(a,b) pull_varnos_new(a,b)
+
+
 /*
  * Does this Var represent the CTID column of the specified baserel?
  */
@@ -133,7 +137,7 @@ IsTidEqualClause(RestrictInfo *rinfo, RelOptInfo *rel)
  * other side of the clause does.
  */
 static bool
-IsTidEqualAnyClause(RestrictInfo *rinfo, RelOptInfo *rel)
+IsTidEqualAnyClause(PlannerInfo *root, RestrictInfo *rinfo, RelOptInfo *rel)
 {
 	ScalarArrayOpExpr *node;
 	Node	   *arg1,
@@ -158,7 +162,7 @@ IsTidEqualAnyClause(RestrictInfo *rinfo, RelOptInfo *rel)
 		IsCTIDVar((Var *) arg1, rel))
 	{
 		/* The other argument must be a pseudoconstant */
-		if (bms_is_member(rel->relid, pull_varnos(arg2)) ||
+		if (bms_is_member(rel->relid, pull_varnos(root, arg2)) ||
 			contain_volatile_functions(arg2))
 			return false;
 
@@ -200,7 +204,7 @@ IsCurrentOfClause(RestrictInfo *rinfo, RelOptInfo *rel)
  * (Using a List may seem a bit weird, but it simplifies the caller.)
  */
 static List *
-TidQualFromRestrictInfo(RestrictInfo *rinfo, RelOptInfo *rel)
+TidQualFromRestrictInfo(PlannerInfo *root, RestrictInfo *rinfo, RelOptInfo *rel)
 {
 	/*
 	 * We may ignore pseudoconstant clauses (they can't contain Vars, so could
@@ -220,7 +224,7 @@ TidQualFromRestrictInfo(RestrictInfo *rinfo, RelOptInfo *rel)
 	 * Check all base cases.  If we get a match, return the clause.
 	 */
 	if (IsTidEqualClause(rinfo, rel) ||
-		IsTidEqualAnyClause(rinfo, rel) ||
+		IsTidEqualAnyClause(root, rinfo, rel) ||
 		IsCurrentOfClause(rinfo, rel))
 		return list_make1(rinfo);
 
@@ -237,7 +241,7 @@ TidQualFromRestrictInfo(RestrictInfo *rinfo, RelOptInfo *rel)
  * This function is just concerned with handling AND/OR recursion.
  */
 static List *
-TidQualFromRestrictInfoList(List *rlist, RelOptInfo *rel)
+TidQualFromRestrictInfoList(PlannerInfo *root, List *rlist, RelOptInfo *rel)
 {
 	List	   *rlst = NIL;
 	ListCell   *l;
@@ -265,14 +269,14 @@ TidQualFromRestrictInfoList(List *rlist, RelOptInfo *rel)
 					List	   *andargs = ((BoolExpr *) orarg)->args;
 
 					/* Recurse in case there are sub-ORs */
-					sublist = TidQualFromRestrictInfoList(andargs, rel);
+					sublist = TidQualFromRestrictInfoList(root, andargs, rel);
 				}
 				else
 				{
 					RestrictInfo *rinfo = castNode(RestrictInfo, orarg);
 
 					Assert(!restriction_is_or_clause(rinfo));
-					sublist = TidQualFromRestrictInfo(rinfo, rel);
+					sublist = TidQualFromRestrictInfo(root, rinfo, rel);
 				}
 
 				/*
@@ -294,7 +298,7 @@ TidQualFromRestrictInfoList(List *rlist, RelOptInfo *rel)
 		else
 		{
 			/* Not an OR clause, so handle base cases */
-			rlst = TidQualFromRestrictInfo(rinfo, rel);
+			rlst = TidQualFromRestrictInfo(root, rinfo, rel);
 		}
 
 		/*
@@ -400,7 +404,7 @@ create_tidscan_paths(PlannerInfo *root, RelOptInfo *rel)
 	 * If any suitable quals exist in the rel's baserestrict list, generate a
 	 * plain (unparameterized) TidPath with them.
 	 */
-	tidquals = TidQualFromRestrictInfoList(rel->baserestrictinfo, rel);
+	tidquals = TidQualFromRestrictInfoList(root, rel->baserestrictinfo, rel);
 
 	if (tidquals)
 	{

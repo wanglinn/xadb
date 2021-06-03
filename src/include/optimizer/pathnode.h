@@ -212,12 +212,6 @@ extern ProjectSetPath *create_set_projection_path(PlannerInfo *root,
 												  RelOptInfo *rel,
 												  Path *subpath,
 												  PathTarget *target);
-extern SortPath *create_incremental_sort_path(PlannerInfo *root,
-											  RelOptInfo *rel,
-											  Path *subpath,
-											  List *pathkeys,
-											  int presorted_keys,
-											  double limit_tuples);
 extern SortPath *create_sort_path(PlannerInfo *root,
 								  RelOptInfo *rel,
 								  Path *subpath,
@@ -232,6 +226,12 @@ extern BatchSortPath *create_batchsort_path(PlannerInfo *root,
 											uint32 numBatches,
 											bool parallel_sort);
 #endif /* ADB_EXT */
+extern IncrementalSortPath *create_incremental_sort_path(PlannerInfo *root,
+														 RelOptInfo *rel,
+														 Path *subpath,
+														 List *pathkeys,
+														 int presorted_keys,
+														 double limit_tuples);
 extern GroupPath *create_group_path(PlannerInfo *root,
 									RelOptInfo *rel,
 									Path *subpath,

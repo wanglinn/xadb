@@ -18,10 +18,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "common/connect.h"
 #include "common/file_utils.h"
 #include "common/logging.h"
 #include "dumputils.h"
-#include "fe_utils/connect.h"
 #include "fe_utils/string_utils.h"
 #include "getopt_long.h"
 #include "pg_backup.h"
@@ -1840,7 +1840,7 @@ connectDatabase(const char *dbname, const char *connection_string,
 		if (fail_on_error)
 		{
 			pg_log_error("could not connect to database \"%s\": %s",
-						 dbname, PQerrorMessage(conn));
+						 PQdb(conn) ? PQdb(conn) : "", PQerrorMessage(conn));
 			exit_nicely(1);
 		}
 		else

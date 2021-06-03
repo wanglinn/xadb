@@ -18,11 +18,11 @@
 #include <unistd.h>
 
 #include "access/xlog_internal.h"
+#include "common/connect.h"
 #include "common/fe_memutils.h"
 #include "common/file_perm.h"
 #include "common/logging.h"
 #include "datatype/timestamp.h"
-#include "fe_utils/connect.h"
 #include "port/pg_bswap.h"
 #include "pqexpbuffer.h"
 #include "receivelog.h"
@@ -220,8 +220,7 @@ GetConnection(void)
 
 	if (PQstatus(tmpconn) != CONNECTION_OK)
 	{
-		pg_log_error("could not connect to server: %s",
-					 PQerrorMessage(tmpconn));
+		pg_log_error("%s", PQerrorMessage(tmpconn));
 		PQfinish(tmpconn);
 		free(values);
 		free(keywords);

@@ -6705,7 +6705,7 @@ static void mgr_get_other_parm(char node_type, StringInfo infosendmsg)
 	mgr_append_pgconf_paras_str_str("synchronous_commit", "on", infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", infosendmsg);
 	mgr_append_pgconf_paras_str_int("max_wal_senders", MAX_WAL_SENDERS_NUM, infosendmsg);
-	mgr_append_pgconf_paras_str_int("wal_keep_segments", WAL_KEEP_SEGMENTS_NUM, infosendmsg);
+	mgr_append_pgconf_paras_str_int("wal_keep_size", WAL_KEEP_SEGMENTS_NUM, infosendmsg);
 	mgr_append_pgconf_paras_str_str("wal_level", WAL_LEVEL_MODE, infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("listen_addresses", "*", infosendmsg);
 	mgr_append_pgconf_paras_str_int("max_prepared_transactions", MAX_PREPARED_TRANSACTIONS_DEFAULT, infosendmsg);
@@ -7323,7 +7323,7 @@ void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, Str
 	mgr_append_pgconf_paras_str_str("synchronous_commit", "on", infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", infosendparamsg);
 	mgr_append_pgconf_paras_str_int("max_wal_senders", MAX_WAL_SENDERS_NUM, infosendparamsg);
-	mgr_append_pgconf_paras_str_int("wal_keep_segments", WAL_KEEP_SEGMENTS_NUM, infosendparamsg);
+	mgr_append_pgconf_paras_str_int("wal_keep_size", WAL_KEEP_SEGMENTS_NUM, infosendparamsg);
 	mgr_append_pgconf_paras_str_str("wal_level", WAL_LEVEL_MODE, infosendparamsg);
 	mgr_append_pgconf_paras_str_int("port", cndnport, infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("listen_addresses", "*", infosendparamsg);

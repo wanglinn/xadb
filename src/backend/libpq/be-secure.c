@@ -164,7 +164,7 @@ retry:
 	else
 #endif
 #ifdef ENABLE_GSS
-	if (port->gss->enc)
+	if (port->gss && port->gss->enc)
 	{
 		n = be_gssapi_read(port, ptr, len);
 		waitfor = WL_SOCKET_READABLE;
@@ -282,7 +282,7 @@ retry:
 	else
 #endif
 #ifdef ENABLE_GSS
-	if (port->gss->enc)
+	if (port->gss && port->gss->enc)
 	{
 		n = be_gssapi_write(port, ptr, len);
 		waitfor = WL_SOCKET_WRITEABLE;

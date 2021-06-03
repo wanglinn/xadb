@@ -28,15 +28,17 @@ end;
 $$;
 
 -- Verify failures
+CREATE TABLE ext_stats_test (x int, y int, z int);
 CREATE STATISTICS tst;
 CREATE STATISTICS tst ON a, b;
 CREATE STATISTICS tst FROM sometab;
 CREATE STATISTICS tst ON a, b FROM nonexistent;
-CREATE STATISTICS tst ON a, b FROM pg_class;
-CREATE STATISTICS tst ON relname, relname, relnatts FROM pg_class;
-CREATE STATISTICS tst ON relnatts + relpages FROM pg_class;
-CREATE STATISTICS tst ON (relpages, reltuples) FROM pg_class;
-CREATE STATISTICS tst (unrecognized) ON relname, relnatts FROM pg_class;
+CREATE STATISTICS tst ON a, b FROM ext_stats_test;
+CREATE STATISTICS tst ON x, x, y FROM ext_stats_test;
+CREATE STATISTICS tst ON x + y FROM ext_stats_test;
+CREATE STATISTICS tst ON (x, y) FROM ext_stats_test;
+CREATE STATISTICS tst (unrecognized) ON x, y FROM ext_stats_test;
+DROP TABLE ext_stats_test;
 
 -- Ensure stats are dropped sanely, and test IF NOT EXISTS while at it
 CREATE TABLE ab1 (a INTEGER, b INTEGER, c INTEGER);
@@ -72,12 +74,14 @@ ANALYZE ab1;
 ALTER TABLE ab1 ALTER a SET STATISTICS -1;
 -- setting statistics target 0 skips the statistics, without printing any message, so check catalog
 ALTER STATISTICS ab1_a_b_stats SET STATISTICS 0;
+\d ab1
 ANALYZE ab1;
 SELECT stxname, stxdndistinct, stxddependencies, stxdmcv
   FROM pg_statistic_ext s, pg_statistic_ext_data d
  WHERE s.stxname = 'ab1_a_b_stats'
    AND d.stxoid = s.oid;
 ALTER STATISTICS ab1_a_b_stats SET STATISTICS -1;
+\d+ ab1
 -- partial analyze doesn't build stats either
 ANALYZE ab1 (a);
 ANALYZE ab1;
@@ -201,7 +205,7 @@ SELECT s.stxkind, d.stxdndistinct
  WHERE s.stxrelid = 'ndistinct'::regclass
    AND d.stxoid = s.oid;
 
--- correct esimates
+-- correct estimates
 SELECT * FROM check_estimated_rows('SELECT COUNT(*) FROM ndistinct GROUP BY a, b');
 
 SELECT * FROM check_estimated_rows('SELECT COUNT(*) FROM ndistinct GROUP BY a, b, c');

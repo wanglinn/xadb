@@ -10,8 +10,8 @@
 #include "postgres_fe.h"
 
 #include "catalog/pg_class_d.h"
+#include "common/connect.h"
 #include "common/logging.h"
-#include "fe_utils/connect.h"
 #include "getopt_long.h"
 #include "libpq-fe.h"
 #include "pg_getopt.h"
@@ -353,8 +353,8 @@ sql_conn(struct options *my_opts)
 	/* check to see that the backend connection was successfully made */
 	if (PQstatus(conn) == CONNECTION_BAD)
 	{
-		pg_log_error("could not connect to database %s: %s",
-					 my_opts->dbname, PQerrorMessage(conn));
+		pg_log_error("could not connect to database \"%s\": %s",
+					 PQdb(conn) ? PQdb(conn) : "", PQerrorMessage(conn));
 		PQfinish(conn);
 		exit(1);
 	}

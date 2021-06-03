@@ -128,7 +128,8 @@
     <command>DELETE</command> will continue to function normally, though you
     will not be able to modify the definition of a table with commands such as
     <command>ALTER TABLE</command> while it is being vacuumed.)
-    <command>VACUUM FULL</command> requires exclusive lock on the table it is
+    <command>VACUUM FULL</command> requires an
+    <literal>ACCESS EXCLUSIVE</literal> lock on the table it is
     working on, and therefore cannot be done in parallel with other use
     of the table.  Generally, therefore,
     administrators should strive to use standard <command>VACUUM</command> and
@@ -184,7 +185,7 @@
     never issue <command>VACUUM FULL</command>.  In this approach, the idea
     is not to keep tables at their minimum size, but to maintain steady-state
     usage of disk space: each table occupies space equivalent to its
-    minimum size plus however much space gets used up between vacuumings.
+    minimum size plus however much space gets used up between vacuum runs.
     Although <command>VACUUM FULL</command> can be used to shrink a table back
     to its minimum size and return the disk space to the operating system,
     there is not much point in this if the table will just grow again in the
@@ -231,7 +232,8 @@
     or one of the table-rewriting variants of
     <xref linkend="sql-altertable"/>.
     These commands rewrite an entire new copy of the table and build
-    new indexes for it.  All these options require exclusive lock.  Note that
+    new indexes for it.  All these options require an
+    <literal>ACCESS EXCLUSIVE</literal> lock.  Note that
     they also temporarily use extra disk space approximately equal to the size
     of the table, since the old copies of the table and indexes can't be
     released until the new ones are complete.
@@ -606,14 +608,13 @@ SELECT datname, age(datfrozenxid) FROM pg_database;
    </para>
 
    <para>
-    If for some reason autovacuum fails to clear old XIDs from a table,
-    the system will begin to emit warning messages like this when the
-    database's oldest XIDs reach ten million transactions from the wraparound
-    point:
+    If for some reason autovacuum fails to clear old XIDs from a table, the
+    system will begin to emit warning messages like this when the database's
+    oldest XIDs reach eleven million transactions from the wraparound point:
 
 <programlisting>
-WARNING:  database "mydb" must be vacuumed within 177009986 transactions
-HINT:  To avoid a database shutdown, execute a database-wide VACUUM in "mydb".
+WARNING:  database "mydb" must be vacuumed within 10985967 transactions
+HINT:  To avoid a database shutdown, execute a database-wide VACUUM in that database.
 </programlisting>
 
     (A manual <command>VACUUM</command> should fix the problem, as suggested by the
@@ -707,7 +708,7 @@ HINT:  Stop the postmaster and vacuum that database in single-user mode.
    </sect3>
   </sect2>
 
-  <sect2 id="autovacuum" xreflabel="autovacuum">
+  <sect2 id="autovacuum">
    <title>The Autovacuum Daemon</title>
 
    <indexterm>
@@ -999,7 +1000,7 @@ pg_ctl start | rotatelogs /var/log/pgsql_log 86400
     In this case, log messages are sent to the old log file until a
     successful log rotation. If <application>logrotate</application> is
     configured to compress the log file and delete it, the server may lose
-    the messages logged in this timeframe. To avoid this issue, you can
+    the messages logged in this time frame. To avoid this issue, you can
     configure the logging collector to dynamically assign log file names
     and use a <literal>prerotate</literal> script to ignore open log files.
     </para>

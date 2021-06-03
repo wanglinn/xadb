@@ -1845,7 +1845,8 @@ TransactionIdLimitedForOldSnapshots(TransactionId recentXmin,
 {
 	if (TransactionIdIsNormal(recentXmin)
 		&& old_snapshot_threshold >= 0
-		&& RelationAllowsEarlyPruning(relation))
+		&& RelationAllowsEarlyPruning(relation)
+		&& RelationNeedsWAL(relation))
 	{
 		TimestampTz ts = GetSnapshotCurrentTimestamp();
 		TransactionId xlimit = recentXmin;

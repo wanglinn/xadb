@@ -45,8 +45,6 @@
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/optimizer.h"
-#include "parser/analyze.h"
-#include "parser/parse_relation.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/interrupt.h"
@@ -765,12 +763,20 @@ apply_handle_update(StringInfo s)
 	target_rte = list_nth(estate->es_range_table, 0);
 	for (int i = 0; i < remoteslot->tts_tupleDescriptor->natts; i++)
 	{
-		if (newtup.changed[i])
-			target_rte->updatedCols = bms_add_member(target_rte->updatedCols,
-													 i + 1 - FirstLowInvalidHeapAttributeNumber);
+		Form_pg_attribute att = TupleDescAttr(remoteslot->tts_tupleDescriptor, i);
+		int			remoteattnum = rel->attrmap->attnums[i];
+
+		if (!att->attisdropped && remoteattnum >= 0)
+		{
+			if (newtup.changed[remoteattnum])
+				target_rte->updatedCols =
+					bms_add_member(target_rte->updatedCols,
+								   i + 1 - FirstLowInvalidHeapAttributeNumber);
+		}
 	}
 
-	fill_extraUpdatedCols(target_rte, RelationGetDescr(rel->localrel));
+	/* Also populate extraUpdatedCols, in case we have generated columns */
+	fill_extraUpdatedCols(target_rte, rel->localrel);
 
 	PushActiveSnapshot(GetTransactionSnapshot());
 
@@ -1484,6 +1490,7 @@ static void
 LogicalRepApplyLoop(XLogRecPtr last_received)
 {
 	TimestampTz last_recv_timestamp = GetCurrentTimestamp();
+	bool		ping_sent = false;
 
 	/*
 	 * Init the ApplyMessageContext which we clean up after each replication
@@ -1496,6 +1503,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 	/* mark as idle, before starting to loop */
 	pgstat_report_activity(STATE_IDLE, NULL);
 
+	/* This outer loop iterates once per wait. */
 	for (;;)
 	{
 		pgsocket	fd = PGINVALID_SOCKET;
@@ -1503,7 +1511,6 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		int			len;
 		char	   *buf = NULL;
 		bool		endofstream = false;
-		bool		ping_sent = false;
 		long		wait_time;
 
 		CHECK_FOR_INTERRUPTS();
@@ -1514,7 +1521,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 
 		if (len != 0)
 		{
-			/* Process the data */
+			/* Loop to process all available data (without blocking). */
 			for (;;)
 			{
 				CHECK_FOR_INTERRUPTS();
@@ -1683,10 +1690,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 					ereport(ERROR,
 							(errmsg("terminating logical replication worker due to timeout")));
 
-				/*
-				 * We didn't receive anything new, for half of receiver
-				 * replication timeout. Ping the server.
-				 */
+				/* Check to see if it's time for a ping. */
 				if (!ping_sent)
 				{
 					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
@@ -1981,6 +1985,12 @@ ApplyWorkerMain(Datum main_arg)
 											  MyLogicalRepWorker->userid,
 											  0);
 
+	/*
+	 * Set always-secure search path, so malicious users can't redirect user
+	 * code (e.g. pg_index.indexprs).
+	 */
+	SetConfigOption("search_path", "", PGC_SUSET, PGC_S_OVERRIDE);
+
 	/* Load the subscription into persistent memory context. */
 	ApplyContext = AllocSetContextCreate(TopMemoryContext,
 										 "ApplyContext",
@@ -2089,7 +2099,6 @@ ApplyWorkerMain(Datum main_arg)
 		 * does some initializations on the upstream so let's still call it.
 		 */
 		(void) walrcv_identify_system(wrconn, &startpointTLI);
-
 	}
 
 	/*

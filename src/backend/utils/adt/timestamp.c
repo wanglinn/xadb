@@ -1703,12 +1703,14 @@ timeofday(PG_FUNCTION_ARGS)
  * TimestampDifference -- convert the difference between two timestamps
  *		into integer seconds and microseconds
  *
+ * This is typically used to calculate a wait timeout for select(2),
+ * which explains the otherwise-odd choice of output format.
+ *
  * Both inputs must be ordinary finite timestamps (in current usage,
  * they'll be results from GetCurrentTimestamp()).
  *
- * We expect start_time <= stop_time.  If not, we return zeros; for current
- * callers there is no need to be tense about which way division rounds on
- * negative inputs.
+ * We expect start_time <= stop_time.  If not, we return zeros,
+ * since then we're already past the previously determined stop_time.
  */
 void
 TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
@@ -1726,6 +1728,36 @@ TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
 		*secs = (long) (diff / USECS_PER_SEC);
 		*microsecs = (int) (diff % USECS_PER_SEC);
 	}
+}
+
+/*
+ * TimestampDifferenceMilliseconds -- convert the difference between two
+ * 		timestamps into integer milliseconds
+ *
+ * This is typically used to calculate a wait timeout for WaitLatch()
+ * or a related function.  The choice of "long" as the result type
+ * is to harmonize with that.  It is caller's responsibility that the
+ * input timestamps not be so far apart as to risk overflow of "long"
+ * (which'd happen at about 25 days on machines with 32-bit "long").
+ *
+ * Both inputs must be ordinary finite timestamps (in current usage,
+ * they'll be results from GetCurrentTimestamp()).
+ *
+ * We expect start_time <= stop_time.  If not, we return zero,
+ * since then we're already past the previously determined stop_time.
+ *
+ * Note we round up any fractional millisecond, since waiting for just
+ * less than the intended timeout is undesirable.
+ */
+long
+TimestampDifferenceMilliseconds(TimestampTz start_time, TimestampTz stop_time)
+{
+	TimestampTz diff = stop_time - start_time;
+
+	if (diff <= 0)
+		return 0;
+	else
+		return (long) ((diff + 999) / 1000);
 }
 
 /*
@@ -2218,16 +2250,34 @@ timestamp_hash_extended(PG_FUNCTION_ARGS)
  * Cross-type comparison functions for timestamp vs timestamptz
  */
 
+int32
+timestamp_cmp_timestamptz_internal(Timestamp timestampVal, TimestampTz dt2)
+{
+	TimestampTz dt1;
+	int			overflow;
+
+	dt1 = timestamp2timestamptz_opt_overflow(timestampVal, &overflow);
+	if (overflow > 0)
+	{
+		/* dt1 is larger than any finite timestamp, but less than infinity */
+		return TIMESTAMP_IS_NOEND(dt2) ? -1 : +1;
+	}
+	if (overflow < 0)
+	{
+		/* dt1 is less than any finite timestamp, but more than -infinity */
+		return TIMESTAMP_IS_NOBEGIN(dt2) ? +1 : -1;
+	}
+
+	return timestamptz_cmp_internal(dt1, dt2);
+}
+
 Datum
 timestamp_eq_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) == 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) == 0);
 }
 
 Datum
@@ -2235,11 +2285,8 @@ timestamp_ne_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) != 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) != 0);
 }
 
 Datum
@@ -2247,11 +2294,8 @@ timestamp_lt_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) < 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) < 0);
 }
 
 Datum
@@ -2259,11 +2303,8 @@ timestamp_gt_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) > 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) > 0);
 }
 
 Datum
@@ -2271,11 +2312,8 @@ timestamp_le_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) <= 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) <= 0);
 }
 
 Datum
@@ -2283,11 +2321,8 @@ timestamp_ge_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) >= 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt2) >= 0);
 }
 
 Datum
@@ -2295,11 +2330,8 @@ timestamp_cmp_timestamptz(PG_FUNCTION_ARGS)
 {
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(0);
 	TimestampTz dt2 = PG_GETARG_TIMESTAMPTZ(1);
-	TimestampTz dt1;
 
-	dt1 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_INT32(timestamp_cmp_internal(dt1, dt2));
+	PG_RETURN_INT32(timestamp_cmp_timestamptz_internal(timestampVal, dt2));
 }
 
 Datum
@@ -2307,11 +2339,8 @@ timestamptz_eq_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) == 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) == 0);
 }
 
 Datum
@@ -2319,11 +2348,8 @@ timestamptz_ne_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) != 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) != 0);
 }
 
 Datum
@@ -2331,11 +2357,8 @@ timestamptz_lt_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) < 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) > 0);
 }
 
 Datum
@@ -2343,11 +2366,8 @@ timestamptz_gt_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) > 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) < 0);
 }
 
 Datum
@@ -2355,11 +2375,8 @@ timestamptz_le_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) <= 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) >= 0);
 }
 
 Datum
@@ -2367,11 +2384,8 @@ timestamptz_ge_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_BOOL(timestamp_cmp_internal(dt1, dt2) >= 0);
+	PG_RETURN_BOOL(timestamp_cmp_timestamptz_internal(timestampVal, dt1) <= 0);
 }
 
 Datum
@@ -2379,11 +2393,8 @@ timestamptz_cmp_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz dt1 = PG_GETARG_TIMESTAMPTZ(0);
 	Timestamp	timestampVal = PG_GETARG_TIMESTAMP(1);
-	TimestampTz dt2;
 
-	dt2 = timestamp2timestamptz(timestampVal);
-
-	PG_RETURN_INT32(timestamp_cmp_internal(dt1, dt2));
+	PG_RETURN_INT32(-timestamp_cmp_timestamptz_internal(timestampVal, dt1));
 }
 
 
@@ -5269,9 +5280,12 @@ timestamp_timestamptz(PG_FUNCTION_ARGS)
 /*
  * Convert timestamp to timestamp with time zone.
  *
- * On overflow error is thrown if 'overflow' is NULL.  Otherwise, '*overflow'
- * is set to -1 (+1) when result value exceed lower (upper) boundary and zero
- * returned.
+ * On successful conversion, *overflow is set to zero if it's not NULL.
+ *
+ * If the timestamp is finite but out of the valid range for timestamptz, then:
+ * if overflow is NULL, we throw an out-of-range error.
+ * if overflow is not NULL, we store +1 or -1 there to indicate the sign
+ * of the overflow, and return the appropriate timestamptz infinity.
  */
 TimestampTz
 timestamp2timestamptz_opt_overflow(Timestamp timestamp, int *overflow)
@@ -5282,10 +5296,14 @@ timestamp2timestamptz_opt_overflow(Timestamp timestamp, int *overflow)
 	fsec_t		fsec;
 	int			tz;
 
+	if (overflow)
+		*overflow = 0;
+
 	if (TIMESTAMP_NOT_FINITE(timestamp))
 		return timestamp;
 
-	if (!timestamp2tm(timestamp, NULL, tm, &fsec, NULL, NULL))
+	/* We don't expect this to fail, but check it pro forma */
+	if (timestamp2tm(timestamp, NULL, tm, &fsec, NULL, NULL) == 0)
 	{
 		tz = DetermineTimeZoneOffset(tm, session_timezone);
 
@@ -5298,13 +5316,16 @@ timestamp2timestamptz_opt_overflow(Timestamp timestamp, int *overflow)
 		else if (overflow)
 		{
 			if (result < MIN_TIMESTAMP)
+			{
 				*overflow = -1;
+				TIMESTAMP_NOBEGIN(result);
+			}
 			else
 			{
-				Assert(result >= END_TIMESTAMP);
 				*overflow = 1;
+				TIMESTAMP_NOEND(result);
 			}
-			return (TimestampTz) 0;
+			return result;
 		}
 	}
 
@@ -5316,7 +5337,7 @@ timestamp2timestamptz_opt_overflow(Timestamp timestamp, int *overflow)
 }
 
 /*
- * Single-argument version of timestamp2timestamptz_opt_overflow().
+ * Promote timestamp to timestamptz, throwing error for overflow.
  */
 static TimestampTz
 timestamp2timestamptz(Timestamp timestamp)

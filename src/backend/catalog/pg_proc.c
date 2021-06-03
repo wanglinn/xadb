@@ -941,9 +941,8 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 								errmsg("In XC, SQL functions cannot contain utility statements")));
 				}
 #endif
-
-				querytree_list = list_concat(querytree_list,
-											 querytree_sublist);
+				querytree_list = lappend(querytree_list,
+										 querytree_sublist);
 			}
 
 			check_sql_fn_statements(querytree_list);

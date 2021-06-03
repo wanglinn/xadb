@@ -2638,7 +2638,7 @@ inittapes(Tuplesortstate *state, bool mergeruns)
 	/* Create the tape set and allocate the per-tape data arrays */
 	inittapestate(state, maxTapes);
 	state->tapeset =
-		LogicalTapeSetCreate(maxTapes, NULL,
+		LogicalTapeSetCreate(maxTapes, false, NULL,
 							 state->shared ? &state->shared->fileset : NULL,
 							 state->worker);
 
@@ -4723,8 +4723,9 @@ leader_takeover_tapes(Tuplesortstate *state)
 	 * randomAccess is disallowed for parallel sorts.
 	 */
 	inittapestate(state, nParticipants + 1);
-	state->tapeset = LogicalTapeSetCreate(nParticipants + 1, shared->tapes,
-										  &shared->fileset, state->worker);
+	state->tapeset = LogicalTapeSetCreate(nParticipants + 1, false,
+										  shared->tapes, &shared->fileset,
+										  state->worker);
 
 	/* mergeruns() relies on currentRun for # of runs (in one-pass cases) */
 	state->currentRun = nParticipants;

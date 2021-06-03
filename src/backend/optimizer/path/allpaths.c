@@ -1131,6 +1131,9 @@ set_foreign_size(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 
 	/* ... but do not let it set the rows estimate to zero */
 	rel->rows = clamp_row_est(rel->rows);
+
+	/* also, make sure rel->tuples is not insane relative to rel->rows */
+	rel->tuples = Max(rel->tuples, rel->rows);
 }
 
 /*
@@ -3695,6 +3698,9 @@ generate_cluster_gather_:
  * This allows us to do incremental sort on top of an index scan under a gather
  * merge node, i.e. parallelized.
  *
+ * If the require_parallel_safe is true, we also require the expressions to
+ * be parallel safe (which allows pushing the sort below Gather Merge).
+ *
  * XXX At the moment this can only ever return a list with a single element,
  * because it looks at query_pathkeys only. So we might return the pathkeys
  * directly, but it seems plausible we'll want to consider other orderings
@@ -3702,14 +3708,16 @@ generate_cluster_gather_:
  * merge joins.
  */
 static List *
-get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
+get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel,
+								 bool require_parallel_safe)
 {
 	List	   *useful_pathkeys_list = NIL;
 
 	/*
 	 * Considering query_pathkeys is always worth it, because it might allow
 	 * us to avoid a total sort when we have a partially presorted path
-	 * available.
+	 * available or to push the total sort into the parallel portion of the
+	 * query.
 	 */
 	if (root->query_pathkeys)
 	{
@@ -3722,17 +3730,20 @@ get_useful_pathkeys_for_relation(PlannerInfo *root, RelOptInfo *rel)
 			EquivalenceClass *pathkey_ec = pathkey->pk_eclass;
 
 			/*
-			 * We can only build an Incremental Sort for pathkeys which
-			 * contain an EC member in the current relation, so ignore any
-			 * suffix of the list as soon as we find a pathkey without an EC
-			 * member the relation.
+			 * We can only build a sort for pathkeys which contain an EC
+			 * member in the current relation's target, so ignore any suffix
+			 * of the list as soon as we find a pathkey without an EC member
+			 * in the relation.
 			 *
 			 * By still returning the prefix of the pathkeys list that does
 			 * meet criteria of EC membership in the current relation, we
 			 * enable not just an incremental sort on the entirety of
 			 * query_pathkeys but also incremental sort below a JOIN.
+			 *
+			 * If requested, ensure the expression is parallel safe too.
 			 */
-			if (!find_em_expr_for_rel(pathkey_ec, rel))
+			if (!find_em_expr_usable_for_sorting_rel(root, pathkey_ec, rel,
+													 require_parallel_safe))
 				break;
 
 			npathkeys++;
@@ -3786,13 +3797,14 @@ generate_useful_gather_paths(PlannerInfo *root, RelOptInfo *rel, bool override_r
 	generate_gather_paths(root, rel, override_rows);
 
 	/* consider incremental sort for interesting orderings */
-	useful_pathkeys_list = get_useful_pathkeys_for_relation(root, rel);
+	useful_pathkeys_list = get_useful_pathkeys_for_relation(root, rel, true);
 
 	/* used for explicit (full) sort paths */
 	cheapest_partial_path = linitial(rel->partial_pathlist);
 
 	/*
-	 * Consider incremental sort paths for each interesting ordering.
+	 * Consider sorted paths for each interesting ordering. We generate both
+	 * incremental and full sort.
 	 */
 	foreach(lc, useful_pathkeys_list)
 	{
@@ -3805,14 +3817,6 @@ generate_useful_gather_paths(PlannerInfo *root, RelOptInfo *rel, bool override_r
 		{
 			Path	   *subpath = (Path *) lfirst(lc2);
 			GatherMergePath *path;
-
-			/*
-			 * If the path has no ordering at all, then we can't use either
-			 * incremental sort or rely on implict sorting with a gather
-			 * merge.
-			 */
-			if (subpath->pathkeys == NIL)
-				continue;
 
 			is_sorted = pathkeys_count_contained_in(useful_pathkeys,
 													subpath->pathkeys,
@@ -3868,7 +3872,7 @@ generate_useful_gather_paths(PlannerInfo *root, RelOptInfo *rel, bool override_r
 			 * Consider incremental sort, but only when the subpath is already
 			 * partially sorted on a pathkey prefix.
 			 */
-			if (enable_incrementalsort && presorted_keys > 0)
+			if (enable_incremental_sort && presorted_keys > 0)
 			{
 				Path	   *tmp;
 
@@ -4135,6 +4139,17 @@ standard_join_search(PlannerInfo *root, int levels_needed, List *initial_rels)
  * volatile qual could succeed for some SRF output rows and fail for others,
  * a behavior that cannot occur if it's evaluated before SRF expansion.
  *
+ * 6. If the subquery has nonempty grouping sets, we cannot push down any
+ * quals.  The concern here is that a qual referencing a "constant" grouping
+ * column could get constant-folded, which would be improper because the value
+ * is potentially nullable by grouping-set expansion.  This restriction could
+ * be removed if we had a parsetree representation that shows that such
+ * grouping columns are not really constant.  (There are other ideas that
+ * could be used to relax this restriction, but that's the approach most
+ * likely to get taken in the future.  Note that there's not much to be gained
+ * so long as subquery_planner can't move HAVING clauses to WHERE within such
+ * a subquery.)
+ *
  * In addition, we make several checks on the subquery's output columns to see
  * if it is safe to reference them in pushed-down quals.  If output column k
  * is found to be unsafe to reference, we set safetyInfo->unsafeColumns[k]
@@ -4177,6 +4192,10 @@ subquery_is_pushdown_safe(Query *subquery, Query *topquery,
 
 	/* Check point 1 */
 	if (subquery->limitOffset != NULL || subquery->limitCount != NULL)
+		return false;
+
+	/* Check point 6 */
+	if (subquery->groupClause && subquery->groupingSets)
 		return false;
 
 	/* Check points 3, 4, and 5 */
@@ -4461,8 +4480,10 @@ qual_is_pushdown_safe(Query *subquery, Index rti, Node *qual,
 	Assert(!contain_window_function(qual));
 
 	/*
-	 * Examine all Vars used in clause; since it's a restriction clause, all
-	 * such Vars must refer to subselect output columns.
+	 * Examine all Vars used in clause.  Since it's a restriction clause, all
+	 * such Vars must refer to subselect output columns ... unless this is
+	 * part of a LATERAL subquery, in which case there could be lateral
+	 * references.
 	 */
 	vars = pull_var_clause(qual, PVC_INCLUDE_PLACEHOLDERS);
 	foreach(vl, vars)
@@ -4482,7 +4503,19 @@ qual_is_pushdown_safe(Query *subquery, Index rti, Node *qual,
 			break;
 		}
 
-		Assert(var->varno == rti);
+		/*
+		 * Punt if we find any lateral references.  It would be safe to push
+		 * these down, but we'd have to convert them into outer references,
+		 * which subquery_push_qual lacks the infrastructure to do.  The case
+		 * arises so seldom that it doesn't seem worth working hard on.
+		 */
+		if (var->varno != rti)
+		{
+			safe = false;
+			break;
+		}
+
+		/* Subqueries have no system columns */
 		Assert(var->varattno >= 0);
 
 		/* Check point 4 */

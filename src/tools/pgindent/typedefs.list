@@ -1217,6 +1217,7 @@ LLVMJitHandle
 LLVMMemoryBufferRef
 LLVMModuleRef
 LLVMOrcJITStackRef
+LLVMOrcLookupStateRef
 LLVMOrcModuleHandle
 LLVMOrcTargetAddress
 LLVMPassManagerBuilderRef
@@ -1253,6 +1254,7 @@ LUID
 LVDeadTuples
 LVParallelState
 LVRelStats
+LVSavedErrInfo
 LVShared
 LVSharedIndStats
 LWLock

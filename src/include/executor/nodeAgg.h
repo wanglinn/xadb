@@ -14,6 +14,7 @@
 #ifndef NODEAGG_H
 #define NODEAGG_H
 
+#include "access/parallel.h"
 #include "nodes/execnodes.h"
 #ifdef ADB_EXT
 #include "access/parallel.h"
@@ -340,16 +341,18 @@ extern void ExecReScanAgg(AggState *node);
 
 extern Size hash_agg_entry_size(int numTrans, Size tupleWidth,
 								Size transitionSpace);
-extern void hash_agg_set_limits(double hashentrysize, uint64 input_groups,
+extern void hash_agg_set_limits(double hashentrysize, double input_groups,
 								int used_bits, Size *mem_limit,
 								uint64 *ngroups_limit, int *num_partitions);
 
 #ifdef ADB_EXT
-extern void ExecAggEstimate(AggState *node, ParallelContext *pcxt);
-extern void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt);
 extern void ExecAggReInitializeDSM(AggState *node, ParallelContext *pcxt);
-extern void ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt);
 extern void ExecShutdownAgg(AggState *node);
 #endif /* ADB_EXT */
+/* parallel instrumentation support */
+extern void ExecAggEstimate(AggState *node, ParallelContext *pcxt);
+extern void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt);
+extern void ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt);
+extern void ExecAggRetrieveInstrumentation(AggState *node);
 
 #endif							/* NODEAGG_H */

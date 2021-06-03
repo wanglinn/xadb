@@ -25,6 +25,7 @@
 
 #include "executor/execParallel.h"
 #include "executor/executor.h"
+#include "executor/nodeAgg.h"
 #include "executor/nodeAppend.h"
 #include "executor/nodeBitmapHeapscan.h"
 #include "executor/nodeCustom.h"
@@ -296,10 +297,6 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			ExecIncrementalSortEstimate((IncrementalSortState *) planstate, e->pcxt);
 			break;
 #ifdef ADB_EXT
-		case T_AggState:
-			if (planstate->plan->parallel_aware)
-				ExecAggEstimate((AggState*)planstate, e->pcxt);
-			break;
 		case T_BatchSortState:
 			if (planstate->plan->parallel_aware)
 				ExecBatchSortEstimate((BatchSortState*)planstate, e->pcxt);
@@ -311,6 +308,10 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			break;
 #endif /* ADB */
 
+		case T_AggState:
+			/* even when not parallel-aware, for EXPLAIN ANALYZE */
+			ExecAggEstimate((AggState *) planstate, e->pcxt);
+			break;
 		default:
 			break;
 	}
@@ -528,10 +529,6 @@ ExecParallelInitializeDSM(PlanState *planstate,
 			ExecIncrementalSortInitializeDSM((IncrementalSortState *) planstate, d->pcxt);
 			break;
 #ifdef ADB_EXT
-		case T_AggState:
-			if (planstate->plan->parallel_aware)
-				ExecAggInitializeDSM((AggState*)planstate, d->pcxt);
-			break;
 		case T_BatchSortState:
 			if (planstate->plan->parallel_aware)
 				ExecBatchSortInitializeDSM((BatchSortState*)planstate, d->pcxt);
@@ -542,7 +539,10 @@ ExecParallelInitializeDSM(PlanState *planstate,
 			ExecClusterReduceInitializeDSM((ClusterReduceState*)planstate, d->pcxt);
 			break;
 #endif /* ADB */
-
+		case T_AggState:
+			/* even when not parallel-aware, for EXPLAIN ANALYZE */
+			ExecAggInitializeDSM((AggState *) planstate, d->pcxt);
+			break;
 		default:
 			break;
 	}
@@ -1100,6 +1100,9 @@ ExecParallelRetrieveInstrumentation(PlanState *planstate,
 		case T_HashState:
 			ExecHashRetrieveInstrumentation((HashState *) planstate);
 			break;
+		case T_AggState:
+			ExecAggRetrieveInstrumentation((AggState *) planstate);
+			break;
 		default:
 			break;
 	}
@@ -1389,11 +1392,6 @@ ExecParallelInitializeWorker(PlanState *planstate, ParallelWorkerContext *pwcxt)
 												pwcxt);
 			break;
 #ifdef ADB_EXT
-		case T_AggState:
-			if (planstate->plan->parallel_aware)
-				ExecAggInitializeWorker((AggState *) planstate,
-										pwcxt);
-			break;
 		case T_BatchSortState:
 			if (planstate->plan->parallel_aware)
 				ExecBatchSortInitializeWorker((BatchSortState*)planstate, pwcxt);
@@ -1405,6 +1403,10 @@ ExecParallelInitializeWorker(PlanState *planstate, ParallelWorkerContext *pwcxt)
 			break;
 #endif /* ADB */
 
+		case T_AggState:
+			/* even when not parallel-aware, for EXPLAIN ANALYZE */
+			ExecAggInitializeWorker((AggState *) planstate, pwcxt);
+			break;
 		default:
 			break;
 	}
