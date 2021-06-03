@@ -2328,14 +2328,14 @@ ProcessUtilitySlow(ParseState *pstate,
 					EventTriggerAlterTableEnd();
 
 #ifdef ADB
-					/*if (!stmt->isconstraint && !is_temp)
+					if (!stmt->concurrent && !stmt->isconstraint && !is_temp)
 					{
 						utilityContext.force_autocommit = stmt->concurrent;
 						utilityContext.exec_type = exec_type;
 						utilityContext.is_temp = is_temp;
 						utilityContext.stmt = (Node *) stmt;
 						ExecRemoteUtilityStmt(&utilityContext);
-					}*/
+					}
 #endif
 				}
 				break;
