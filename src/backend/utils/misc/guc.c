@@ -148,10 +148,6 @@ extern int reduce_scan_bucket_size;
 extern int reduce_scan_max_buckets;
 #endif
 
-#if defined(ADBMGRD)
-bool enable_rewind_backup = false;
-#endif /* ADBMGRD */
-
 /*
  * Precision with which REAL type guc values are to be printed for GUC
  * serialization.
@@ -750,7 +746,7 @@ int			default_distribute_by = LOCATOR_TYPE_HASH;
 char 		*default_user_group = "";
 bool    single_slave_datanode;
 bool		enable_view_distribute;
-bool  enable_rewind_backup = false;
+bool  		enable_rewind_backup = false;
 #endif
 
 #ifdef ADB_EXT
@@ -1710,6 +1706,15 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+	{
+		{"enable_rewind_backup", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Enables backup file in the process of rewind in slave node."),
+			NULL
+		},
+		&enable_rewind_backup,
+		false,
+		NULL, NULL, NULL
+	},
 #endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,
@@ -1838,15 +1843,6 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&autovacuum_start_daemon,
 		true,
-		NULL, NULL, NULL
-	},
-	{
-		{"enable_rewind_backup", PGC_SIGHUP, AUTOVACUUM,
-			gettext_noop("Enables backup file in the process of rewind in slave node."),
-			NULL
-		},
-		&enable_rewind_backup,
-		false,
 		NULL, NULL, NULL
 	},
 #if defined(ADBMGRD)
