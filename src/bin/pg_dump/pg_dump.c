@@ -143,6 +143,7 @@ static int	extra_float_digits;
 
 #ifdef ADB
 static int	include_nodes = 0;
+static int	no_distributed_by_info = 0;
 #endif
 static int	include_partition = 0;
 #ifdef MGR_DUMP
@@ -413,6 +414,7 @@ main(int argc, char **argv)
 		{"include-foreign-data", required_argument, NULL, 11},
 #ifdef ADB
 		{"include-nodes", no_argument, &include_nodes, 1},
+		{"no-distributed-by-info", no_argument, &no_distributed_by_info, 1},
 #endif
 #ifdef MGR_DUMP
 		{"mgr_table", no_argument, &adbmgr_table, 1},
@@ -1115,7 +1117,8 @@ help(const char *progname)
 			 "                               ALTER OWNER commands to set ownership\n"));
 
 #ifdef ADB
-	printf(_("	--include-nodes 			 include TO NODE clause in the dumped CREATE TABLE commands\n"));
+	printf(_("  --include-nodes              include TO NODE clause in the dumped CREATE TABLE commands\n"));
+	printf(_("  --no-distributed-by-info     Without distributed info in the dumped CREATE TABLE commands\n"));
 #endif
 #ifdef MGR_DUMP
 	printf(_("  --mgr_table                  dump only ADBMGR host, node, param, hba table data\n"));
@@ -16357,7 +16360,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 #ifdef ADB
 		/* Add the grammar extension linked to ADB depending on data got from pgxc_class */
 		/* exclude INHERITS clause (not for partitions) */
-		if (tbinfo->pgxclocatortype != 'E' &&
+		if (!no_distributed_by_info && tbinfo->pgxclocatortype != 'E' &&
 			!(numParents > 0 && !tbinfo->ispartition && !dopt->binary_upgrade))
 		{
 			PQExpBuffer query = createPQExpBuffer();

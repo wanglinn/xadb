@@ -103,6 +103,7 @@ static SimpleStringList database_exclude_names = {NULL, NULL};
 #ifdef ADB
 static int	dump_nodes = 0;
 static int include_nodes = 0;
+static int	no_distributed_by_info = 0;
 #endif
 
 #ifdef WITH_RDMA
@@ -165,6 +166,7 @@ main(int argc, char *argv[])
 #ifdef ADB
 		{"dump-nodes", no_argument, &dump_nodes, 1},
 		{"include-nodes", no_argument, &include_nodes, 1},
+		{"no-distributed-by-info", no_argument, &no_distributed_by_info, 1},
 #endif
 #ifdef WITH_RDMA
 		{"rdma", no_argument, &is_rs, 1},
@@ -703,6 +705,7 @@ help(void)
 #ifdef ADB
 	printf(_("  --dump-nodes                 include nodes and node groups in the dump\n"));
 	printf(_("  --include-nodes              include TO NODE clause in the dumped CREATE TABLE commands\n"));
+	printf(_("  --no-distributed-by-info     Without distributed info in the dumped CREATE TABLE commands\n"));
 #endif
 
 	printf(_("\nConnection options:\n"));
@@ -1628,7 +1631,13 @@ runPgDump(const char *dbname, const char *create_opts)
 
 	appendShellString(cmd, connstrbuf->data);
 
-	pg_log_info("running \"%s\"", cmd->data);
+#ifdef ADB
+	if (no_distributed_by_info)
+		appendPQExpBufferStr(cmd, " --no-distributed-by-info");
+#endif
+
+	if (verbose)
+		fprintf(stderr, _("%s: running \"%s\"\n"), progname, cmd->data);
 
 	fflush(stdout);
 	fflush(stderr);
