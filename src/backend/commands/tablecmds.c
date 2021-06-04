@@ -711,10 +711,12 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		RangeVar	   *var;
 		PartitionKey	key;
 		List		   *part_elem = NIL;
-		int				i;
+		int				i,modulus;
 		Oid				parentreloid;
 		Oid				partitionreloid;
 		char		   *partition_name = NULL;
+		CreateStmt	   *child;
+		ListCell	   *lc;
 
 		Assert(list_length(stmt->inhRelations) == 1);
 		var = (RangeVar*) linitial(stmt->inhRelations);
@@ -724,12 +726,13 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		catalog = table_open(InheritsRelationId, AccessShareLock);
 		ScanKeyInit(&scankey[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentreloid));
 		scan = systable_beginscan(catalog, InheritsParentIndexId, true, NULL, 1, scankey);
+		modulus = 0;
 		while ((inheritsTuple = systable_getnext(scan)) != NULL)
 		{
 			partitionreloid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
 			parent = RelationIdGetRelation(partitionreloid);
 			key = RelationGetPartitionKey(parent);
-		
+			modulus++;
 			if(!key)
 				elog(ERROR, "unexpected subpartition table relioid: %d", (int)partitionreloid);
 			
@@ -762,6 +765,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			{
 				case PARTITION_STRATEGY_HASH:
 					spec->strategy = pstrdup("hash");
+					stmt->partbound->modulus = modulus + 1;
+					stmt->partbound->remainder = modulus;
 					break;
 				case PARTITION_STRATEGY_LIST:
 					spec->strategy = pstrdup("list");
@@ -778,6 +783,24 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			spec->location = -1;
 			stmt->partspec = spec;
 
+			/* 
+			 *deal with case: alter table add subpartition xxx.
+			 *in this case, the subpartition stmt has no modulu number and remainder,
+			 *so it should reconstruct this stucture.
+			 */
+			if(pg_strcasecmp(stmt->partspec->strategy, "hash") == 0)
+			{
+				modulus = list_length(stmt->child_rels);
+				i = 0;
+				foreach(lc, stmt->child_rels)
+				{
+					child = lfirst_node(CreateStmt, lc);
+					child->partbound->modulus = modulus;
+					child->partbound->remainder = i;
+					i++;
+				}
+			}
+			
 			if (stmt->relation->relpersistence != RELKIND_PARTITIONED_TABLE)
 				elog(ERROR, "unexpected relkind: %d", (int) stmt->relation->relpersistence);
 		}
@@ -1592,6 +1615,11 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				pfree(relname);
 				MemoryContextSwitchTo(oldcontext);
 			}
+			
+			/*if subpartition is "range" type, in one case: subpartition xxx values less than..., it has no min value*/
+			if (child->partbound->strategy == PARTITION_STRATEGY_RANGE &&child->partspec == NULL && last_range_upperdatums == NIL)
+				last_range_upperdatums = lappend(last_range_upperdatums,makeColumnRef("minvalue", NIL, -1, NULL));
+
 #endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 			/* 
