@@ -754,9 +754,9 @@ static void MgrGetNodeAndChildsInZone(MemoryContext spiContext,
 		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(slaveNode);
 		MgrGetNodeAndChildsInZone(spiContext,
-								slaveNode,
-								zone,
-								slaveNodes);
+								  slaveNode,
+								  zone,
+								  slaveNodes);
 	}
 }
 static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, char *zone)
@@ -923,10 +923,10 @@ static void MgrInitAllNodes(char *zone)
 			masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
 			Assert(masterNode);
 			MgrInitChildNodes(spiContext,
-								masterNode, 
-								zone,
-								&num,
-								total);
+							  masterNode, 
+							  zone,
+							  &num,
+							  total);
 		}
 	}PG_CATCH();
 	{
