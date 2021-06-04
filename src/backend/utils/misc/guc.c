@@ -634,7 +634,8 @@ static const struct config_enum_entry command_mode[] = {
 };
 
 extern int mgr_cmd_mode;
-char* MGRDatabaseName;
+extern char* MGRDatabaseName;
+extern char* mgr_zone;
 
 #endif /* ADBMGRD */
 

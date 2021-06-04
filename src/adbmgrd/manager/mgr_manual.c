@@ -43,8 +43,6 @@
 #include "nodes/makefuncs.h"
 #include "access/xlog.h"
 
-char *mgr_zone;
-
 static struct enum_sync_state sync_state_tab[] =
 {
 	{SYNC_STATE_SYNC, "sync"},

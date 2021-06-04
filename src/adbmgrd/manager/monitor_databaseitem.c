@@ -46,8 +46,6 @@ static int64 monitor_all_typenode_usedbname_locksnum(Relation rel_node, char *sq
 #define SQLSTRSTANDBYDELAY  "select CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0 ELSE  " \
 	"round(EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())) end;"
 
-char *mgr_zone;
-
 typedef enum ResultChoice
 {
 	GET_MIN = 0,

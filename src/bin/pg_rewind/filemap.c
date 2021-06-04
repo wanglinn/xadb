@@ -54,6 +54,10 @@ static uint32 hash_string_pointer(const char *s);
 #define FILEHASH_INITIAL_SIZE	1000
 
 static filehash_hash *filehash;
+#ifdef ADB
+char *target_tblspc_directory;
+char *source_tblspc_directory;
+#endif
 
 static bool isRelDataFile(const char *path);
 static char *datasegpath(RelFileNode rnode, ForkNumber forknum,

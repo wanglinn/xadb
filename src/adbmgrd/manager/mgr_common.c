@@ -34,8 +34,6 @@
 #define ADB_REWIND_TMP_DIR				"_rewind"
 #define ADB_REWIND_FILE					"rewind.sh"
 
-char *mgr_zone;
-
 extern bool enable_rewind_backup;
 
 static struct enum_sync_state sync_state_tab[] =

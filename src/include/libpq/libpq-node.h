@@ -37,8 +37,8 @@ struct PQNHookFunctions
 
 typedef struct pg_conn* (*GetPGconnHook)(void *arg);
 
-PGDLLIMPORT const PQNHookFunctions PQNDefaultHookFunctions;
-PGDLLIMPORT const PQNHookFunctions PQNFalseHookFunctions;
+extern PGDLLIMPORT const PQNHookFunctions PQNDefaultHookFunctions;
+extern PGDLLIMPORT const PQNHookFunctions PQNFalseHookFunctions;
 
 extern void PQNForceReleaseWhenTransactionFinish(void);
 extern List *PQNGetConnUseOidList(List *oid_list);

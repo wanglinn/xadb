@@ -516,8 +516,4 @@ extern int	get_hash_mem(void);
 void PGXC_init_lock_files(void);
 #endif
 
-#ifdef ADBMGRD
-extern char *mgr_zone;
-#endif
-
 #endif							/* MISCADMIN_H */

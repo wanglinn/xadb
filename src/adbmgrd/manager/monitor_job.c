@@ -74,12 +74,6 @@
 #include "funcapi.h"
 #include "common/fe_memutils.h"
 
-/*
-* GUC parameters
-*/
-int	adbmonitor_naptime;
-bool adbmonitor_start_daemon;
-
 typedef struct fdCtl
 {
 	int fd;

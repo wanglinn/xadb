@@ -155,8 +155,6 @@ extern List *g_initall_options;
 
 #define DEFAULT_DB "postgres"
 
-NameData clusterLockCoordNodeName;
-
 /* the value of curestatus is not case sensitive */
 #define CURE_STATUS_NORMAL "normal"
 #define CURE_STATUS_CURING "curing"

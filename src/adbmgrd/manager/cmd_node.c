@@ -70,6 +70,7 @@ hot_expansion changes below functions:
 extern char	*MGRDatabaseName;
 
 bool initSlaveSuccess = true;
+NameData clusterLockCoordNodeName;
 
 #define  GET_MGR_DB ((0!=strcmp(MGRDatabaseName,"")) ? MGRDatabaseName : DEFAULT_DB)
 

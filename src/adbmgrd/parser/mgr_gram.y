@@ -82,7 +82,7 @@ typedef struct mgr_yy_extra_type
 
 union YYSTYPE;					/* need forward reference for tok_is_keyword */
 
-bool adbmonitor_start_daemon;
+extern bool adbmonitor_start_daemon;
 
 static void mgr_yyerror(YYLTYPE *yylloc, core_yyscan_t yyscanner,
 						 const char *msg);
