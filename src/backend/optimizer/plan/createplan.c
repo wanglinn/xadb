@@ -7407,8 +7407,15 @@ create_cluster_merge_gather_plan(PlannerInfo *root,
 	List *reduce_list;
 
 	plan = makeNode(ClusterMergeGather);
+	if (list_member_oid(path->rnodes, PGXCNodeOid))
+	{
+		plan->rnodes = list_copy(path->rnodes);
+		plan->rnodes = list_delete_oid(plan->rnodes, PGXCNodeOid);
+	}else
+	{
+		plan->rnodes = path->rnodes;
+	}
 	Assert(path->rnodes != NIL);
-	plan->rnodes = path->rnodes;
 	reduce_list = get_reduce_info_list(path->subpath);
 	plan->gatherType = get_gather_type(reduce_list);
 
@@ -7449,10 +7456,17 @@ create_cluster_gather_plan(PlannerInfo *root, ClusterGatherPath *path, int flags
 	List *reduce_list;
 	Path *subpath = path->subpath;
 	Assert(subpath->reduce_is_valid);
-	Assert(path->rnodes != NIL);
 
 	plan = makeNode(ClusterGather);
-	plan->rnodes = path->rnodes;
+	if (list_member_oid(path->rnodes, PGXCNodeOid))
+	{
+		plan->rnodes = list_copy(path->rnodes);
+		plan->rnodes = list_delete_oid(plan->rnodes, PGXCNodeOid);
+	}else
+	{
+		plan->rnodes = path->rnodes;
+	}
+	Assert(path->rnodes != NIL);
 	reduce_list = get_reduce_info_list(subpath);
 	plan->gatherType = get_gather_type(reduce_list);
 
