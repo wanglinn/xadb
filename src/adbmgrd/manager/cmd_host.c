@@ -402,7 +402,7 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	Datum datum[Natts_mgr_host];
 	bool isnull[Natts_mgr_host];
 	bool got[Natts_mgr_host];
-	Form_mgr_node mgr_node;
+	Form_mgr_node mgr_node PG_USED_FOR_ASSERTS_ONLY;
 	TupleDesc host_dsc;
 	TableScanDesc relScan;
 	ScanKeyData key[1];
@@ -1974,7 +1974,7 @@ bool port_occupancy_test(const char *ip_address, const int port)
 static bool mgr_check_address_repeate(char *address)
 {
 	HeapTuple tuple;
-	Form_mgr_host mgr_host;
+	Form_mgr_host mgr_host PG_USED_FOR_ASSERTS_ONLY;
 	Datum addressDatum;
 	Relation relHost;
 	TableScanDesc relScan;

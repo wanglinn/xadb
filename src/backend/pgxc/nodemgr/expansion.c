@@ -1858,7 +1858,7 @@ void RemoveCleanInfoFromExpansionClean(Oid relOid)
 {
 	HeapTuple		tuple;
 	Relation		rel_clean;
-	Form_adb_clean	form_clean;
+	Form_adb_clean	form_clean PG_USED_FOR_ASSERTS_ONLY;
 
 	tuple = SearchSysCache2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), ObjectIdGetDatum(relOid));
 	if (tuple)

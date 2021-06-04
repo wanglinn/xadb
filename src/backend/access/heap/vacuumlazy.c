@@ -613,9 +613,8 @@ static void DestroyRecvRelNumContext(RecvRelVsiContext *context)
 static void acquire_vsi_coord_master(List *dnlist, VacuumSyncInfo *vsi)
 {
 	RecvRelVsiContext	context;
-	int dn_len = list_length(dnlist);
 
-	Assert(dn_len > 0);
+	Assert(list_length(dnlist) > 0);
 
 	InitRecvRelVsiContext(&context);
 	acquire_vsi_coord_master_main(&context, NextRelVsiFromRaw, dnlist);

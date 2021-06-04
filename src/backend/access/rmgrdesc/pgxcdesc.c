@@ -28,7 +28,7 @@ void
 cluster_barrier_desc(StringInfo buf, XLogReaderState *record)
 {
 	char	   *rec = XLogRecGetData(record);
-	uint8		xl_info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+	uint8		xl_info PG_USED_FOR_ASSERTS_ONLY = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
 
 	Assert(xl_info == XLOG_CLUSTER_BARRIER_CREATE);
 	appendStringInfo(buf, "CLUSTER BARRIER \"%s\"", rec);

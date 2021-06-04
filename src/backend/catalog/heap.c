@@ -1158,7 +1158,7 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 		Value  *value = lfirst(item);
 		Oid		noid;
 		Assert(IsA(value, String));
-		noid = GetDatanodeOidByName(strVal(lfirst(item)), NULL, -1);
+		noid = GetDatanodeOidByName(strVal(value), NULL, -1);
 
 		/* Can be added if necessary */
 		if (*numnodes != 0)

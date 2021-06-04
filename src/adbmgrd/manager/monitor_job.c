@@ -620,14 +620,19 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	{
 		case 5:
 			nodeArg.select_timeout= PG_GETARG_UINT32(4);
+			/* FALL THRU */
 		case 4:
 			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+			/* FALL THRU */
 		case 3:
 			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+			/* FALL THRU */
 		case 2:
 			nodeArg.bforce = PG_GETARG_BOOL(1);
+			/* FALL THRU */
 		case 1:
 			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+			/* FALL THRU */
 		case 0:
 			break;
 		default:
@@ -1170,14 +1175,19 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	{
 		case 5:
 			nodeArg.select_timeout= PG_GETARG_UINT32(4);
+			/* FALL THRU */
 		case 4:
 			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+			/* FALL THRU */
 		case 3:
 			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+			/* FALL THRU */
 		case 2:
 			nodeArg.bforce = PG_GETARG_BOOL(1);
+			/* FALL THRU */
 		case 1:
 			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+			/* FALL THRU */
 		case 0:
 			break;
 		default:
@@ -1617,14 +1627,19 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	{
 		case 5:
 			nodeArg.select_timeout = PG_GETARG_UINT32(4);
+			/* FALL THRU */
 		case 4:
 			nodeArg.reconnect_interval = PG_GETARG_UINT32(3);
+			/* FALL THRU */
 		case 3:
 			nodeArg.reconnect_attempts = PG_GETARG_UINT32(2);
+			/* FALL THRU */
 		case 2:
 			nodeArg.bforce = PG_GETARG_BOOL(1);
+			/* FALL THRU */
 		case 1:
 			namestrcpy(&masterName, PG_GETARG_CSTRING(0));
+			/* FALL THRU */
 		case 0:
 			break;
 		default:

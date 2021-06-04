@@ -1833,11 +1833,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
-			break;
 #ifdef ADB
 			if(es->verbose)
 				ExplainRemoteList(((Scan*)plan)->execute_nodes, es);
 #endif /* ADB */
+			break;
 		case T_IndexOnlyScan:
 			show_scan_qual(((IndexOnlyScan *) plan)->indexqual,
 						   "Index Cond", planstate, ancestors, es);

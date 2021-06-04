@@ -3017,13 +3017,12 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *que
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("PGXC does not support concurrent INDEX yet"),
 						 errdetail("The feature is not currently supported")));
-
 #else
 			if (stmt->concurrent)
 				PreventInTransactionBlock(isTopLevel,
 										  "DROP INDEX CONCURRENTLY");
-			/* fall through */
 #endif
+			/* fall through */
 
 		case OBJECT_TABLE:
 		case OBJECT_SEQUENCE:

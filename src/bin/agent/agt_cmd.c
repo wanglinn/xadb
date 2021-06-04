@@ -316,8 +316,8 @@ static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name
 #define BUF_PING_STR_LEN 1024
 static int exec_ping_node(const char *host, const char *port, const char *user, const char *file_path, StringInfo err_msg)
 {
-	char conninfo[BUF_PING_STR_LEN] = {0};
-	char editBuf[BUF_PING_STR_LEN] = {0};
+	char conninfo[BUF_PING_STR_LEN+1] = {0};
+	char editBuf[BUF_PING_STR_LEN+1] = {0};
 	int retry;
 	int RETRY = 3;
 	int ret = -1;
@@ -745,21 +745,13 @@ static void add_pghba_info_list(AgentCommand cmd_type, HbaInfo *infohead, HbaInf
 	newinfo = (HbaInfo *)palloc0(sizeof(HbaInfo)+1);
 	newinfo->type = checkinfo->type;
 	/*database*/
-	database = (char *)palloc(strlen(checkinfo->database)+1);
-	memset(database, 0, strlen(checkinfo->database)+1);
-	strncpy(database, checkinfo->database, strlen(checkinfo->database));
+	database = pstrdup(checkinfo->database);
 	/*user*/
-	user = (char *)palloc(strlen(checkinfo->user)+1);
-	memset(user, 0, strlen(checkinfo->user)+1);
-	strncpy(user, checkinfo->user, strlen(checkinfo->user));
+	user = pstrdup(checkinfo->user);
 	/*addr*/
-	addr = (char *)palloc(strlen(checkinfo->addr)+1);
-	memset(addr, 0, strlen(checkinfo->addr)+1);
-	strncpy(addr, checkinfo->addr, strlen(checkinfo->addr));
+	addr = pstrdup(checkinfo->addr);
 	/*auth_method*/
-	auth_method = (char *)palloc(strlen(checkinfo->auth_method)+1);
-	memset(auth_method, 0, strlen(checkinfo->auth_method)+1);
-	strncpy(auth_method, checkinfo->auth_method, strlen(checkinfo->auth_method));
+	auth_method = pstrdup(checkinfo->auth_method);
 	newinfo->addr_mark = checkinfo->addr_mark;
 	newinfo->addr_is_ipv6 = false;
 	newinfo->type_loc = 0;
@@ -1235,12 +1227,8 @@ static void cmd_refresh_confinfo(char *key, char *value, ConfInfo *info, bool bf
 	if (!getkey && !bforce)
 	{
 		ConfInfo *newinfo = (ConfInfo *)palloc(sizeof(ConfInfo)+1);
-		newname = (char *)palloc(strlen(key)+1);
-		memset(newname, 0, strlen(key)+1);
-		newvalue = (char *)palloc(strlen(value)+1);
-		memset(newvalue, 0, strlen(value)+1);
-		strncpy(newname, key, strlen(key));
-		strncpy(newvalue, value, strlen(value));
+		newname = pstrdup(key);
+		newvalue = pstrdup(value);
 		newinfo->filename = NULL;
 		newinfo->line = (char *)palloc(strlen(key) + strlen(value) + strlen(" = ") + 2);
 		newinfo->name = newname;

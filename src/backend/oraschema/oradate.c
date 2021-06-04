@@ -649,12 +649,16 @@ Datum ora_oracle_date_trunc(PG_FUNCTION_ARGS)
 		break;
 	CASE_fmt_YYYY
 		tt.tm_mon = 1;
+		/* FALL THRU */
 	CASE_fmt_Q
 		tt.tm_mon = (3*((tt.tm_mon - 1)/3)) + 1;
+		/* FALL THRU */
 	CASE_fmt_MON
 		tt.tm_mday = 1;
+		/* FALL THRU */
 	CASE_fmt_DDD
 		tt.tm_hour = 0;
+		/* FALL THRU */
 	CASE_fmt_HH
 		tt.tm_min = 0;
 	}
@@ -712,15 +716,20 @@ ora_timestamptz_trunc(PG_FUNCTION_ARGS)
 		break;
 	CASE_fmt_YYYY
 		tm->tm_mon = 1;
+		/* FALL THRU */
 	CASE_fmt_Q
 		tm->tm_mon = (3*((tm->tm_mon - 1)/3)) + 1;
+		/* FALL THRU */
 	CASE_fmt_MON
 		tm->tm_mday = 1;
+		/* FALL THRU */
 	CASE_fmt_DDD
 		tm->tm_hour = 0;
 		redotz = true; /* for all cases >= DAY */
+		/* FALL THRU */
 	CASE_fmt_HH
 		tm->tm_min = 0;
+		/* FALL THRU */
 	}
 
 	if (redotz)

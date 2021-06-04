@@ -166,7 +166,6 @@ static bool is_snapsender_query_worker = false;
 #define WAIT_EVENT_SIZE_START	128
 
 #define SNAP_SENDER_MAX_LISTEN	16
-static pgsocket			SnapSenderListenSocket[SNAP_SENDER_MAX_LISTEN];
 
 static void SnapSenderStartup(void);
 
@@ -976,7 +975,6 @@ void SnapSenderMain(void)
 	PG_SETMASK(&UnBlockSig);
 
 	SnapSenderStartup();
-	Assert(SnapSenderListenSocket[0] != PGINVALID_SOCKET);
 	Assert(wait_event_set != NULL);
 
 	initStringInfo(&output_buffer);
@@ -2151,7 +2149,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 	int						ret_ssc;
 	TransactionId			next_id;
 	int						msgtype, cmdtype;
-	const char				*client_name;
+	const char				*client_name PG_USED_FOR_ASSERTS_ONLY;
 	bool					is_cn = false;
 	char					*xid_string_list;
 	char					next_id_str[1024];

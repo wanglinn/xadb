@@ -2467,6 +2467,7 @@ main(int argc, char **argv)
 						pgxcCommand = strdup("--restoremode");
 					else if (strcmp(optarg, "gtm_coord") == 0)
 						pgxcCommand = strdup("--gtm_coord");
+					break;
 #endif
 				case 's':
 					silent_mode = true;

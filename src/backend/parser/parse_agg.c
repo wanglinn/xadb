@@ -569,6 +569,7 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 				err = _("aggregate functions are not allowed in order siblings by expression");
 			else
 				err = _("grouping operations are not allowed in order siblings by expression");
+			break;
 #endif /* ADB_GRAM_ORA */
 
 		case EXPR_KIND_COPY_WHERE:
