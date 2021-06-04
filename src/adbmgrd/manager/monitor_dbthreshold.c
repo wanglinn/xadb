@@ -33,8 +33,6 @@
 #include "access/xact.h"
 #include "utils/date.h"
 
-char *mgr_zone;
-
 /*get timestamptz from given node */
 char *monitor_get_timestamptz_onenode(int agentport, char *user, char *address, int port)
 {

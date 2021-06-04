@@ -21,6 +21,10 @@
 #include "storage/fd.h"
 
 filemap_t  *filemap = NULL;
+#ifdef ADB
+char *target_tblspc_directory;
+char *source_tblspc_directory;
+#endif
 
 static bool isRelDataFile(const char *path);
 static char *datasegpath(RelFileNode rnode, ForkNumber forknum,

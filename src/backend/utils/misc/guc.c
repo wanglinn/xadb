@@ -600,7 +600,8 @@ static const struct config_enum_entry command_mode[] = {
 };
 
 extern int mgr_cmd_mode;
-char* MGRDatabaseName;
+extern char* MGRDatabaseName;
+extern char* mgr_zone;
 
 #endif /* ADBMGRD */
 
@@ -724,9 +725,9 @@ int			tcp_keepalives_count;
 int			tcp_user_timeout;
 
 #if defined(ADB_GRAM_ORA)
-char	   *nls_date_format;
-char	   *nls_timestamp_format;
-char	   *nls_timestamp_tz_format;
+extern char *nls_date_format;
+extern char *nls_timestamp_format;
+extern char *nls_timestamp_tz_format;
 bool		auto_rename_sub_partition = false;
 #endif
 #ifdef ADB

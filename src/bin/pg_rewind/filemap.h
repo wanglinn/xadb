@@ -102,8 +102,8 @@ extern void process_block_change(ForkNumber forknum, RelFileNode rnode,
 extern void filemap_finalize(void);
 
 #ifdef ADB
-char *target_tblspc_directory;
-char *source_tblspc_directory;
+extern char *target_tblspc_directory;
+extern char *source_tblspc_directory;
 void replace_tblspc_directory_name(char *path, const char *old_str, const char *new_str);
 void init_tblspc_directory_name(void);
 #endif

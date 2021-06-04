@@ -147,7 +147,7 @@ extern RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal;
 extern TimeLineID recoveryTargetTLIRequested;
 extern TimeLineID recoveryTargetTLI;
 #ifdef ADB
-char *recoveryTargetBarrierId;
+extern char *recoveryTargetBarrierId;
 #endif
 
 extern int	CheckPointSegments;

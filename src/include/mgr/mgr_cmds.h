@@ -204,8 +204,11 @@ typedef struct CmdTypeName
 
 typedef List * (*nodenames_supplier) (PG_FUNCTION_ARGS, char nodetype);
 typedef void (nodenames_consumer)(List *nodenames, char nodetype);
-/* host commands, in cmd_host.c */
 
+/* in mgr_zone.c */
+extern char *mgr_zone;
+
+/* host commands, in cmd_host.c */
 extern void mgr_add_host(MGRAddHost *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_drop_host(MGRDropHost *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_alter_host(MGRAlterHost *node, ParamListInfo params, DestReceiver *dest);

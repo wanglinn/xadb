@@ -36,7 +36,6 @@
 #define GETTODAYSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600)
 #define GETLASTDAYSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600-24*3600)
 #define GETTOMARROWSTARTTIME(time) ((time+8*3600)/(3600*24)*(3600*24)-8*3600+24*3600)
-char *mgr_zone;
 
 /*see the content of adbmgr_init.sql: "insert into pg_catalog.monitor_host_threshold"
 * the values are the same in adbmgr_init.sql for given items
