@@ -516,15 +516,21 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 			}else if(strcmp(def->defname, "path") == 0)
 			{
 				if(got[Anum_mgr_node_nodepath-1])
-					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-						,errmsg("conflicting or redundant options")));
+					ereport(ERROR,
+							errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("conflicting or redundant options"));
 				str = defGetString(def);
 				if(str[0] != '/' || str[0] == '\0')
-					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-						,errmsg("invalid absoulte path: \"%s\"", str)));
+					ereport(ERROR,
+							errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("invalid absoulte path: \"%s\"", str));
+				if (strlen(str) >= lengthof(pathstr))
+					ereport(ERROR,
+							errcode(ERRCODE_SYNTAX_ERROR),
+							errmsg("path to long \"%s\"", str));
 				datum[Anum_mgr_node_nodepath-1] = PointerGetDatum(cstring_to_text(str));
 				got[Anum_mgr_node_nodepath-1] = true;
-				strncpy(pathstr, str, strlen(str)>MAXPGPATH ? MAXPGPATH:strlen(str));
+				StrNCpy(pathstr, str, lengthof(pathstr));
 			}else if(strcmp(def->defname, "sync_state") == 0)
 			{
 				if(got[Anum_mgr_node_nodesync-1])
@@ -14781,7 +14787,6 @@ static bool
 mgr_get_sync_slave_readonly_state(void)
 {
 	Relation rel_updateparm;
-	Form_mgr_updateparm mgr_updateparm;
 	ScanKeyData key[1];
 	TableScanDesc rel_scan;
 	HeapTuple tuple;
@@ -14803,8 +14808,6 @@ mgr_get_sync_slave_readonly_state(void)
 		bool isNull = false;
 		Datum datumValue;
 
-		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
-		Assert(mgr_updateparm);
 		/*get key, value*/
 		datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(rel_updateparm), &isNull);
 		if(isNull)

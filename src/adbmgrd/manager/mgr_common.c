@@ -4203,7 +4203,7 @@ restore_node(char *nodepath)
 	while(fgets(rewindCmd, MAXPGPATH-1, rewind_file) != NULL)
 	{
 		rewindNode = palloc0(sizeof(RewindWrapper));
-		strncpy(rewindNode->rewindcmd, rewindCmd, strlen(rewindCmd)-1);
+		StrNCpy(rewindNode->rewindcmd, rewindCmd, lengthof(rewindNode->rewindcmd));
 		dlist_push_head(&rewinds, &rewindNode->link);
 		memset(rewindCmd, 0, MAXPGPATH);
 	}

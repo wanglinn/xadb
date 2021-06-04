@@ -639,14 +639,32 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 	const char *this_query_str = NULL;
 
 	RemoteUtilityContext utilityContext = {
-							sentToRemote,
-							false,
-							false,
-							EXEC_ON_ALL_NODES,
-							NULL,
-							queryString,
-							NULL
-						};
+											.sentToRemote = sentToRemote,
+											.force_autocommit = false,
+											.is_temp = false,
+											.exec_type = EXEC_ON_ALL_NODES,
+											.stmt = NULL,
+											.query = queryString,
+											.nodes = NULL
+										};
+#endif /* ADB */
+
+	/* This can recurse, so check for excessive recursion */
+	check_stack_depth();
+
+	/*
+	 * If the given node tree is read-only, make a copy to ensure that parse
+	 * transformations don't damage the original tree.  This could be
+	 * refactored to avoid making unnecessary copies in more cases, but it's
+	 * not clear that it's worth a great deal of trouble over.  Statements
+	 * that are complex enough to be expensive to copy are exactly the ones
+	 * we'd need to copy, so that only marginal savings seem possible.
+	 */
+	if (readOnlyTree)
+		pstmt = copyObject(pstmt);
+	parsetree = pstmt->utilityStmt;
+
+#ifdef ADB
 	if (pstmt->stmt_location < 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -699,21 +717,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			pgxc_lock_for_utility_stmt(parsetree);
 	}
 #endif
-
-	/* This can recurse, so check for excessive recursion */
-	check_stack_depth();
-
-	/*
-	 * If the given node tree is read-only, make a copy to ensure that parse
-	 * transformations don't damage the original tree.  This could be
-	 * refactored to avoid making unnecessary copies in more cases, but it's
-	 * not clear that it's worth a great deal of trouble over.  Statements
-	 * that are complex enough to be expensive to copy are exactly the ones
-	 * we'd need to copy, so that only marginal savings seem possible.
-	 */
-	if (readOnlyTree)
-		pstmt = copyObject(pstmt);
-	parsetree = pstmt->utilityStmt;
 
 	/* Prohibit read/write commands in read-only states. */
 	readonly_flags = ClassifyUtilityCommandAsReadOnly(parsetree);
@@ -3020,7 +3023,6 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *que
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("PGXC does not support concurrent INDEX yet"),
 						 errdetail("The feature is not currently supported")));
-
 #else
 			if (stmt->concurrent)
 				PreventInTransactionBlock(isTopLevel,

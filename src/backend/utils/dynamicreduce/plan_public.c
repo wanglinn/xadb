@@ -68,7 +68,7 @@ re_send_:
 			pwi->plan_send_state = DR_PLAN_SEND_SENDING_CACHE;
 			goto re_send_;
 		}
-		/* do not add break, need generate EOF message */
+		/* FALL THRU */
 	case DR_PLAN_SEND_SENDING_CACHE:
 	case DR_PLAN_SEND_GENERATE_EOF:
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);

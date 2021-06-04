@@ -2031,13 +2031,14 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 	switch(jointype)
 	{
 	case JOIN_UNIQUE_OUTER:
+		/* FALL THRU */
 	case JOIN_UNIQUE_INNER:
 		if (IsReduceInfoListCanUniqueJoin(jointype == JOIN_UNIQUE_OUTER ? outer_reduce_list : inner_reduce_list,
 										  restrictlist) == false)
 		{
 			return false;
 		}
-		/* do not add break, need run in JOIN_INNER case */
+		/* FALL THRU */
 	case JOIN_INNER:
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, true, true))
 		{

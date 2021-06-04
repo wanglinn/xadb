@@ -1014,6 +1014,7 @@ SnapRcvShutdownHandler(SIGNAL_ARGS)
 
 static void SnapRcvDie(int code, Datum arg)
 {
+#ifdef USE_ASSERT_CHECKING
 	uint32 state;
 
 	state = pg_atomic_read_u32(&SnapRcv->state);
@@ -1025,7 +1026,8 @@ static void SnapRcvDie(int code, Datum arg)
 		   state == WALRCV_STOPPED ||
 		   state == WALRCV_WAITING ||
 		   state == WALRCV_STOPPING);
-	
+#endif
+
 	pg_atomic_write_u32(&SnapRcv->state, WALRCV_STOPPED);
 
 	LOCK_SNAP_RCV();

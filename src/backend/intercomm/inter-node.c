@@ -323,7 +323,9 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 			node_type = TYPE_DN_SLAVENODE;
 			break;
 		default:
-			Assert(false);
+			ereport(ERROR,
+					errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					errmsg("unknown node type %d", tuple->node_type));
 			break;
 	}
 

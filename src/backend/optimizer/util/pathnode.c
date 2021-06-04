@@ -5257,7 +5257,7 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 		}
 		if(path->pathtype != T_SeqScan)
 			return false;
-		/* don't add "break;" here */
+		/* FALL THRU */
 	case T_IndexPath:
 	case T_TidPath:
 		Assert((path->parent->reloptkind == RELOPT_BASEREL ||

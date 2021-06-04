@@ -640,8 +640,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 	HeapTuple tuple;
 	HeapTuple newtuple;
 	HeapTuple alltype_tuple;
-	Form_mgr_updateparm mgr_updateparm;
-	Form_mgr_updateparm mgr_updateparm_alltype;
+	Form_mgr_updateparm mgr_updateparm PG_USED_FOR_ASSERTS_ONLY;
+	Form_mgr_updateparm mgr_updateparm_alltype PG_USED_FOR_ASSERTS_ONLY;
 	NameData name_standall;
 	NameDataLocal valuedata;
 	TableScanDesc rel_scan;
@@ -848,7 +848,7 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 {
 	Relation rel_updateparm;
 	Form_mgr_updateparm mgr_updateparm;
-	Form_mgr_updateparm mgr_updateparm_check;
+	Form_mgr_updateparm mgr_updateparm_check PG_USED_FOR_ASSERTS_ONLY;
 	ScanKeyData key[2];
 	TableScanDesc rel_scan;
 	HeapTuple tuple;
@@ -2330,7 +2330,6 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	NameData selfAddress;
 	int nodePort;
 	int nRows = 0;
-	int nColumn = 0;
 	int iloop = 0;
 	int effectParmStatus;
 	int varType;
@@ -2484,8 +2483,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 				ereport(ERROR, (errmsg("%s" , PQresultErrorMessage(res))));
 		}
 		nRows = PQntuples(res);
-		nColumn = PQnfields(res);
-		Assert(Natts_mgr_parm == nColumn + 1);
+		Assert(Natts_mgr_parm == PQnfields(res) + 1);
 		parmtype = MACRO_STAND_FOR_ALL_NODENAME;
 		memset(isnull, 0, sizeof(isnull));
 		for (iloop=0; iloop<nRows; iloop++)

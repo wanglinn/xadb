@@ -197,11 +197,9 @@ MakeInterXactState(MemoryContext context, const List *node_list)
 	if (node_list)
 	{
 		NodeMixHandle  *cur_handle;
-		int				mix_num;
 
-		mix_num = list_length(node_list);
 		cur_handle = GetMixedHandles(node_list, state);
-		Assert(cur_handle && list_length(cur_handle->handles) == mix_num);
+		Assert(cur_handle && list_length(cur_handle->handles) == list_length(node_list));
 
 		state->cur_handle = cur_handle;
 
@@ -226,7 +224,6 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 {
 	MemoryContext	old_context;
 	NodeMixHandle  *cur_handle;
-	int				mix_num;
 
 	if (state == NULL)
 		return MakeInterXactState(NULL, node_list);
@@ -267,9 +264,8 @@ MakeInterXactState2(InterXactState state, const List *node_list)
 	 */
 	Assert(state->context);
 	old_context = MemoryContextSwitchTo(state->context);
-	mix_num = list_length(node_list);
 	cur_handle = GetMixedHandles(node_list, state);
-	Assert(cur_handle && list_length(cur_handle->handles) == mix_num);
+	Assert(cur_handle && list_length(cur_handle->handles) == list_length(node_list));
 
 	/*
 	 * free previous "cur_handle" and keep the new one in "state".
