@@ -50,7 +50,10 @@ static int PMGR_BACKTRACE_DETIAL()
 	return 0;
 }
 #else
-#define PMGR_BACKTRACE_DETIAL() 0
+static inline int PMGR_BACKTRACE_DETIAL(void)
+{
+	return 0;
+}
 #endif
 
 #define PM_MSG_ABORT_TRANSACTIONS	'a'

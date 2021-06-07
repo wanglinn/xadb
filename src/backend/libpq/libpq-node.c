@@ -819,7 +819,7 @@ void PQNReleaseAllConnect(int request_cancel_after)
 {
 	HASH_SEQ_STATUS	seq_status;
 	OidPGconn	   *op;
-	time_t			time_last;
+	time_t			time_last = 0;
 	bool			release_connect;
 	bool			force_close;
 	bool			sended_cancel;

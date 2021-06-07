@@ -1525,6 +1525,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
 #ifdef ADB_GRAM_ORA
+	qual = NULL;
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE)
 	{
 		/* transform WHERE */

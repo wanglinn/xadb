@@ -5219,19 +5219,19 @@ static List *GetNodeIDListByUser()
 	if (strlen(NameStr(GroupName)) == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-					errmsg("user \"%s\" has no groupname",	NameStr(userGroupWrapper->userGroup.username))));
+				 errmsg("user \"%s\" has no groupname", NameStr(userName))));
 
 	groupoid = get_pgxc_groupoid(NameStr(GroupName));
 	if (!OidIsValid(groupoid))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-					errmsg("group \"%s\" not defined", NameStr(GroupName))));
+				 errmsg("group \"%s\" not defined", NameStr(GroupName))));
 
 	cnt_arr_oids = get_pgxc_groupmembers(groupoid, &arr_nodeoids);
 	if (cnt_arr_oids == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
-					errmsg("No datanode defined in group %s", NameStr(GroupName))));
+				 errmsg("No datanode defined in group %s", NameStr(GroupName))));
 
 	while(cnt_arr_oids > 0)
 	{
