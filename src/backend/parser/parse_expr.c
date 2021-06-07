@@ -1186,6 +1186,18 @@ static Node* tryTransformRowidOpExpr(Node *result, ParseState *pstate)
 										(Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
 										pstate->p_last_srf,
 										location);
+#ifdef ADB
+				/* and xc_node_id=const */
+				result = (Node*)makeBoolExpr(AND_EXPR,
+											 list_make2(make_op(pstate,
+																SystemFuncName((char*)"="),
+																(Node*)makeVar(var->varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, var->varlevelsup),
+																(Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
+																pstate->p_last_srf,
+																location),
+														result),
+											 location);
+#endif /* ADB */
 			}
 		}
 	}
