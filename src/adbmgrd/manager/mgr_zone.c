@@ -1018,7 +1018,7 @@ static int MgrGetNotActiveCount(MemoryContext spiContext,
 {
 	dlist_head 			slaveNodes = DLIST_STATIC_INIT(slaveNodes);
 	dlist_iter 			iter;
-	MgrNodeWrapper 		*slaveNode = NULL;
+	MgrNodeWrapper 		*slaveNode PG_USED_FOR_ASSERTS_ONLY = NULL;
 	int                 count = 0;
 
 	selectNotActiveChildInZone(spiContext, 

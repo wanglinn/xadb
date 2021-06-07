@@ -1210,7 +1210,7 @@ static void SnapRcvProcessSyncSnap(char *buf, Size len)
 static void SnapRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok)
 {
 	int i, count;
-	bool found;
+	bool found PG_USED_FOR_ASSERTS_ONLY;
 
 	found = false;
 	count = SnapRcv->wait_finish_cnt;

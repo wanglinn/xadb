@@ -186,6 +186,7 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_CNDN_ADD_PGHBACONF_SEPARATOR:
 		cmd_node_refresh_pghba_parse_separator(buf);
+		break;
 	/*modify gtm|coordinator|datanode postgresql.conf and reload it*/
 	case AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD:
 		cmd_node_refresh_pgsql_paras(cmd_type, buf);
@@ -231,6 +232,7 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_NODE_REWIND:
 		cmd_node_init(cmd_type, buf, "adb_rewind", ADB_REWIND_VERSION);
+		break;
 	case AGT_CMD_AGTM_REWIND:
 		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
 		break;

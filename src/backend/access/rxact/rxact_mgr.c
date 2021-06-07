@@ -428,7 +428,7 @@ static void RxactLoop(void)
 			pos = getNodeConnPos(pconn);
 			if(pos > 0)
 			{
-				RxactWaitEventData *rxactEventData;
+				RxactWaitEventData *rxactEventData PG_USED_FOR_ASSERTS_ONLY;
 				rxactEventData = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
 
 				Assert(rxactEventData->type == T_Event_Node);

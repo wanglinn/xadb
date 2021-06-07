@@ -4849,10 +4849,10 @@ void AdbPrepareTransferLock(void)
 		 * to do the deed.  So for now, we error out while we can still do so
 		 * safely.
 		 */
-		/*if (haveSessionLock)
+		if (haveSessionLock)
 			ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("cannot PREPARE while holding both session-level and transaction-level locks on the same object")));*/
+						errmsg("cannot PREPARE while holding both session-level and transaction-level locks on the same object")));
 		/*
 		 * If the local lock was taken via the fast-path, we need to move it
 		 * to the primary lock table, or just get a pointer to the existing
