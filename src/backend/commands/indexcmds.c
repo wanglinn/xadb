@@ -581,7 +581,7 @@ void cluster_adb_index_concurrent(struct StringInfoData *msg)
 	}
 
 	buf.cursor = 0;
-	buf.len = buf.maxlen;
+	buf.maxlen = buf.len;
 	index_type = pq_getmsgint(&buf, sizeof(index_type));
 
 	switch (index_type)
@@ -3585,11 +3585,6 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 
 				/* Open relation to get its indexes */
 				heapRelation = table_open(relationOid, ShareUpdateExclusiveLock);
-#ifdef ADB
-				rel_loc_info = RelationGetLocInfo(heapRelation);
-				if(IsCnMaster() && under_agtm && rel_loc_info)
-					list_datanode = RelationGetLocInfo(heapRelation)->nodeids;
-#endif
 
 				/* Add all the valid indexes of relation to list */
 				foreach(lc, RelationGetIndexList(heapRelation))
@@ -3697,7 +3692,17 @@ ReindexRelationConcurrently(Oid relationOid, int options)
 
 				/* Track the heap relation of this index for session locks */
 				heapRelationIds = list_make1_oid(heapId);
-
+		
+#ifdef ADB
+				if (IsCnMaster() && under_agtm)
+				{
+					Relation heapRelation = table_open(heapId, ShareUpdateExclusiveLock);
+					rel_loc_info = RelationGetLocInfo(heapRelation);
+					if(IsCnMaster() && under_agtm && rel_loc_info)
+						list_datanode = RelationGetLocInfo(heapRelation)->nodeids;
+					table_close(heapRelation, ShareUpdateExclusiveLock);
+				}
+#endif
 				/*
 				 * Save the list of relation OIDs in private context.  Note
 				 * that invalid indexes are allowed here.
