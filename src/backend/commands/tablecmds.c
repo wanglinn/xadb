@@ -786,9 +786,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),
 								 new_val, new_null, new_repl);
 					CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
-				}
 
-				heap_freetuple(newtuple);
+					heap_freetuple(newtuple);
+				}
 				table_close(classRel, RowExclusiveLock);
 			}
 			RelationClose(parent);
