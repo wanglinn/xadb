@@ -2877,11 +2877,7 @@ check_new_partition_bound(char *relname, Relation parent,
 							valid_modulus = (next_modulus % spec->modulus) == 0;
 						}
 					}
-#ifdef ADB_GRAM_ORA
-					/*In oracle mode, for "alter table xxx add partition xxx. the spec->modulus should be 1 larger than next_modulus*/
-					if(!valid_modulus && prev_modulus == (spec->modulus - 1))
-						valid_modulus = true;
-#endif /*ADB_GRAM_ORA*/
+
 					if (!valid_modulus)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -2910,13 +2906,6 @@ check_new_partition_bound(char *relname, Relation parent,
 						}
 						remainder += spec->modulus;
 					} while (remainder < greatest_modulus);
-#ifdef ADB_GRAM_ORA
-					/*In oracle mode, for "alter table xxx add partition xxx. the spec->modulus should be 1 larger than next_modulus.
-					 *in this case, it should skip check partpounds.
-					 */
-					if(prev_modulus == (spec->modulus - 1))
-						overlap = false;
-#endif /*ADB_GRAM_ORA*/
 				}
 
 				break;

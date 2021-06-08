@@ -729,6 +729,13 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		modulus = 0;
 		while ((inheritsTuple = systable_getnext(scan)) != NULL)
 		{
+			Relation	classRel;
+			HeapTuple	tuple,newtuple;
+			PartitionBoundSpec *boundspec = NULL;
+			Datum		new_val[Natts_pg_class];
+			bool		new_null[Natts_pg_class];
+			bool		new_repl[Natts_pg_class];
+
 			partitionreloid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
 			parent = RelationIdGetRelation(partitionreloid);
 			key = RelationGetPartitionKey(parent);
@@ -747,6 +754,42 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 					else
 						elog(ERROR, "subpartition with different partition key");	
 				}
+			}
+
+			classRel = table_open(RelationRelationId, RowExclusiveLock);
+			tuple = SearchSysCacheCopy1(RELOID,
+									ObjectIdGetDatum(partitionreloid));
+			if (HeapTupleIsValid(tuple))
+			{
+				Datum		datum;
+				bool		isnull;
+
+				datum = SysCacheGetAttr(RELOID, tuple,
+										Anum_pg_class_relpartbound,
+										&isnull);
+				if (!isnull)
+					boundspec = stringToNode(TextDatumGetCString(datum));
+				
+				/*
+				*Alter table xxx add subpartition xxx. In the case, it should update boundspec->modulus for all brother nodes,
+				*meanwhile store the partition bound.
+				*/
+				if(key->strategy == PARTITION_STRATEGY_HASH && boundspec)
+				{
+					boundspec->modulus += 1;
+					memset(new_val, 0, sizeof(new_val));
+					memset(new_null, false, sizeof(new_null));
+					memset(new_repl, false, sizeof(new_repl));
+					new_val[Anum_pg_class_relpartbound - 1] = CStringGetTextDatum(nodeToString(boundspec));
+					new_null[Anum_pg_class_relpartbound - 1] = false;
+					new_repl[Anum_pg_class_relpartbound - 1] = true;
+					newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),
+								 new_val, new_null, new_repl);
+					CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
+				}
+
+				heap_freetuple(newtuple);
+				table_close(classRel, RowExclusiveLock);
 			}
 			RelationClose(parent);
 		}
