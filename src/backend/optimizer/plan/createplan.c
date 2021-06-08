@@ -7655,11 +7655,19 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 			include_coord = true;
 	}
 
+	from_oids = ReduceInfoListGetExecuteOidList(reduce_list);
+	if (list_length(from_oids) == 1 &&
+		list_length(to->storage_nodes) == 1 &&
+		linitial_oid(from_oids) == linitial_oid(to->storage_nodes))
+	{
+		/* from one node to the same one node, dont need reduce */
+		return create_plan_recurse(root, path->subpath, flags);
+	}
+
 	plan = makeNode(ClusterReduce);
 	if (include_coord)
 		plan->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
 	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
-	from_oids = ReduceInfoListGetExecuteOidList(reduce_list);
 	plan->special_node = path->special_node;
 	plan->special_reduce = path->special_reduce;
 
