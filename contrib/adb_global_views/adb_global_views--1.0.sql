@@ -211,6 +211,7 @@ select schemaname
      , max(n_live_tup) as n_live_tup
      , max(n_dead_tup) as n_dead_tup
      , sum(n_mod_since_analyze) as n_mod_since_analyze
+     , sum(n_ins_since_vacuum) as n_ins_since_vacuum
      , max(last_vacuum) as last_vacuum
      , max(last_autovacuum) as last_autovacuum
      , max(last_analyze) as last_analyze
@@ -221,7 +222,7 @@ select schemaname
      , sum(autoanalyze_count) as autoanalyze_count
   from query_gv_views('pg_stat_all_tables')
     as t(node_oid oid,node_name name,node_type "char"
-        ,relid oid,schemaname name,relname name,seq_scan bigint,seq_tup_read bigint,idx_scan bigint,idx_tup_fetch bigint,n_tup_ins bigint,n_tup_upd bigint,n_tup_del bigint,n_tup_hot_upd bigint,n_live_tup bigint,n_dead_tup bigint,n_mod_since_analyze bigint,last_vacuum timestamp with time zone,last_autovacuum timestamp with time zone,last_analyze timestamp with time zone,last_autoanalyze timestamp with time zone,vacuum_count bigint,autovacuum_count bigint,analyze_count bigint,autoanalyze_count bigint
+        ,relid oid,schemaname name,relname name,seq_scan bigint,seq_tup_read bigint,idx_scan bigint,idx_tup_fetch bigint,n_tup_ins bigint,n_tup_upd bigint,n_tup_del bigint,n_tup_hot_upd bigint,n_live_tup bigint,n_dead_tup bigint,n_mod_since_analyze bigint, n_ins_since_vacuum bigint,last_vacuum timestamp with time zone,last_autovacuum timestamp with time zone,last_analyze timestamp with time zone,last_autoanalyze timestamp with time zone,vacuum_count bigint,autovacuum_count bigint,analyze_count bigint,autoanalyze_count bigint
         )
  where node_type = 'C'
  group by schemaname, relname;
