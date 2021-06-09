@@ -691,6 +691,89 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	}
 #endif
 #ifdef ADB_GRAM_ORA
+	/*
+	 *For "alter table xxx add partition xxx" Or "alter table xxx add partition xxx subpartition xxx", 
+	 *and partition stype is "hash"，In these cases, it should update boundspec->modulus for all brother nodes,
+	 *meanwhile store the partition bound.
+	*/
+	if(stmt->grammar == PARSE_GRAM_ORACLE &&
+	   stmt->inhRelations != NIL &&
+	   stmt->partspec == NULL &&
+	   (stmt->child_rels != NIL || ownerId == InvalidOid))
+	{
+		if(stmt->partbound && stmt->partbound->strategy == PARTITION_STRATEGY_HASH)
+		{
+			RangeVar	   *var;
+			Relation		classRel;
+			HeapTuple		tuple,newtuple;
+			PartitionBoundSpec *boundspec = NULL;
+			Datum			new_val[Natts_pg_class];
+			bool			new_null[Natts_pg_class];
+			bool			new_repl[Natts_pg_class];
+			Relation		catalog;
+			Oid				partitionreloid,parentreloid;
+			SysScanDesc		scan;
+			ScanKeyData		scankey[1];
+			HeapTuple		inheritsTuple;
+
+			Assert(list_length(stmt->inhRelations) == 1);
+			var = (RangeVar*) linitial(stmt->inhRelations);
+			parentreloid = RelnameGetRelid(var->relname);
+
+			/*scan pg_inherits system table to search all children*/
+			catalog = table_open(InheritsRelationId, AccessShareLock);
+			ScanKeyInit(&scankey[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentreloid));
+			scan = systable_beginscan(catalog, InheritsParentIndexId, true, NULL, 1, scankey);
+			while ((inheritsTuple = systable_getnext(scan)) != NULL)
+			{
+				partitionreloid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
+				classRel = table_open(RelationRelationId, RowExclusiveLock);
+				tuple = SearchSysCacheCopy1(RELOID,
+										ObjectIdGetDatum(partitionreloid));
+				if (HeapTupleIsValid(tuple))
+				{
+					Datum		datum;
+					bool		isnull;
+
+					datum = SysCacheGetAttr(RELOID, tuple,
+											Anum_pg_class_relpartbound,
+											&isnull);
+					if (!isnull)
+						boundspec = stringToNode(TextDatumGetCString(datum));
+					
+					
+					if(boundspec)
+					{
+						boundspec->modulus += 1;
+						memset(new_val, 0, sizeof(new_val));
+						memset(new_null, false, sizeof(new_null));
+						memset(new_repl, false, sizeof(new_repl));
+						new_val[Anum_pg_class_relpartbound - 1] = CStringGetTextDatum(nodeToString(boundspec));
+						new_null[Anum_pg_class_relpartbound - 1] = false;
+						new_repl[Anum_pg_class_relpartbound - 1] = true;
+						newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),
+									new_val, new_null, new_repl);
+						CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
+
+						heap_freetuple(newtuple);
+					}
+					table_close(classRel, RowExclusiveLock);
+				}
+			} /*while*/
+			systable_endscan(scan);
+			table_close(catalog, AccessShareLock);
+		} /*if*/
+	}
+
+	if(stmt->grammar == PARSE_GRAM_ORACLE && 
+	   ownerId == 1 &&
+	   stmt->child_rels == NIL &&
+	   stmt->grammar == PARSE_GRAM_ORACLE &&
+	   stmt->partspec == NULL)
+	{
+		   ownerId = InvalidOid;
+	}
+
 	/**
 	 * For sub partitioned tables with partitioned sub tables,
 	 * if the partition information is missing,
@@ -729,13 +812,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		modulus = 0;
 		while ((inheritsTuple = systable_getnext(scan)) != NULL)
 		{
-			Relation	classRel;
-			HeapTuple	tuple,newtuple;
-			PartitionBoundSpec *boundspec = NULL;
-			Datum		new_val[Natts_pg_class];
-			bool		new_null[Natts_pg_class];
-			bool		new_repl[Natts_pg_class];
-
 			partitionreloid = ((Form_pg_inherits) GETSTRUCT(inheritsTuple))->inhrelid;
 			parent = RelationIdGetRelation(partitionreloid);
 			key = RelationGetPartitionKey(parent);
@@ -756,41 +832,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				}
 			}
 
-			classRel = table_open(RelationRelationId, RowExclusiveLock);
-			tuple = SearchSysCacheCopy1(RELOID,
-									ObjectIdGetDatum(partitionreloid));
-			if (HeapTupleIsValid(tuple))
-			{
-				Datum		datum;
-				bool		isnull;
-
-				datum = SysCacheGetAttr(RELOID, tuple,
-										Anum_pg_class_relpartbound,
-										&isnull);
-				if (!isnull)
-					boundspec = stringToNode(TextDatumGetCString(datum));
-				
-				/*
-				*Alter table xxx add subpartition xxx. In the case, it should update boundspec->modulus for all brother nodes,
-				*meanwhile store the partition bound.
-				*/
-				if(key->strategy == PARTITION_STRATEGY_HASH && boundspec)
-				{
-					boundspec->modulus += 1;
-					memset(new_val, 0, sizeof(new_val));
-					memset(new_null, false, sizeof(new_null));
-					memset(new_repl, false, sizeof(new_repl));
-					new_val[Anum_pg_class_relpartbound - 1] = CStringGetTextDatum(nodeToString(boundspec));
-					new_null[Anum_pg_class_relpartbound - 1] = false;
-					new_repl[Anum_pg_class_relpartbound - 1] = true;
-					newtuple = heap_modify_tuple(tuple, RelationGetDescr(classRel),
-								 new_val, new_null, new_repl);
-					CatalogTupleUpdate(classRel, &newtuple->t_self, newtuple);
-
-					heap_freetuple(newtuple);
-				}
-				table_close(classRel, RowExclusiveLock);
-			}
 			RelationClose(parent);
 		}
 		systable_endscan(scan);
@@ -1556,7 +1597,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		bool			relispartition = false;
 		bool			samepartition = true;
 		Oid				currentRelId;
-		PartitionElem  		   *parent_pe;
+		PartitionElem  *parent_pe;
+		Oid				OracleOid = InvalidOid;
 
 		if (stmt->partspec == NULL)
 		{
@@ -1662,7 +1704,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			/*if subpartition is "range" type, in one case: subpartition xxx values less than..., it has no min value*/
 			if (child->partbound->strategy == PARTITION_STRATEGY_RANGE &&child->partspec == NULL && last_range_upperdatums == NIL)
 				last_range_upperdatums = lappend(last_range_upperdatums,makeColumnRef("minvalue", NIL, -1, NULL));
-
+			
+			if(child->partbound->strategy == PARTITION_STRATEGY_HASH && child->partspec == NULL)
+				OracleOid = 1;
 #endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 			/* 
@@ -1705,7 +1749,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 				last_range_upperdatums = partbound->upperdatums;
 			}
 
-			(void)DefineRelation(&tmpStmt, RELKIND_RELATION, InvalidOid, &tmpAddr, queryString);
+			(void)DefineRelation(&tmpStmt, RELKIND_RELATION, OracleOid, &tmpAddr, queryString);
 		}
 
 		CacheInvalidateRelcacheByRelid(relationId);
