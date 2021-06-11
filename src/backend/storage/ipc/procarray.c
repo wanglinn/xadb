@@ -724,20 +724,22 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 			ProcArrayGroupClearXid(proc, latestXid);
 
 #ifdef ADB
-		if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
+		if (likely(!IsBootstrapProcessingMode()))
 		{
-			if (IsGTMNode())
-				SnapSendTransactionFinish(latestXid, SNAP_XID_NONE);
-			else
-				SnapRcvCommitTransactionId(latestXid, SNAP_XID_COMMIT);
-		}
+			if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
+			{
+				if (IsGTMNode())
+					SnapSendTransactionFinish(latestXid, SNAP_XID_NONE);
+				else
+					SnapRcvCommitTransactionId(latestXid, SNAP_XID_COMMIT);
+			}
 
-		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
-			!IsGTMNode() && !(proc->statusFlags & PROC_IS_CLUSTER_VACUUM))
-		{
-			UpdateAdbLastFinishXid(latestXid);
+			if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
+				!IsGTMNode() && !(proc->statusFlags & PROC_IS_CLUSTER_VACUUM))
+			{
+				UpdateAdbLastFinishXid(latestXid);
+			}
 		}
-			
 #endif /* ADB */
 	}
 	else
