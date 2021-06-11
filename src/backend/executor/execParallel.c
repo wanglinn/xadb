@@ -1022,10 +1022,6 @@ ExecParallelReInitializeDSM(PlanState *planstate,
 			/* these nodes have DSM state, but no reinitialization is required */
 			break;
 #ifdef ADB_EXT
-		case T_AggState:
-			if (planstate->plan->parallel_aware)
-				ExecAggReInitializeDSM((AggState*)planstate, pcxt);
-			break;
 		case T_BatchSortState:
 			if (planstate->plan->parallel_aware)
 				ExecBatchSortReInitializeDSM((BatchSortState*)planstate, pcxt);

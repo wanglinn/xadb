@@ -1393,7 +1393,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 #ifdef ADB_EXT
 					case AGG_BATCH_HASH:
 						pname = "BatchHashAggregate";
-						strategy = "Hashed";
+						strategy = "BatchHashed";
 						break;
 #endif /* ADB_EXT */
 					default:
@@ -2083,11 +2083,6 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
-#ifdef ADB_EXT
-			if (es->verbose &&
-				((Agg*)plan)->aggstrategy == AGG_BATCH_HASH)
-				ExplainPropertyInteger("batchs", NULL, ((Agg*)plan)->num_batches, es);
-#endif /* ADB_EXT */
 			break;
 		case T_Group:
 			show_group_keys(castNode(GroupState, planstate), ancestors, es);
@@ -2105,9 +2100,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			{
 				BatchSort *bsort = (BatchSort*)plan;
 				show_sort_group_keys(planstate, "Sort Key",
-									 bsort->numSortCols, 0, bsort->sortColIdx,
-									 bsort->sortOperators, bsort->collations,
-									 bsort->nullsFirst,
+									 bsort->sort.numCols, 0, bsort->sort.sortColIdx,
+									 bsort->sort.sortOperators, bsort->sort.collations,
+									 bsort->sort.nullsFirst,
 									 ancestors, es);
 				if (es->verbose)
 					ExplainPropertyInteger("batches", NULL, bsort->numBatches, es);
@@ -2816,8 +2811,13 @@ show_grouping_set_keys(PlanState *planstate,
 	AttrNumber *keycols = aggnode->grpColIdx;
 	const char *keyname;
 	const char *keysetname;
+	int			saved_indent;
 
-	if (aggnode->aggstrategy == AGG_HASHED || aggnode->aggstrategy == AGG_MIXED)
+	if (aggnode->aggstrategy == AGG_HASHED ||
+#ifdef ADB_EXT
+		aggnode->aggstrategy == AGG_BATCH_HASH ||
+#endif /* ADB_EXT */
+		aggnode->aggstrategy == AGG_MIXED)
 	{
 		keyname = "Hash Key";
 		keysetname = "Hash Keys";
@@ -2830,6 +2830,8 @@ show_grouping_set_keys(PlanState *planstate,
 
 	ExplainOpenGroup("Grouping Set", NULL, true, es);
 
+	saved_indent = es->indent;
+
 	if (sortnode)
 	{
 		show_sort_group_keys(planstate, "Sort Key",
@@ -2840,6 +2842,22 @@ show_grouping_set_keys(PlanState *planstate,
 		if (es->format == EXPLAIN_FORMAT_TEXT)
 			es->indent++;
 	}
+
+#ifdef ADB_EXT
+	if (aggnode->aggstrategy == AGG_BATCH_HASH &&
+		es->costs)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			ExplainIndentText(es);
+			appendStringInfo(es->str, "Advance Partitions: %d\n", aggnode->numBatches);
+			es->indent++;
+		}else
+		{
+			ExplainPropertyInteger("Advance Partitions", NULL, aggnode->numBatches, es);
+		}
+	}
+#endif /* ADB_EXT */
 
 	ExplainOpenGroup(keysetname, keysetname, false, es);
 
@@ -2872,8 +2890,7 @@ show_grouping_set_keys(PlanState *planstate,
 
 	ExplainCloseGroup(keysetname, keysetname, false, es);
 
-	if (sortnode && es->format == EXPLAIN_FORMAT_TEXT)
-		es->indent--;
+	es->indent = saved_indent;
 
 	ExplainCloseGroup("Grouping Set", NULL, true, es);
 }
@@ -3476,11 +3493,23 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 	int64		memPeakKb = (aggstate->hash_mem_peak + 1023) / 1024;
 
 	if (agg->aggstrategy != AGG_HASHED &&
+#ifdef ADB_EXT
+		agg->aggstrategy != AGG_BATCH_HASH &&
+#endif /* ADB_EXT */
 		agg->aggstrategy != AGG_MIXED)
 		return;
 
 	if (es->format != EXPLAIN_FORMAT_TEXT)
 	{
+#ifdef ADB_EXT
+		if (es->costs &&
+			agg->aggstrategy == AGG_BATCH_HASH &&
+			agg->groupingSets == NIL)
+			ExplainPropertyInteger("Advance Partitions", NULL, agg->numBatches, es);
+
+		if (es->verbose && agg->aggstrategy == AGG_BATCH_HASH)
+			ExplainPropertyInteger("Partition Fetched", NULL, aggstate->hash_batches_fetched, es);
+#endif /* ADB_EXT */
 
 		if (es->costs)
 			ExplainPropertyInteger("Planned Partitions", NULL,
@@ -3503,6 +3532,34 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 	else
 	{
 		bool		gotone = false;
+
+#ifdef ADB_EXT
+		if (agg->aggstrategy == AGG_BATCH_HASH)
+		{
+			if (es->costs && agg->groupingSets == NIL)
+			{
+				ExplainIndentText(es);
+				appendStringInfo(es->str, "Advance Partitions: %d", agg->numBatches);
+				gotone = true;
+			}
+
+			if (es->analyze)
+			{
+				if (!gotone)
+					ExplainIndentText(es);
+				else
+					appendStringInfoString(es->str, "  ");
+				appendStringInfo(es->str, "Partition Fetched: %d", aggstate->hash_batches_fetched);
+				gotone = true;
+			}
+
+			if (gotone)
+			{
+				appendStringInfoChar(es->str, '\n');
+				gotone = false;
+			}
+		}
+#endif /* ADB_EXT */
 
 		if (es->costs && aggstate->hash_planned_partitions > 0)
 		{
@@ -3564,6 +3621,14 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 			{
 				ExplainIndentText(es);
 
+#ifdef ADB_EXT
+				if (agg->aggstrategy == AGG_BATCH_HASH)
+				{
+					appendStringInfo(es->str, "Partition Fetched: %d\n", sinstrument->hash_batches_fetched);
+					ExplainIndentText(es);
+				}
+#endif /* ADB_EXT */
+
 				appendStringInfo(es->str, "Batches: %d  Memory Usage: " INT64_FORMAT "kB",
 								 hash_batches_used, memPeakKb);
 
@@ -3575,6 +3640,10 @@ show_hashagg_info(AggState *aggstate, ExplainState *es)
 			}
 			else
 			{
+#ifdef ADB_EXT
+				ExplainPropertyInteger("HashAgg Partition Fetched", NULL,
+									   sinstrument->hash_batches_fetched, es);
+#endif /* ADB_EXT */
 				ExplainPropertyInteger("HashAgg Batches", NULL,
 									   hash_batches_used, es);
 				ExplainPropertyInteger("Peak Memory Usage", "kB", memPeakKb,

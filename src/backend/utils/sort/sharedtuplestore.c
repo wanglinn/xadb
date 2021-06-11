@@ -203,8 +203,12 @@ sts_attach(SharedTuplestore *sts,
 }
 
 #ifdef ADB_EXT
-SharedTuplestoreAccessor *sts_attach_read_only(SharedTuplestore *sts,
-		   SharedFileSet *fileset)
+/*
+ * Like function sts_attach, but only for read, can't write any tuple
+ */
+SharedTuplestoreAccessor *
+sts_attach_read_only(SharedTuplestore *sts,
+					 SharedFileSet *fileset)
 {
 	SharedTuplestoreAccessor *accessor;
 
@@ -218,7 +222,6 @@ SharedTuplestoreAccessor *sts_attach_read_only(SharedTuplestore *sts,
 	accessor->context = CurrentMemoryContext;
 
 	return accessor;
-
 }
 #endif /* ADB_EXT */
 
@@ -337,7 +340,7 @@ sts_puttuple(SharedTuplestoreAccessor *accessor, void *meta_data,
 	size_t		size;
 
 #ifdef ADB_EXT
-	if (accessor->is_read_only)
+	if (unlikely(accessor->is_read_only))
 	{
 		ereport(ERROR,
 				(errmsg("shard tuplestore is attached read only")));
@@ -697,34 +700,50 @@ sts_filename(char *name, SharedTuplestore *sts, int participant)
 }
 
 #ifdef ADB_EXT
-void sts_begin_scan(SharedTuplestoreAccessor *accessor)
+/*
+ * Begin scanning the contents.
+ */
+void
+sts_begin_scan(SharedTuplestoreAccessor *accessor)
 {
 	sts_begin_parallel_scan(accessor);
 	accessor->is_normal_scan = true;
 }
 
-void sts_end_scan(SharedTuplestoreAccessor *accessor)
+/*
+ * Finish a normal scan, freeing associated backend-local resources.
+ */
+void
+sts_end_scan(SharedTuplestoreAccessor *accessor)
 {
 	Assert(accessor->is_normal_scan);
 	sts_end_parallel_scan(accessor);
 	accessor->is_normal_scan = false;
 }
 
-MinimalTuple sts_scan_next(SharedTuplestoreAccessor *accessor,
-					   void *meta_data)
+/*
+ * Get the next tuple in the current normal scan.
+ */
+MinimalTuple
+sts_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 {
 	Assert(accessor->is_normal_scan);
 	return sts_parallel_scan_next(accessor, meta_data);
 }
 
-void sts_detach(SharedTuplestoreAccessor *accessor)
+/*
+ * Detach SharedTuplestore and freeing associated backend-local resources.
+ */
+void
+sts_detach(SharedTuplestoreAccessor *accessor)
 {
 	sts_end_write(accessor);
 	sts_end_parallel_scan(accessor);
 	pfree(accessor);
 }
 
-void sts_delete_shared_files(SharedTuplestore *sts, SharedFileSet *fileset)
+void
+sts_delete_shared_files(SharedTuplestore *sts, SharedFileSet *fileset)
 {
 	char		name[MAXPGPATH];
 	int			part;
@@ -738,6 +757,41 @@ void sts_delete_shared_files(SharedTuplestore *sts, SharedFileSet *fileset)
 			BufFileDeleteShared(fileset, name);
 		}
 	}
+}
+
+/*
+ * Delete all the contents of shared tuplestore, and reset read page to the start 
+ */
+void
+sts_clear(SharedTuplestoreAccessor *accessor)
+{
+	int					i;
+	char				name[MAXPGPATH];
+	SharedTuplestore   *sts = accessor->sts;
+
+	/* Must not in read and write */
+	Assert(accessor->read_file == NULL &&
+		   accessor->write_file == NULL);
+
+	/* Delete all created files */
+	for (i=0;i<sts->nparticipants;++i)
+	{
+		SharedTuplestoreParticipant *part = &sts->participants[i];
+		Assert(part->writing == false);
+		if (part->npages > 0)
+		{
+			sts_filename(name, accessor->sts, i);
+			BufFileDeleteShared(accessor->fileset, name);
+			LWLockAcquire(&part->lock, LW_EXCLUSIVE);
+			part->read_page = 0;
+			sts->participants[i].npages = 0;
+			LWLockRelease(&part->lock);
+		}
+	}
+
+	accessor->write_page = 0;
+	accessor->write_pointer = NULL;
+	accessor->write_end = NULL;
 }
 
 #endif /* ADB_EXT */

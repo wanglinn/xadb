@@ -67,11 +67,13 @@ extern void sts_begin_scan(SharedTuplestoreAccessor *accessor);
 extern void sts_end_scan(SharedTuplestoreAccessor *accessor);
 
 extern MinimalTuple sts_scan_next(SharedTuplestoreAccessor *accessor,
-					   void *meta_data);
+								  void *meta_data);
 
 extern void sts_detach(SharedTuplestoreAccessor *accessor);
 
 extern void sts_delete_shared_files(SharedTuplestore *sts, SharedFileSet *fileset);
+
+extern void sts_clear(SharedTuplestoreAccessor *accessor);
 #endif /* ADB_EXT */
 
 #endif							/* SHAREDTUPLESTORE_H */

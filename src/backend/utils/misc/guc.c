@@ -122,8 +122,6 @@
 #include "postmaster/adbmonitor.h"
 #endif /* ADBMGRD */
 #ifdef ADB_EXT
-extern bool enable_batch_hash;	/* in planner.c */
-extern bool enable_batch_sort;	/* in costsize.c */
 extern bool adb_check_sync_nextid;	/* in snapsender.c */
 #endif /* ADB_EXT */
 
@@ -1600,26 +1598,6 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
-#ifdef ADB_EXT
-	{
-		{"enable_batch_hash", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("enable batch hash method"),
-			NULL
-		},
-		&enable_batch_hash,
-		false,
-		NULL, NULL, NULL
-	},
-	{
-		{"enable_batch_sort", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("enable batch sort method"),
-			NULL
-		},
-		&enable_batch_sort,
-		false,
-		NULL, NULL, NULL
-	},
-#endif /* ADB_EXT */
 
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
 	{
@@ -4069,6 +4047,32 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&adb_custom_plan_tries,
 		5, -1, 100,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_sort_batches", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Sets the maximum number of batches for sort"),
+			NULL
+		},
+		&max_sort_batches,
+		/* boot and min value 0 mean is disable */
+		0, 0,
+		/* I think too many batches will make each batch not enough working memory when sorting */
+		MAX_PARALLEL_WORKER_LIMIT * 3,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_hashagg_batches", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Sets the maximum number of batches for hash aggregate"),
+			NULL
+		},
+		&max_hashagg_batches,
+		/* boot and min value 0 mean is disable, I think max_files_per_process/2 is a good value */
+		0, 0,
+		/* I think too many batches will make FD will open and close files frequently, this is guessed-at value */
+		10000,
 		NULL, NULL, NULL
 	},
 #endif /* ADB_EXT */

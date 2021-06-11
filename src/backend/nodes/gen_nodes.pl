@@ -11,7 +11,7 @@ my $same_node;
 my %all_enum;
 my %ident_if_defined;
 my $ident = '[a-zA-Z_][a-zA-Z0-9_]*';
-my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|size_t|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber|SubTransactionId';
+my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|int64|size_t|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber|SubTransactionId';
 my $reg_args = "\\s*$ident\\s*(,\\s*$ident\\s*)*";
 my %special_node;
 my %special_member;

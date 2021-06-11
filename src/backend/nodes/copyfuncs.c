@@ -985,25 +985,24 @@ _copySort(const Sort *from)
 }
 
 #ifdef ADB_EXT
+/*
+ * _copyBatchSort
+ */
 static BatchSort *
 _copyBatchSort(const BatchSort *from)
 {
-	BatchSort   *newnode = makeNode(BatchSort);
+	BatchSort	   *newnode = makeNode(BatchSort);
 
-	CopyPlanFields((const Plan *) from, (Plan *) newnode);
+	CopySortFields(&from->sort, &newnode->sort);
 
-	COPY_SCALAR_FIELD(numSortCols);
 	COPY_SCALAR_FIELD(numGroupCols);
 	COPY_SCALAR_FIELD(numBatches);
-	COPY_POINTER_FIELD(sortColIdx, from->numSortCols * sizeof(AttrNumber));
-	COPY_POINTER_FIELD(sortOperators, from->numSortCols * sizeof(Oid));
-	COPY_POINTER_FIELD(collations, from->numSortCols * sizeof(Oid));
-	COPY_POINTER_FIELD(nullsFirst, from->numSortCols * sizeof(bool));
+	COPY_SCALAR_FIELD(gather_param);
 	COPY_POINTER_FIELD(grpColIdx, from->numGroupCols * sizeof(AttrNumber));
 
 	return newnode;
 }
-
+#endif /* ADB_EXT */
 
 /*
  * _copyIncrementalSort
@@ -1025,8 +1024,6 @@ _copyIncrementalSort(const IncrementalSort *from)
 
 	return newnode;
 }
-
-#endif /* ADB_EXT */
 
 /*
  * _copyGroup
@@ -1071,7 +1068,8 @@ _copyAgg(const Agg *from)
 	COPY_NODE_FIELD(groupingSets);
 	COPY_NODE_FIELD(chain);
 #ifdef ADB_EXT
-	COPY_SCALAR_FIELD(num_batches);
+	COPY_SCALAR_FIELD(numBatches);
+	COPY_SCALAR_FIELD(gatherParam);
 #endif /* ADB_EXT */
 #ifdef ADB
 	COPY_NODE_FIELD(exec_nodes);

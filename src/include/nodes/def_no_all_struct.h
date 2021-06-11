@@ -1,4 +1,5 @@
 #define NO_STRUCT_AggClauseCosts
+#define NO_STRUCT_AggregateInstrumentation
 #define NO_STRUCT_AutoVacOpts
 #define NO_STRUCT_ClusterSlotInitStmt
 #define NO_STRUCT_CustomExecMethods
@@ -34,6 +35,7 @@
 #define NO_STRUCT_ReduceKeyInfo
 #define NO_STRUCT_RelationLocInfo
 #define NO_STRUCT_SemiAntiJoinFactors
+#define NO_STRUCT_SharedAggInfo
 #define NO_STRUCT_SharedHashInfo
 #define NO_STRUCT_SharedIncrementalSortInfo
 #define NO_STRUCT_SharedSortInfo

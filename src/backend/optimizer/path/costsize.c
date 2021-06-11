@@ -162,8 +162,8 @@ bool		enable_remotelimit = true;
 bool		enable_hashscan = true;
 #endif
 #ifdef ADB_EXT
-bool enable_batch_hash = true;
-bool enable_batch_sort = true;
+int			max_sort_batches = 0;
+int			max_hashagg_batches = 0;
 #endif /* ADB_EXT */
 
 typedef struct
@@ -2031,11 +2031,12 @@ cost_sort(Path *path, PlannerInfo *root,
 }
 
 #ifdef ADB_EXT
-void cost_batchsort(Path *path, PlannerInfo *root,
-					List *batchkeys, Cost input_cost,
-					double tuples, int width,
-					Cost comparison_cost, int sort_mem,
-					uint32 numGroupCols, uint32 numBatches)
+void
+cost_batchsort(Path *path, PlannerInfo *root,
+			   List *batchkeys, Cost input_cost,
+			   double tuples, int width,
+			   Cost comparison_cost, int sort_mem,
+			   uint32 numGroupCols, uint32 numBatches)
 {
 	Cost		startup_cost = input_cost;
 	Cost		run_cost = 0;
@@ -2044,8 +2045,8 @@ void cost_batchsort(Path *path, PlannerInfo *root,
 	double		batch_tuples = tuples / numBatches;
 	long		sort_mem_bytes = sort_mem * 1024L;
 
-	if (!enable_batch_sort)
-		startup_cost += disable_cost;
+	if (sort_mem_bytes < (64*1024))
+		sort_mem_bytes = (64*1024);
 
 	/* hash cost */
 	startup_cost += cpu_operator_cost * numGroupCols * tuples;
@@ -2548,31 +2549,41 @@ cost_agg(Path *path, PlannerInfo *root,
 	else
 	{
 		/* must be AGG_HASHED or AGG_BATCH_HASH */
+#ifdef ADB_EXT
+		Assert(aggstrategy == AGG_HASHED ||
+			   (aggstrategy == AGG_BATCH_HASH && max_hashagg_batches > 0));
+#endif /* ADB_EXT */
 		startup_cost = input_total_cost;
-		if (!enable_hashagg)
+		if (
+#ifdef ADB_EXT
+			aggstrategy == AGG_HASHED &&
+#endif /* ADB_EXT */
+			!enable_hashagg)
+		{
 			startup_cost += disable_cost;
+		}
 		startup_cost += aggcosts->transCost.startup;
 		startup_cost += aggcosts->transCost.per_tuple * input_tuples;
 		/* cost of computing hash value */
 		startup_cost += (cpu_operator_cost * numGroupCols) * input_tuples;
 		startup_cost += aggcosts->finalCost.startup;
-#ifdef ADB_EXT
-		if (aggstrategy == AGG_BATCH_HASH)
-		{
-			double	nbytes = relation_byte_size(input_tuples,
-												castNode(AggPath, path)->subpath->pathtarget->width +
-												  MINIMAL_TUPLE_DATA_OFFSET);
-			startup_cost += seq_page_cost * ceil(nbytes / BLCKSZ);
-			if (enable_hashagg && !enable_batch_hash)
-				startup_cost += disable_cost;
-		}
-#endif /* ADB_EXT */
 
 		total_cost = startup_cost;
 		total_cost += aggcosts->finalCost.per_tuple * numGroups;
 		/* cost of retrieving from hash table */
 		total_cost += cpu_tuple_cost * numGroups;
 		output_tuples = numGroups;
+
+#ifdef ADB_EXT
+		if (aggstrategy == AGG_BATCH_HASH)
+		{
+			double	nbytes = relation_byte_size(input_tuples, input_width);
+			double	npages = ceil(nbytes / BLCKSZ);
+			double	material_cost = (seq_page_cost * npages);
+			startup_cost += material_cost;
+			total_cost += material_cost;
+		}
+#endif /* ADB_EXT */
 	}
 
 	/*
@@ -2588,7 +2599,11 @@ cost_agg(Path *path, PlannerInfo *root,
 	 * Accrue writes (spilled tuples) to startup_cost and to total_cost;
 	 * accrue reads only to total_cost.
 	 */
-	if (aggstrategy == AGG_HASHED || aggstrategy == AGG_MIXED)
+	if (aggstrategy == AGG_HASHED ||
+#ifdef ADB_EXT
+		aggstrategy == AGG_BATCH_HASH ||
+#endif /* ADB_EXT */
+		aggstrategy == AGG_MIXED)
 	{
 		double		pages;
 		double		pages_written = 0.0;
@@ -2600,6 +2615,16 @@ cost_agg(Path *path, PlannerInfo *root,
 		uint64		ngroups_limit;
 		int			num_partitions;
 		int			depth;
+
+#ifdef ADB_EXT
+		if (aggstrategy == AGG_BATCH_HASH &&
+			numGroups > max_hashagg_batches)
+		{
+			numGroups /= max_hashagg_batches;
+			if (numGroups < 1.0)
+				numGroups = 1.0;
+		}
+#endif /* ADB_EXT */
 
 		/*
 		 * Estimate number of batches based on the computed limits. If less

@@ -78,7 +78,7 @@ static List *plan_union_children(PlannerInfo *root,
 								 List *refnames_tlist,
 								 List **tlist_list);
 static Path *make_union_unique(SetOperationStmt *op, Path *path, List *tlist,
-							   PlannerInfo *root);
+							   PlannerInfo *root, List *groupList, List *sortKeys);
 static void postprocess_setop_rel(PlannerInfo *root, RelOptInfo *rel);
 static bool choose_hashed_setop(PlannerInfo *root, List *groupClauses,
 								Path *input_path,
@@ -390,6 +390,7 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 			rel = generate_nonunion_paths(op, root,
 										  refnames_tlist,
 										  pTargetList);
+		generate_useful_gather_paths(root, rel, false);
 		if (pNumGroups)
 			*pNumGroups = rel->rows;
 
@@ -617,6 +618,8 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	List	   *tlist_list;
 	List	   *tlist;
 	Path	   *path;
+	List	   *groupList = NIL;
+	List	   *sortKeys = NIL;
 #ifdef ADB
 	PlannerGlobal *glob;
 #endif /* ADB */
@@ -654,6 +657,14 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 								  tlist_list, refnames_tlist);
 
 	*pTargetList = tlist;
+
+	if (!op->all)
+	{
+		/* Identify the grouping semantics */
+		groupList = generate_setop_grouplist(op, tlist);
+		if (grouping_is_sortable(groupList))
+			sortKeys = make_pathkeys_for_sortclauses(root, groupList, tlist);
+	}
 
 	/* Build path lists and relid set. */
 	foreach(lc, rellist)
@@ -695,7 +706,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	 * node(s) to remove duplicates.
 	 */
 	if (!op->all)
-		path = make_union_unique(op, path, tlist, root);
+		path = make_union_unique(op, path, tlist, root, groupList, sortKeys);
 
 	add_path(result_rel, path);
 
@@ -714,6 +725,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	{
 		Path	   *ppath;
 		ListCell   *lc;
+		List	   *hashable_list;
 		int			parallel_workers = 0;
 
 		/* Find the highest number of workers requested for any subpath. */
@@ -746,11 +758,66 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 							   NIL, NULL,
 							   parallel_workers, enable_parallel_append,
 							   NIL, -1);
+
+#ifdef ADB_EXT
+		/* create parallel batch sort union */
+		if (!op->all &&
+			max_sort_batches > 0 &&
+			sortKeys != NIL &&
+			ppath->rows >= 2.0 &&
+			(hashable_list = grouping_get_hashable(groupList)) != NIL)
+		{
+			Path   *partial_path;
+			uint32	numBatches = ppath->rows;
+			if (numBatches > max_sort_batches)
+				numBatches = max_sort_batches;
+			Assert(list_length(sortKeys) >= list_length(hashable_list));
+			partial_path = (Path*)create_batchsort_path(root,
+														result_rel,
+														ppath,
+														sortKeys,
+														hashable_list,
+														numBatches,
+														true);
+			partial_path = (Path*) create_upper_unique_path(root,
+															result_rel,
+															partial_path,
+															list_length(sortKeys),
+															partial_path->rows);
+			add_partial_path(result_rel, partial_path);
+		}
+
+		/* create parallel batch hashed union */
+		if (!op->all &&
+			max_hashagg_batches > 0 &&
+			ppath->rows > 1.0 &&
+			grouping_is_hashable(groupList) &&
+			ppath->pathtarget->width * ppath->rows / max_hashagg_batches <= get_hash_mem() * 1024L)
+		{
+			Path   *partial_path;
+			double	dNumGroups = ppath->rows / ppath->parallel_workers;
+			if (dNumGroups < 1.0)
+				dNumGroups = 1.0;
+			partial_path = (Path*)create_agg_path(root,
+												  result_rel,
+												  ppath,
+												  create_pathtarget(root, tlist),
+												  AGG_BATCH_HASH,
+												  AGGSPLIT_SIMPLE,
+												  groupList,
+												  NIL,
+												  NULL,
+												  dNumGroups);
+			partial_path->parallel_aware = true;
+			add_partial_path(result_rel, partial_path);
+		}
+#endif /* ADB_EXT */
+
 		ppath = (Path *)
 			create_gather_path(root, result_rel, ppath,
 							   result_rel->reltarget, NULL, NULL);
 		if (!op->all)
-			ppath = make_union_unique(op, ppath, tlist, root);
+			ppath = make_union_unique(op, ppath, tlist, root, groupList, sortKeys);
 		add_path(result_rel, ppath);
 	}
 
@@ -774,7 +841,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 			if (IsReduceInfoListInOneNode(reduce_info_list) ||
 				IsReduceInfoListReplicated(reduce_info_list))
 			{
-				Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+				Path *path = make_union_unique(op, lfirst(lc), tlist, root, groupList, sortKeys);
 				path->reduce_info_list = reduce_info_list;
 				path->reduce_is_valid = true;
 				add_cluster_path(result_rel, path);
@@ -784,7 +851,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 			{
 				if (ReduceInfoListIncludeExpr(reduce_info_list, ((TargetEntry *)lfirst(lc2))->expr))
 				{
-					Path *path = make_union_unique(op, lfirst(lc), tlist, root);
+					Path *path = make_union_unique(op, lfirst(lc), tlist, root, groupList, sortKeys);
 					path->reduce_info_list = reduce_info_list;
 					path->reduce_is_valid = true;
 					add_cluster_path(result_rel, path);
@@ -818,7 +885,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_NONE);
 
-				unionPath = make_union_unique(op, reducePath, tlist, root);
+				unionPath = make_union_unique(op, reducePath, tlist, root, groupList, sortKeys);
 				unionPath->reduce_info_list = get_reduce_info_list(reducePath);
 				unionPath->reduce_is_valid = true;
 				add_cluster_path(result_rel, unionPath);
@@ -1074,14 +1141,10 @@ plan_union_children(PlannerInfo *root,
  */
 static Path *
 make_union_unique(SetOperationStmt *op, Path *path, List *tlist,
-				  PlannerInfo *root)
+				  PlannerInfo *root, List *groupList, List *sortKeys)
 {
 	RelOptInfo *result_rel = fetch_upper_rel(root, UPPERREL_SETOP, NULL);
-	List	   *groupList;
 	double		dNumGroups;
-
-	/* Identify the grouping semantics */
-	groupList = generate_setop_grouplist(op, tlist);
 
 	/*
 	 * XXX for the moment, take the number of distinct groups as equal to the
@@ -1117,9 +1180,7 @@ make_union_unique(SetOperationStmt *op, Path *path, List *tlist,
 				create_sort_path(root,
 								 result_rel,
 								 path,
-								 make_pathkeys_for_sortclauses(root,
-															   groupList,
-															   tlist),
+								 sortKeys,
 								 -1.0);
 		path = (Path *) create_upper_unique_path(root,
 												 result_rel,

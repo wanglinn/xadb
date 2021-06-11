@@ -79,8 +79,6 @@ select count(*) = 0 as ok from pg_stat_wal_receiver;
 select name, setting from pg_settings where name like 'enable%';
               name              | setting 
 --------------------------------+---------
- enable_batch_hash              | off
- enable_batch_sort              | off
  enable_bitmapscan              | on
  enable_gathermerge             | on
  enable_hashagg                 | on

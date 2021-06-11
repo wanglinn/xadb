@@ -320,6 +320,11 @@
  */
 #define CHUNKHDRSZ 16
 
+#define SHARED_AGG_MAGIC		UINT64CONST(0x4141bbcd61518e52)
+#define SHARED_AGG_KEY_INFO		UINT64CONST(0xD000000000000001)
+#define SHARED_AGG_KEY_BARRIER	UINT64CONST(0xD000000000000002)
+#define SHARED_AGG_KEY_FILE_SET	UINT64CONST(0xD000000000000003)
+
 /*
  * Track all tapes needed for a HashAgg that spills. We don't know the maximum
  * number of tapes needed at the start of the algorithm (because it can
@@ -441,8 +446,6 @@ static int	hash_choose_num_partitions(double input_groups,
 									   double hashentrysize,
 									   int used_bits,
 									   int *log2_npartittions);
-static AggStatePerGroup lookup_hash_entry(AggState *aggstate, uint32 hash,
-										  bool *in_hash_table);
 static void initialize_hash_entry(AggState *aggstate,
 								  TupleHashTable hashtable,
 								  TupleHashEntry entry);
@@ -462,7 +465,7 @@ static HashAggBatch *hashagg_batch_new(LogicalTapeSet *tapeset,
 									   int input_tapenum, int setno,
 									   int64 input_tuples, double input_card,
 									   int used_bits);
-static MinimalTuple hashagg_batch_read(HashAggBatch *batch, uint32 *hashp);
+static bool hashagg_batch_read(void *userdata, TupleTableSlot *slot, uint32 *hashp);
 static void hashagg_spill_init(HashAggSpill *spill, HashTapeInfo *tapeinfo,
 							   int used_bits, double input_groups,
 							   double hashentrysize);
@@ -490,10 +493,8 @@ static int	find_compatible_pertrans(AggState *aggstate, Aggref *newagg,
 									 Datum initValue, bool initValueIsNull,
 									 List *transnos);
 #ifdef ADB_EXT
-static TupleTableSlot *ExecBatchHashAggFirst(PlanState *pstate);
-static TupleTableSlot *ExecBatchHashAgg(PlanState *pstate);
-static void agg_batch_fill_hash_table(AggState *aggstate);
-static void ClearBatchAgg(AggState *node);
+static TupleTableSlot *ExecBatchHashAggPrepare(PlanState *pstate);
+static TupleTableSlot *ExecBatchHashAggFirstReScan(PlanState *pstate);
 #endif /* ADB_EXT */
 
 
@@ -1628,6 +1629,15 @@ build_hash_table(AggState *aggstate, int setno, long nbuckets)
 	 */
 	additionalsize = aggstate->numtrans * sizeof(AggStatePerGroupData);
 
+	/*
+	 * In batch hash mode each worker must use the same hash algorithm,
+	 * because we need to ensure that the same records(group clauses) are in the same batch 
+	 */
+	if (aggstate->aggstrategy == AGG_BATCH_HASH)
+		use_hash_iv = false;
+	else
+		use_hash_iv = DO_AGGSPLIT_SKIPFINAL(aggstate->aggsplit);
+
 	perhash->hashtable = BuildTupleHashTableExt(&aggstate->ss.ps,
 												perhash->hashslot->tts_tupleDescriptor,
 												perhash->numCols,
@@ -1739,10 +1749,15 @@ find_hash_columns(AggState *aggstate)
 			palloc(maxCols * sizeof(AttrNumber));
 		perhash->hashGrpColIdxHash =
 			palloc(perhash->numCols * sizeof(AttrNumber));
+		perhash->colnos_needed = bms_copy(aggregated_colnos);
 
 		/* Add all the grouping columns to colnos */
 		for (i = 0; i < perhash->numCols; i++)
+		{
 			colnos = bms_add_member(colnos, grpColIdx[i]);
+			perhash->colnos_needed = bms_add_member(perhash->colnos_needed,
+													grpColIdx[i]);
+		}
 
 		/*
 		 * First build mapping for columns directly hashed. These are the
@@ -1852,9 +1867,11 @@ hashagg_recompile_expressions(AggState *aggstate, bool minslot, bool nullcheck)
 	int			j = nullcheck ? 1 : 0;
 
 	Assert(aggstate->aggstrategy == AGG_HASHED ||
+		   aggstate->aggstrategy == AGG_BATCH_HASH ||
 		   aggstate->aggstrategy == AGG_MIXED);
 
-	if (aggstate->aggstrategy == AGG_HASHED)
+	if (aggstate->aggstrategy == AGG_HASHED ||
+		aggstate->aggstrategy == AGG_BATCH_HASH)
 		phase = &aggstate->phases[0];
 	else						/* AGG_MIXED */
 		phase = &aggstate->phases[1];
@@ -2029,6 +2046,9 @@ hash_agg_update_metrics(AggState *aggstate, bool from_tape, int npartitions)
 	Size		total_mem;
 
 	if (aggstate->aggstrategy != AGG_MIXED &&
+#ifdef ADB_EXT
+		aggstate->aggstrategy != AGG_BATCH_HASH &&
+#endif /* ADB_EXT */
 		aggstate->aggstrategy != AGG_HASHED)
 		return;
 
@@ -2691,35 +2711,20 @@ agg_fill_hash_table(AggState *aggstate)
 						   &aggstate->perhash[0].hashiter);
 }
 
-/*
- * If any data was spilled during hash aggregation, reset the hash table and
- * reprocess one batch of spilled data. After reprocessing a batch, the hash
- * table will again contain data, ready to be consumed by
- * agg_retrieve_hash_table_in_memory().
- *
- * Should only be called after all in memory hash table entries have been
- * finalized and emitted.
- *
- * Return false when input is exhausted and there's no more work to be done;
- * otherwise return true.
- */
-static bool
-agg_refill_hash_table(AggState *aggstate)
+static void
+agg_refill_hash_table_ex(AggState *aggstate,
+						 bool (*read_tup)(void *userdata, TupleTableSlot *slot, uint32 *hash),
+						 void *userdata,
+						 int used_bits,
+						 double input_groups,
+						 int setno)
 {
-	HashAggBatch *batch;
 	AggStatePerHash perhash;
 	HashAggSpill spill;
-	HashTapeInfo *tapeinfo = aggstate->hash_tapeinfo;
 	bool		spill_initialized = false;
 
-	if (aggstate->hash_batches == NIL)
-		return false;
-
-	batch = linitial(aggstate->hash_batches);
-	aggstate->hash_batches = list_delete_first(aggstate->hash_batches);
-
-	hash_agg_set_limits(aggstate->hashentrysize, batch->input_card,
-						batch->used_bits, &aggstate->hash_mem_limit,
+	hash_agg_set_limits(aggstate->hashentrysize, input_groups,
+						used_bits, &aggstate->hash_mem_limit,
 						&aggstate->hash_ngroups_limit, NULL);
 
 	/*
@@ -2751,7 +2756,7 @@ agg_refill_hash_table(AggState *aggstate)
 		aggstate->phase = &aggstate->phases[aggstate->current_phase];
 	}
 
-	select_current_set(aggstate, batch->setno, true);
+	select_current_set(aggstate, setno, true);
 
 	perhash = &aggstate->perhash[aggstate->current_set];
 
@@ -2769,31 +2774,27 @@ agg_refill_hash_table(AggState *aggstate)
 		TupleTableSlot *spillslot = aggstate->hash_spill_rslot;
 		TupleTableSlot *hashslot = perhash->hashslot;
 		TupleHashEntry entry;
-		MinimalTuple tuple;
 		uint32		hash;
 		bool		isnew = false;
 		bool	   *p_isnew = aggstate->hash_spill_mode ? NULL : &isnew;
 
 		CHECK_FOR_INTERRUPTS();
 
-		tuple = hashagg_batch_read(batch, &hash);
-		if (tuple == NULL)
+		if ((*read_tup)(userdata, spillslot, &hash) == false)
 			break;
 
-		ExecStoreMinimalTuple(tuple, spillslot, true);
 		aggstate->tmpcontext->ecxt_outertuple = spillslot;
 
 		prepare_hash_slot(perhash,
-						  aggstate->tmpcontext->ecxt_outertuple,
+						  spillslot,
 						  hashslot);
-		entry = LookupTupleHashEntryHash(
-										 perhash->hashtable, hashslot, p_isnew, hash);
+		entry = LookupTupleHashEntryHash(perhash->hashtable, hashslot, p_isnew, hash);
 
 		if (entry != NULL)
 		{
 			if (isnew)
 				initialize_hash_entry(aggstate, perhash->hashtable, entry);
-			aggstate->hash_pergroup[batch->setno] = entry->additional;
+			aggstate->hash_pergroup[setno] = entry->additional;
 			advance_aggregates(aggstate);
 		}
 		else
@@ -2805,13 +2806,13 @@ agg_refill_hash_table(AggState *aggstate)
 				 * that we don't assign tapes that will never be used.
 				 */
 				spill_initialized = true;
-				hashagg_spill_init(&spill, tapeinfo, batch->used_bits,
-								   batch->input_card, aggstate->hashentrysize);
+				hashagg_spill_init(&spill, aggstate->hash_tapeinfo, used_bits,
+								   input_groups, aggstate->hashentrysize);
 			}
 			/* no memory for a new group, spill */
 			hashagg_spill_tuple(aggstate, &spill, spillslot, hash);
 
-			aggstate->hash_pergroup[batch->setno] = NULL;
+			aggstate->hash_pergroup[setno] = NULL;
 		}
 
 		/*
@@ -2821,15 +2822,13 @@ agg_refill_hash_table(AggState *aggstate)
 		ResetExprContext(aggstate->tmpcontext);
 	}
 
-	hashagg_tapeinfo_release(tapeinfo, batch->input_tapenum);
-
 	/* change back to phase 0 */
 	aggstate->current_phase = 0;
 	aggstate->phase = &aggstate->phases[aggstate->current_phase];
 
 	if (spill_initialized)
 	{
-		hashagg_spill_finish(aggstate, &spill, batch->setno);
+		hashagg_spill_finish(aggstate, &spill, setno);
 		hash_agg_update_metrics(aggstate, true, spill.npartitions);
 	}
 	else
@@ -2838,9 +2837,43 @@ agg_refill_hash_table(AggState *aggstate)
 	aggstate->hash_spill_mode = false;
 
 	/* prepare to walk the first hash table */
-	select_current_set(aggstate, batch->setno, true);
-	ResetTupleHashIterator(aggstate->perhash[batch->setno].hashtable,
-						   &aggstate->perhash[batch->setno].hashiter);
+	select_current_set(aggstate, setno, true);
+	ResetTupleHashIterator(aggstate->perhash[setno].hashtable,
+						   &aggstate->perhash[setno].hashiter);
+}
+
+/*
+ * If any data was spilled during hash aggregation, reset the hash table and
+ * reprocess one batch of spilled data. After reprocessing a batch, the hash
+ * table will again contain data, ready to be consumed by
+ * agg_retrieve_hash_table_in_memory().
+ *
+ * Should only be called after all in memory hash table entries have been
+ * finalized and emitted.
+ *
+ * Return false when input is exhausted and there's no more work to be done;
+ * otherwise return true.
+ */
+static bool
+agg_refill_hash_table(AggState *aggstate)
+{
+	HashAggBatch *batch;
+
+	if (aggstate->hash_batches == NIL)
+		return false;
+
+	batch = linitial(aggstate->hash_batches);
+	aggstate->hash_batches = list_delete_first(aggstate->hash_batches);
+
+	agg_refill_hash_table_ex(aggstate,
+							 hashagg_batch_read,
+							 batch,
+							 batch->used_bits,
+							 batch->input_card,
+							 batch->setno);
+
+	hashagg_tapeinfo_release(aggstate->hash_tapeinfo,
+							 batch->input_tapenum);
 
 	pfree(batch);
 
@@ -3179,11 +3212,12 @@ hashagg_batch_new(LogicalTapeSet *tapeset, int tapenum, int setno,
 
 /*
  * read_spilled_tuple
- * 		read the next tuple from a batch's tape.  Return NULL if no more.
+ * 		read the next tuple from a batch's tape.  Return false if no more.
  */
-static MinimalTuple
-hashagg_batch_read(HashAggBatch *batch, uint32 *hashp)
+static bool
+hashagg_batch_read(void *userdata, TupleTableSlot *slot, uint32 *hashp)
 {
+	HashAggBatch *batch = userdata;
 	LogicalTapeSet *tapeset = batch->tapeset;
 	int			tapenum = batch->input_tapenum;
 	MinimalTuple tuple;
@@ -3193,7 +3227,7 @@ hashagg_batch_read(HashAggBatch *batch, uint32 *hashp)
 
 	nread = LogicalTapeRead(tapeset, tapenum, &hash, sizeof(uint32));
 	if (nread == 0)
-		return NULL;
+		return false;
 	if (nread != sizeof(uint32))
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -3221,7 +3255,8 @@ hashagg_batch_read(HashAggBatch *batch, uint32 *hashp)
 				 errmsg("unexpected EOF for tape %d: requested %zu bytes, read %zu bytes",
 						tapenum, t_len - sizeof(uint32), nread)));
 
-	return tuple;
+	ExecStoreMinimalTuple(tuple, slot, true);
+	return true;
 }
 
 /*
@@ -3398,7 +3433,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->ss.ps.state = estate;
 #ifdef ADB_EXT
 	if (node->aggstrategy == AGG_BATCH_HASH)
-		aggstate->ss.ps.ExecProcNode = ExecBatchHashAggFirst;
+		aggstate->ss.ps.ExecProcNode = ExecBatchHashAggPrepare;
 	else
 #endif /* ADB_EXT */
 	aggstate->ss.ps.ExecProcNode = ExecAgg;
@@ -3448,7 +3483,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 			 * additional AGG_HASHED aggs become part of phase 0, but all
 			 * others add an extra phase.
 			 */
-			if (agg->aggstrategy != AGG_HASHED)
+			if (agg->aggstrategy != AGG_HASHED &&
+				agg->aggstrategy != AGG_BATCH_HASH)
 				++numPhases;
 			else
 				++numHashes;
@@ -3507,9 +3543,22 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	/*
 	 * initialize source tuple type.
 	 */
-	aggstate->ss.ps.outerops =
-		ExecGetResultSlotOps(outerPlanState(&aggstate->ss),
-							 &aggstate->ss.ps.outeropsfixed);
+#ifdef ADB_EXT
+	if (node->aggstrategy == AGG_BATCH_HASH)
+	{
+		/*
+		 * When we prepared tuples from outer tree, we always read
+		 * tuples from saved files and it is MinimalTuple
+		 */
+		aggstate->ss.ps.outerops = &TTSOpsMinimalTuple;
+		aggstate->ss.ps.outeropsfixed = true;
+	}else
+#endif /* ADB_EXT */
+	{
+		aggstate->ss.ps.outerops =
+			ExecGetResultSlotOps(outerPlanState(&aggstate->ss),
+								 &aggstate->ss.ps.outeropsfixed);
+	}
 	aggstate->ss.ps.outeropsset = true;
 
 	ExecCreateScanSlotFromOuterPlan(estate, &aggstate->ss,
@@ -4233,13 +4282,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		phase->evaltrans_cache[0][0] = phase->evaltrans;
 	}
 
-#ifdef ADB_EXT
-	if (node->aggstrategy == AGG_BATCH_HASH)
-		aggstate->outer_slot = ExecInitExtraTupleSlot(estate,
-													  ExecGetResultType(outerPlanState(aggstate)),
-													  &TTSOpsMinimalTuple);
-#endif /* ADB_EXT */
-
 #ifdef ADB
 	/* in cluster plan, same time Agg can not result any row */
 	if (node->aggsplit != AGGSPLIT_INITIAL_SERIAL &&
@@ -4791,6 +4833,9 @@ ExecEndAgg(AggState *node)
 		si->hash_batches_used = node->hash_batches_used;
 		si->hash_disk_used = node->hash_disk_used;
 		si->hash_mem_peak = node->hash_mem_peak;
+#ifdef ADB_EXT
+		si->hash_batches_fetched = node->hash_batches_fetched;
+#endif /* ADB_EXT */
 	}
 
 	/* Make sure we have closed any open tuplesorts */
@@ -4824,10 +4869,6 @@ ExecEndAgg(AggState *node)
 		ReScanExprContext(node->aggcontexts[setno]);
 	if (node->hashcontext)
 		ReScanExprContext(node->hashcontext);
-#ifdef ADB_EXT
-	if (node->batch_store)
-		bs_destory(node->batch_store);
-#endif /* ADB_EXT */
 
 	/*
 	 * We don't actually free any ExprContexts here (see comment in
@@ -4882,34 +4923,53 @@ ExecReScanAgg(AggState *node)
 			return;
 		}
 	}
-
 #ifdef ADB_EXT
-	if (node->aggstrategy == AGG_BATCH_HASH)
+	else if (node->aggstrategy == AGG_BATCH_HASH)
 	{
-		if (node->batch_store == NULL ||
-			node->batch_filled == false)
+		/* If we haven't yet filled the batch store then we can just return */
+		if (!node->batch_filled)
 			return;
 
-		ClearBatchAgg(node);
+		/*
+		 * If we filled the batch store and subplan does not have
+		 * any parameter changes(except only gather parameter),
+		 * we can rescan from batch store
+		 */
+		if (outerPlan->chgParam == NULL ||
+			(aggnode->gatherParam >= 0 &&
+			 bms_membership(outerPlan->chgParam) == BMS_SINGLETON &&
+			 bms_is_member(aggnode->gatherParam, outerPlan->chgParam)))
+		{
+			/* Rescan each set's batch store */
+			for (setno = 0; setno < numGroupingSets; ++setno)
+				bs_rescan(node->perhash[setno].batch_store);
 
-		if (outerPlan->chgParam == NULL)
-		{
-			bs_rescan(node->batch_store);
-			if (bs_next_batch(node->batch_store, false))
-				agg_batch_fill_hash_table(node);
+			/*
+			 * We don't want call ExecBatchHashAggNextBatch() for now,
+			 * this will immediately take up a batch, which is not what we want
+			 * in parallel mode. Because it is possible that other workers
+			 * will finish processing other batches very quickly,
+			 * and we did occupy a batch and we have been in no hurry to deal with it.
+			 * 
+			 * So we use a new function ExecBatchHashAggFirstReScan call
+			 * ExecBatchHashAggNextBatch
+			 */
+			ExecSetExecProcNode(&node->ss.ps, ExecBatchHashAggFirstReScan);
+
 			return;
-		}else
-		{
-			bs_destory(node->batch_store);
-			node->batch_store = NULL;
-			node->batch_filled = false;
-			ExecSetExecProcNode(&node->ss.ps, ExecBatchHashAggFirst);
-			if (node->batch_barrier)
-			{
-				char *ptr = ((char*)node->batch_barrier) + MAXALIGN(sizeof(*node->batch_barrier));
-				SharedFileSetDeleteAll((SharedFileSet*)ptr);
-			}
 		}
+
+		/* Clear all set's data */
+		for (setno = 0; setno < numGroupingSets; ++setno)
+			bs_clear(node->perhash[setno].batch_store);
+
+		/* Reset build barrier */
+		if (node->batch_barrier)
+			BarrierInit(node->batch_barrier, 0);
+
+		ExecSetExecProcNode(&node->ss.ps, ExecBatchHashAggPrepare);
+		node->batch_filled = false;
+		node->current_batch_set = 0;
 	}
 #endif /* ADB_EXT */
 
@@ -4959,11 +5019,13 @@ ExecReScanAgg(AggState *node)
 	MemSet(econtext->ecxt_aggnulls, 0, sizeof(bool) * node->numaggs);
 
 	/*
-	 * With AGG_HASHED/MIXED, the hash table is allocated in a sub-context of
+	 * With AGG_HASHED/AGG_BATCH_HASH/MIXED, the hash table is allocated in a sub-context of
 	 * the hashcontext. This used to be an issue, but now, resetting a context
 	 * automatically deletes sub-contexts too.
 	 */
-	if (node->aggstrategy == AGG_HASHED || node->aggstrategy == AGG_MIXED)
+	if (node->aggstrategy == AGG_HASHED ||
+		node->aggstrategy == AGG_BATCH_HASH ||
+		node->aggstrategy == AGG_MIXED)
 	{
 		hashagg_reset_spill_state(node);
 
@@ -4980,7 +5042,8 @@ ExecReScanAgg(AggState *node)
 		hashagg_recompile_expressions(node, false, false);
 	}
 
-	if (node->aggstrategy != AGG_HASHED)
+	if (node->aggstrategy != AGG_HASHED &&
+		node->aggstrategy != AGG_BATCH_HASH)
 	{
 		/*
 		 * Reset the per-group state (in particular, mark transvalues null)
@@ -5185,6 +5248,224 @@ AggRegisterCallback(FunctionCallInfo fcinfo,
 	elog(ERROR, "aggregate function cannot register a callback in this context");
 }
 
+#ifdef ADB_EXT
+/* Read tuple from batch store, Return false if no more */
+static bool
+batchstore_read(void *userdata, TupleTableSlot *slot, uint32 *hashp)
+{
+	MinimalTuple mtup = bs_read_hash(userdata, hashp);
+	if (unlikely(mtup == NULL))
+		return false;
+	ExecStoreMinimalTuple(mtup, slot, false);
+	return true;
+}
+
+/*
+ * Check have next batch. if not return false
+ * else open it and fill tuples into hash table
+ */
+static bool
+ExecBatchHashAggNextBatch(AggState *node)
+{
+	while (bs_next_batch(node->perhash[node->current_batch_set].batch_store, false) == false)
+	{
+		++node->current_batch_set;
+		if (node->current_batch_set >= node->num_hashes)
+		{
+			node->agg_done = true;
+			return false;
+		}
+	}
+
+	node->hash_batches_fetched++;
+	/* refill hash table from batch store */
+	agg_refill_hash_table_ex(node,
+							 batchstore_read,
+							 node->perhash[node->current_batch_set].batch_store,
+							 0,
+							 node->perhash[node->current_batch_set].aggnode->numGroups,
+							 node->current_batch_set);
+	return true;
+}
+
+static TupleTableSlot *
+ExecBatchHashAgg(PlanState *pstate)
+{
+	AggState	   *node = castNode(AggState, pstate);
+	TupleTableSlot *result;
+
+reloop:
+	result = agg_retrieve_hash_table_in_memory(node);
+	if (unlikely(result == NULL))
+	{
+		if (agg_refill_hash_table(node) == false &&
+			ExecBatchHashAggNextBatch(node) == false)
+		{
+			return NULL;
+		}else
+		{
+			goto reloop;
+		}
+	}
+
+	return result;
+}
+
+/*
+ * Test have next batch, set real execute function and call it if have next batch,
+ * else return an empty TupleTableSlot
+ */
+TupleTableSlot *
+ExecBatchHashAggFirstReScan(PlanState *pstate)
+{
+	AggState   *node = castNode(AggState, pstate);
+
+	node->current_batch_set = 0;
+	if (ExecBatchHashAggNextBatch(node) == false)
+		return ExecClearTuple(pstate->ps_ResultTupleSlot);
+
+	ExecSetExecProcNode(&node->ss.ps, ExecBatchHashAgg);
+	return ExecBatchHashAgg(pstate);
+}
+
+/*
+ * ExecBatchHashAggPrepare -
+ *  ExecBatchHashAggPrepare receives tuples from its outer subplan and save
+ *  into batchstore. after finish save tuples set execute function as
+ *  ExecBatchHashAgg and call it.
+ */
+static TupleTableSlot *
+ExecBatchHashAggPrepare(PlanState *pstate)
+{
+	int				i,x,max_colno_needed;
+	MinimalTuple	mtup;
+	TupleTableSlot *inputslot;
+	PlanState	   *outer = outerPlanState(pstate);
+	AggState	   *node = castNode(AggState, pstate);
+	ExprContext	   *tmpcontext = node->tmpcontext;
+	bool		   *isnull;
+	Bitmapset	   *colnos_needed;
+	Bitmapset	  **colnos_neededs;
+	Assert(node->aggstrategy == AGG_BATCH_HASH);
+	Assert(node->perhash[0].batch_store == NULL ||
+		   node->batch_barrier != NULL);
+
+	if (node->agg_done)
+		return NULL;
+
+	/* create batch store if not parallel */
+	if (node->perhash[0].batch_store == NULL)
+	{
+		MemoryContext	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(pstate));
+		Agg			   *agg = castNode(Agg, pstate->plan);
+		ListCell	   *lc;
+
+		node->perhash[0].batch_store = bs_begin_hash(agg->numBatches);
+
+		i = 1;
+		foreach (lc, agg->chain)
+		{
+			Agg *subagg = lfirst_node(Agg, lc);
+			Assert(subagg->aggstrategy == AGG_BATCH_HASH);
+			Assert(i < node->num_hashes);
+			node->perhash[i].batch_store = bs_begin_hash(subagg->numBatches);
+			++i;
+		}
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	if (node->batch_barrier &&
+		BarrierAttach(node->batch_barrier) > 0)
+	{
+		BarrierDetach(node->batch_barrier);
+		goto batches_already_done_;
+	}
+
+	/* read for make minimal tuple */
+	isnull = palloc(sizeof(isnull[0]) * node->hash_spill_wslot->tts_tupleDescriptor->natts);
+	memset(isnull, true, sizeof(isnull[0]) * node->hash_spill_wslot->tts_tupleDescriptor->natts);
+	max_colno_needed = node->max_colno_needed;
+
+	/* convert Attribute numbers to index(start with 0) */
+	colnos_neededs = palloc(sizeof(colnos_neededs[0]) * node->num_hashes);
+	for (i=0;i<node->num_hashes;++i)
+	{
+		AggStatePerHash	perhash = &node->perhash[i];
+		colnos_needed = NULL;
+		x = -1;
+		while ((x=bms_next_member(perhash->colnos_needed, x)) >= 0)
+		{
+			Assert(x > 0);
+			colnos_needed = bms_add_member(colnos_needed, x-1);
+		}
+		colnos_neededs[i] = colnos_needed;
+	}
+
+	for (;;)
+	{
+		CHECK_FOR_INTERRUPTS();
+		inputslot = ExecProcNode(outer);
+		if (TupIsNull(inputslot))
+			break;
+
+		tmpcontext->ecxt_outertuple = inputslot;
+		slot_getsomeattrs(inputslot, max_colno_needed);
+
+		for (i=0;i<node->num_hashes;++i)
+		{
+			AggStatePerHash	perhash = &node->perhash[i];
+			TupleTableSlot *hashslot = perhash->hashslot;
+
+			CHECK_FOR_INTERRUPTS();
+
+			/* mark unneeded columns as null */
+			memset(isnull, true, sizeof(isnull[0]) * max_colno_needed);
+			colnos_needed = colnos_neededs[i];
+			x = -1;
+			while ((x = bms_next_member(colnos_needed, x)) >= 0)
+				isnull[x] = inputslot->tts_isnull[x];
+			/* make minimal tuple from we needed columns for this set */
+			mtup = heap_form_minimal_tuple(inputslot->tts_tupleDescriptor,
+										   inputslot->tts_values,
+										   isnull);
+
+			prepare_hash_slot(perhash, inputslot, hashslot);
+
+			bs_write_hash(perhash->batch_store,
+						  mtup,
+						  TupleHashTableHash(perhash->hashtable, hashslot));
+			pfree(mtup);
+			ResetExprContext(tmpcontext);
+		}
+	}
+
+	/* Before read, must call bs_end_write() function */
+	for (i=0;i<node->num_hashes;++i)
+		bs_end_write(node->perhash[i].batch_store);
+
+	if (node->batch_barrier)
+	{
+		/* wait other workers finish write */
+		BarrierArriveAndWait(node->batch_barrier, WAIT_EVENT_BATCH_HASH_BUILD);
+		BarrierDetach(node->batch_barrier);
+	}
+
+	/* clear temp memory */
+	for (i=0;i<node->num_hashes;++i)
+		bms_free(colnos_neededs[i]);
+	pfree(colnos_neededs);
+	pfree(isnull);
+
+batches_already_done_:
+	node->batch_filled = true;
+	node->current_batch_set = 0;
+	if (ExecBatchHashAggNextBatch(node) == false)
+		return NULL;
+
+	ExecSetExecProcNode(pstate, ExecBatchHashAgg);
+	return ExecBatchHashAgg(pstate);
+}
 
 /*
  * aggregate_dummy - dummy execution routine for aggregate functions
@@ -5203,232 +5484,61 @@ aggregate_dummy(PG_FUNCTION_ARGS)
 		 fcinfo->flinfo->fn_oid);
 	return (Datum) 0;			/* keep compiler quiet */
 }
-
-#ifdef ADB_EXT
-
-static inline void create_batch_hash_store(AggState *node)
-{
-	MemoryContext	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
-	Agg			   *agg = castNode(Agg, node->ss.ps.plan);
-	Assert(agg->num_batches >= BATCH_STORE_MIN_BATCH);
-	Assert(agg->num_batches <= BATCH_STORE_MAX_BATCH);
-	node->batch_store = bs_begin_hash(agg->num_batches);
-	MemoryContextSwitchTo(oldcontext);
-}
-
-static void fill_batch_store(AggState *node)
-{
-	BatchStore		store = node->batch_store;
-	AggStatePerHash perhash = &node->perhash[0];
-	TupleTableSlot *hashslot = perhash->hashslot;
-	PlanState	   *outer = outerPlanState(node);
-	TupleTableSlot *inputslot;
-	int				i,varNumber;
-	uint32			hashvalue;
-	MinimalTuple	mtup;
-	bool			shouldFree;
-
-	if (node->batch_barrier)
-		BarrierAttach(node->batch_barrier);
-
-	for(;;)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		inputslot = ExecProcNode(outer);
-		if (TupIsNull(inputslot))
-			break;
-
-		slot_getsomeattrs(inputslot, perhash->largestGrpColIdx);
-		ExecClearTuple(hashslot);
-
-		for (i=perhash->numhashGrpCols;i > 0;)
-		{
-			varNumber = perhash->hashGrpColIdxInput[--i] - 1;
-
-			hashslot->tts_values[i] = inputslot->tts_values[varNumber];
-			hashslot->tts_isnull[i] = inputslot->tts_isnull[varNumber];
-		}
-		ExecStoreVirtualTuple(hashslot);
-
-		hashvalue = TupleHashGetHashValue(perhash->hashtable, hashslot);
-		mtup = ExecFetchSlotMinimalTuple(inputslot, &shouldFree);
-		bs_write_hash(store, mtup, hashvalue);
-		if (shouldFree)
-			pfree(mtup);
-	}
-
-	bs_end_write(store);
-	if (node->batch_barrier)
-	{
-		BarrierArriveAndWait(node->batch_barrier, WAIT_EVENT_BATCH_HASH_BUILD);
-		BarrierDetach(node->batch_barrier);
-	}
-	node->batch_filled = true;
-}
-
-static void agg_batch_fill_hash_table(AggState *aggstate)
-{
-	TupleTableSlot *slot = aggstate->outer_slot;
-	BatchStore		store = aggstate->batch_store;
-	ExprContext	   *tmpcontext = aggstate->tmpcontext;
-	MinimalTuple	mtup;
-	uint32			hash_value;
-
-	for(;;)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		mtup = bs_read_hash(store, &hash_value);
-		if (mtup == NULL)
-			break;
-
-		ExecStoreMinimalTuple(mtup, slot, false);
-
-		/* set up for lookup_hash_entries and advance_aggregates */
-		tmpcontext->ecxt_outertuple = slot;
-
-		/* Find or build hashtable entries */
-		lookup_hash_entries(aggstate, &hash_value);
-
-		/* Advance the aggregates (or combine functions) */
-		advance_aggregates(aggstate);
-
-		/*
-		 * Reset per-input-tuple context after each tuple, but note that the
-		 * hash lookups do this too
-		 */
-		ResetExprContext(tmpcontext);
-	}
-
-	aggstate->table_filled = true;
-	/* Initialize to walk the first hash table */
-	select_current_set(aggstate, 0, true);
-	ResetTupleHashIterator(aggstate->perhash[0].hashtable,
-						   &aggstate->perhash[0].hashiter);
-}
-
-static TupleTableSlot *ExecBatchHashAggFirst(PlanState *pstate)
-{
-	AggState	   *node = castNode(AggState, pstate);
-	Assert(node->aggstrategy == AGG_BATCH_HASH);
-	Assert(node->batch_store == NULL ||
-		   node->batch_barrier != NULL);
-
-	if (node->agg_done)
-		return NULL;
-
-	/* create batch store */
-	if (node->batch_store == NULL)
-		create_batch_hash_store(node);
-
-	fill_batch_store(node);
-
-	if (bs_next_batch(node->batch_store, false))
-		agg_batch_fill_hash_table(node);
-
-	ExecSetExecProcNode(pstate, ExecBatchHashAgg);
-	return ExecBatchHashAgg(pstate);
-}
-
-static void ClearBatchAgg(AggState *node)
-{
-	ExprContext *econtext = node->ss.ps.ps_ExprContext;
-	int			transno;
-	int			numGroupingSets = Max(node->maxsets, 1);
-	int			setno;
-
-	node->agg_done = false;
-
-	/* Make sure we have closed any open tuplesorts */
-	for (transno = 0; transno < node->numtrans; transno++)
-	{
-		for (setno = 0; setno < numGroupingSets; setno++)
-		{
-			AggStatePerTrans pertrans = &node->pertrans[transno];
-
-			if (pertrans->sortstates[setno])
-			{
-				tuplesort_end(pertrans->sortstates[setno]);
-				pertrans->sortstates[setno] = NULL;
-			}
-			if (pertrans->keepSlot &&
-				pertrans->keepSlot[setno])
-				ExecClearTuple(pertrans->keepSlot[setno]);
-		}
-	}
-
-	for (setno = 0; setno < numGroupingSets; setno++)
-	{
-		ReScanExprContext(node->aggcontexts[setno]);
-	}
-
-	/* Release first tuple of group, if we have made a copy */
-	if (node->grp_firstTuple != NULL)
-	{
-		heap_freetuple(node->grp_firstTuple);
-		node->grp_firstTuple = NULL;
-	}
-	ExecClearTuple(node->ss.ss_ScanTupleSlot);
-
-	/* Forget current agg values */
-	MemSet(econtext->ecxt_aggvalues, 0, sizeof(Datum) * node->numaggs);
-	MemSet(econtext->ecxt_aggnulls, 0, sizeof(bool) * node->numaggs);
-
-	ReScanExprContext(node->hashcontext);
-	/* Rebuild an empty hash table */
-	build_hash_tables(node);
-}
-
-TupleTableSlot *ExecBatchHashAgg(PlanState *pstate)
-{
-	AggState   *node = castNode(AggState, pstate);
-	TupleTableSlot *slot;
-
-re_loop_:
-	slot = agg_retrieve_hash_table(node);
-	if (TupIsNull(slot))
-	{
-		if (bs_next_batch(node->batch_store, false))
-		{
-			ClearBatchAgg(node);
-			agg_batch_fill_hash_table(node);
-			goto re_loop_;
-		}
-	}
-
-	return slot;
-}
-
-static inline Size batch_agg_estime_size(uint32 nbatches, uint32 nworkers)
-{
-	return add_size(MAXALIGN(sizeof(Barrier)) + MAXALIGN(sizeof(SharedFileSet)),
-					bs_parallel_hash_estimate(nbatches, nworkers+1));
-}
-
-void ExecAggReInitializeDSM(AggState *node, ParallelContext *pcxt)
-{
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("batch hash agg not support reinitialize DSM yet")));
-}
-
-void ExecShutdownAgg(AggState *node)
-{
-	if (node->batch_barrier &&
-		node->batch_store)
-	{
-		bs_destory(node->batch_store);
-		node->batch_store = NULL;
-		node->batch_barrier = NULL;
-	}
-}
 #endif /* ADB_EXT */
 
 /* ----------------------------------------------------------------
  *						Parallel Query Support
  * ----------------------------------------------------------------
  */
+
+static Size
+ExecAggEstimateToc(AggState *node, ParallelContext *pcxt)
+{
+	Size				size;
+	shm_toc_estimator	estimator;
+	ListCell		   *lc;
+
+	/* don't need this if no workers */
+	if (pcxt->nworkers == 0)
+		return 0;
+	/* don't need this if not instrumenting and not batch hash agg */
+	if (!node->ss.ps.instrument &&
+		node->aggstrategy != AGG_BATCH_HASH)
+		return 0;
+
+	shm_toc_initialize_estimator(&estimator);
+	if (node->ss.ps.instrument)
+	{
+		size = mul_size(pcxt->nworkers, sizeof(AggregateInstrumentation));
+		size = add_size(size, offsetof(SharedAggInfo, sinstrument));
+		shm_toc_estimate_chunk(&estimator, size);
+		shm_toc_estimate_keys(&estimator, 1);
+	}
+
+	if (node->aggstrategy == AGG_BATCH_HASH)
+	{
+		int nparticipants = pcxt->nworkers + 1;
+		shm_toc_estimate_chunk(&estimator, BUFFERALIGN(sizeof(Barrier)));
+		shm_toc_estimate_chunk(&estimator, BUFFERALIGN(sizeof(SharedFileSet)));
+		shm_toc_estimate_keys(&estimator, 2);
+
+		size = bs_parallel_hash_estimate(castNode(Agg, node->ss.ps.plan)->numBatches,
+										 nparticipants);
+		shm_toc_estimate_chunk(&estimator, BUFFERALIGN(size));
+		shm_toc_estimate_keys(&estimator, 1);
+
+		foreach (lc, castNode(Agg, node->ss.ps.plan)->chain)
+		{
+			Agg *agg = lfirst_node(Agg, lc);
+			Assert(agg->aggstrategy == AGG_BATCH_HASH);
+			size = bs_parallel_hash_estimate(agg->numBatches, nparticipants);
+			shm_toc_estimate_chunk(&estimator, BUFFERALIGN(size));
+			shm_toc_estimate_keys(&estimator, 1);
+		}
+	}
+
+	return shm_toc_estimate(&estimator);
+}
 
  /* ----------------------------------------------------------------
   *		ExecAggEstimate
@@ -5439,14 +5549,7 @@ void ExecShutdownAgg(AggState *node)
 void
 ExecAggEstimate(AggState *node, ParallelContext *pcxt)
 {
-	Size		size;
-
-	/* don't need this if not instrumenting or no workers */
-	if (!node->ss.ps.instrument || pcxt->nworkers == 0)
-		return;
-
-	size = mul_size(pcxt->nworkers, sizeof(AggregateInstrumentation));
-	size = add_size(size, offsetof(SharedAggInfo, sinstrument));
+	Size size = ExecAggEstimateToc(node, pcxt);
 	shm_toc_estimate_chunk(&pcxt->estimator, size);
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 }
@@ -5460,19 +5563,82 @@ void
 ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt)
 {
 	Size		size;
+	shm_toc	   *toc;
+	void	   *addr;
 
-	/* don't need this if not instrumenting or no workers */
-	if (!node->ss.ps.instrument || pcxt->nworkers == 0)
+	size = ExecAggEstimateToc(node, pcxt);
+	if (size == 0)
 		return;
 
-	size = offsetof(SharedAggInfo, sinstrument)
-		+ pcxt->nworkers * sizeof(AggregateInstrumentation);
-	node->shared_info = shm_toc_allocate(pcxt->toc, size);
-	/* ensure any unfilled slots will contain zeroes */
-	memset(node->shared_info, 0, size);
-	node->shared_info->num_workers = pcxt->nworkers;
-	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id,
-				   node->shared_info);
+	addr = shm_toc_allocate(pcxt->toc, size);
+	toc = shm_toc_create(SHARED_AGG_MAGIC, addr, size);
+	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id, addr);
+
+	if (node->ss.ps.instrument)
+	{
+		size = offsetof(SharedAggInfo, sinstrument)
+			+ pcxt->nworkers * sizeof(AggregateInstrumentation);
+		node->shared_info = shm_toc_allocate(toc, size);
+		/* ensure any unfilled slots will contain zeroes */
+		memset(node->shared_info, 0, size);
+		node->shared_info->num_workers = pcxt->nworkers;
+		shm_toc_insert(toc, SHARED_AGG_KEY_INFO, node->shared_info);
+	}
+
+	if (node->aggstrategy == AGG_BATCH_HASH)
+	{
+		int				nparticipants = pcxt->nworkers + 1;
+		int				i = 0;
+		ListCell	   *lc;
+		Agg			   *agg;
+
+		/* Initialize shared file set */
+		SharedFileSet  *fset = shm_toc_allocate(toc, sizeof(SharedFileSet));
+		SharedFileSetInit(fset, pcxt->seg);
+		shm_toc_insert(toc, SHARED_AGG_KEY_FILE_SET, fset);
+
+		/* Initialize build barrier */
+		node->batch_barrier = shm_toc_allocate(toc, sizeof(Barrier));
+		BarrierInit(node->batch_barrier, 0);
+		shm_toc_insert(toc, SHARED_AGG_KEY_BARRIER, node->batch_barrier);
+
+		/* Initialize batch store */
+		agg = castNode(Agg, node->ss.ps.plan);
+		Assert(agg->numBatches > 0);
+		size = bs_parallel_hash_estimate(agg->numBatches, nparticipants);
+		addr = shm_toc_allocate(toc, size);
+		shm_toc_insert(toc, 0, addr);
+		node->perhash[0].batch_store = bs_init_parallel_hash(agg->numBatches,
+															 nparticipants,
+															 0,
+															 addr,
+															 pcxt->seg,
+															 fset,
+															 "BatchHashAgg");
+
+		/* Initialize batch store for other sets(if has) */
+		i = 1;
+		foreach (lc, agg->chain)
+		{
+			Agg	   *subagg = lfirst_node(Agg, lc);
+			char	name[30];
+			Assert(subagg->aggstrategy == AGG_BATCH_HASH &&
+				   subagg->numBatches > 0);
+			Assert(i < node->num_hashes);
+			size = bs_parallel_hash_estimate(subagg->numBatches, nparticipants);
+			addr = shm_toc_allocate(toc, size);
+			shm_toc_insert(toc, i, addr);
+			sprintf(name, "BatchHashAgg%d", i);
+			node->perhash[i].batch_store = bs_init_parallel_hash(subagg->numBatches,
+																 nparticipants,
+																 0,
+																 addr,
+																 pcxt->seg,
+																 fset,
+																 name);
+			++i;
+		}
+	}
 }
 
 /* ----------------------------------------------------------------
@@ -5484,8 +5650,43 @@ ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt)
 void
 ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt)
 {
-	node->shared_info =
-		shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, true);
+	shm_toc	   *toc;
+	void	   *addr = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, true);
+	if (addr == NULL)
+	{
+		Assert(node->aggstrategy != AGG_BATCH_HASH);
+		return;
+	}
+	toc = shm_toc_attach(SHARED_AGG_MAGIC, addr);
+	node->shared_info = shm_toc_lookup(toc, SHARED_AGG_KEY_INFO, true);
+
+	if (node->aggstrategy == AGG_BATCH_HASH)
+	{
+		int				i;
+		ListCell	   *lc;
+		Agg			   *agg = castNode(Agg, node->ss.ps.plan);
+		SharedFileSet  *fset = shm_toc_lookup(toc, SHARED_AGG_KEY_FILE_SET, false);
+
+		node->batch_barrier = shm_toc_lookup(toc, SHARED_AGG_KEY_BARRIER, false);
+		node->perhash[0].batch_store =
+			bs_attach_parallel_hash(shm_toc_lookup(toc, 0, false),
+									pwcxt->seg,
+									fset,
+									ParallelWorkerNumber+1);
+
+		i = 1;
+		foreach (lc, agg->chain)
+		{
+			Assert(lfirst_node(Agg, lc)->aggstrategy == AGG_BATCH_HASH);
+			Assert (i<node->num_hashes);
+			node->perhash[i].batch_store =
+				bs_attach_parallel_hash(shm_toc_lookup(toc, i, false),
+										pwcxt->seg,
+										fset,
+										ParallelWorkerNumber+1);
+			++i;
+		}
+	}
 }
 
 /* ----------------------------------------------------------------

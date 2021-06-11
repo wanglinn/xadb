@@ -1,4 +1,5 @@
 #undef NO_STRUCT_AggClauseCosts
+#undef NO_STRUCT_AggregateInstrumentation
 #undef NO_STRUCT_AutoVacOpts
 #undef NO_STRUCT_ClusterSlotInitStmt
 #undef NO_STRUCT_CustomExecMethods
@@ -34,6 +35,7 @@
 #undef NO_STRUCT_ReduceKeyInfo
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_SemiAntiJoinFactors
+#undef NO_STRUCT_SharedAggInfo
 #undef NO_STRUCT_SharedHashInfo
 #undef NO_STRUCT_SharedIncrementalSortInfo
 #undef NO_STRUCT_SharedSortInfo

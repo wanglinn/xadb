@@ -3912,7 +3912,6 @@ pgstat_get_wait_ipc(WaitEventIPC w)
 		case WAIT_EVENT_XACT_GROUP_UPDATE:
 			event_name = "XactGroupUpdate";
 			break;
-			/* no default case, so that compiler will warn */
 #ifdef ADB_EXT
 		case WAIT_EVENT_BATCH_HASH_BUILD:
 			event_name = "Batch/Hash/Building";
@@ -3921,6 +3920,7 @@ pgstat_get_wait_ipc(WaitEventIPC w)
 			event_name = "Batch/Sort/Building";
 			break;
 #endif /* ADB_EXT */
+			/* no default case, so that compiler will warn */
 	}
 
 	return event_name;

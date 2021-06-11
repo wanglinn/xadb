@@ -73,6 +73,10 @@ extern PGDLLIMPORT bool enable_parallel_append;
 extern PGDLLIMPORT bool enable_parallel_hash;
 extern PGDLLIMPORT bool enable_partition_pruning;
 extern PGDLLIMPORT int constraint_exclusion;
+#ifdef ADB_EXT
+extern PGDLLIMPORT int max_sort_batches;
+extern PGDLLIMPORT int max_hashagg_batches;
+#endif /* ADB_EXT */
 #ifdef ADB
 extern PGDLLIMPORT bool enable_fast_query_shipping;
 extern PGDLLIMPORT bool pgxc_enable_remote_query;

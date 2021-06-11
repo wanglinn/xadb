@@ -332,6 +332,10 @@ typedef struct AggStatePerHashData
 	AttrNumber *hashGrpColIdxInput; /* hash col indices in input slot */
 	AttrNumber *hashGrpColIdxHash;	/* indices in hash table tuples */
 	Agg		   *aggnode;		/* original Agg node, for numGroups etc. */
+#ifdef ADB_EXT
+	Bitmapset  *colnos_needed;	/* all columns needed from the outer plan */
+	struct BatchStoreData *batch_store;	/* grouping set batch store hash */
+#endif /* ADB_EXT */
 }			AggStatePerHashData;
 
 
@@ -345,10 +349,6 @@ extern void hash_agg_set_limits(double hashentrysize, double input_groups,
 								int used_bits, Size *mem_limit,
 								uint64 *ngroups_limit, int *num_partitions);
 
-#ifdef ADB_EXT
-extern void ExecAggReInitializeDSM(AggState *node, ParallelContext *pcxt);
-extern void ExecShutdownAgg(AggState *node);
-#endif /* ADB_EXT */
 /* parallel instrumentation support */
 extern void ExecAggEstimate(AggState *node, ParallelContext *pcxt);
 extern void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt);

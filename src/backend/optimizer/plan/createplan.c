@@ -2218,21 +2218,22 @@ static BatchSort *create_batchsort_plan(PlannerInfo *root, BatchSortPath *best_p
 										     best_path->path.parent->relids : NULL,
 										 NULL,
 										 false,
-										 &plan->numSortCols,
-										 &plan->sortColIdx,
-										 &plan->sortOperators,
-										 &plan->collations,
-										 &plan->nullsFirst);
-	plan->plan.targetlist = subplan->targetlist;
-	plan->plan.qual = NIL;
+										 &plan->sort.numCols,
+										 &plan->sort.sortColIdx,
+										 &plan->sort.sortOperators,
+										 &plan->sort.collations,
+										 &plan->sort.nullsFirst);
+	plan->sort.plan.targetlist = subplan->targetlist;
+	plan->sort.plan.qual = NIL;
 	outerPlan(plan) = subplan;
 	innerPlan(plan) = NULL;
 	plan->numBatches = best_path->numBatches;
-	plan->numGroupCols = list_length(best_path->groupClause);
-	plan->grpColIdx = extract_grouping_cols(best_path->groupClause,
+	plan->numGroupCols = list_length(best_path->batchgroup);
+	plan->gather_param = -1;
+	plan->grpColIdx = extract_grouping_cols(best_path->batchgroup,
 											subplan->targetlist);
 
-	copy_generic_path_info(&plan->plan, &best_path->path);
+	copy_generic_path_info(&plan->sort.plan, &best_path->path);
 	return plan;
 }
 #endif /* ADB_EXT */
@@ -2313,6 +2314,12 @@ create_upper_unique_plan(PlannerInfo *root, UpperUniquePath *best_path, int flag
 {
 	Unique	   *plan;
 	Plan	   *subplan;
+	List	   *pathkeys;
+
+	if (IsA(best_path->subpath, BatchSortPath))
+		pathkeys = ((BatchSortPath*)best_path->subpath)->batchkeys;
+	else
+		pathkeys = best_path->path.pathkeys;
 
 	/*
 	 * Unique doesn't project, so tlist requirements pass through; moreover we
@@ -2322,7 +2329,7 @@ create_upper_unique_plan(PlannerInfo *root, UpperUniquePath *best_path, int flag
 								  flags | CP_LABEL_TLIST);
 
 	plan = make_unique_from_pathkeys(subplan,
-									 best_path->path.pathkeys,
+									 pathkeys,
 									 best_path->numkeys);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
@@ -2371,7 +2378,7 @@ create_agg_plan(PlannerInfo *root, AggPath *best_path)
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
 #ifdef ADB_EXT
-	plan->num_batches = best_path->num_batches;
+	plan->numBatches = best_path->num_batches;
 #endif /* ADB_EXT */
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR &&
@@ -2447,6 +2454,10 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 	int			maxref;
 	List	   *chain;
 	ListCell   *lc;
+#ifdef ADB_EXT
+	double		count_groups = 0.0;
+	uint32		count_batches = 0;
+#endif /*ADB_EXT */
 
 	/* Shouldn't get here without grouping sets */
 	Assert(root->parse->groupingSets);
@@ -2495,6 +2506,18 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 	Assert(root->grouping_map == NULL);
 	root->grouping_map = grouping_map;
 
+#ifdef ADB_EXT
+	if (best_path->aggstrategy == AGG_BATCH_HASH)
+	{
+		foreach (lc, rollups)
+			count_groups += lfirst_node(RollupData, lc)->numGroups;
+
+		count_batches = (uint32)count_groups;
+		if (count_batches > max_hashagg_batches)
+			count_batches = max_hashagg_batches;
+	}
+#endif /* ADB_EXT */
+
 	/*
 	 * Generate the side nodes that describe the other sort and group
 	 * operations besides the top one.  Note that we don't worry about putting
@@ -2527,7 +2550,9 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 			if (!rollup->is_hashed)
 				is_first_sort = false;
 
-			if (rollup->is_hashed)
+			if (best_path->aggstrategy == AGG_BATCH_HASH)
+				strat = AGG_BATCH_HASH;
+			else if (rollup->is_hashed)
 				strat = AGG_HASHED;
 			else if (list_length(linitial(rollup->gsets)) == 0)
 				strat = AGG_PLAIN;
@@ -2547,6 +2572,15 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 										 rollup->numGroups,
 										 best_path->transitionSpace,
 										 sort_plan);
+#ifdef ADB_EXT
+			if (best_path->aggstrategy == AGG_BATCH_HASH)
+			{
+				int numBatches = (int)((double)count_batches * (rollup->numGroups / count_groups));
+				if (numBatches <= 0)
+					numBatches = 1;
+				castNode(Agg, agg_plan)->numBatches = numBatches;
+			}
+#endif /* ADB_EXT */
 
 			/*
 			 * Remove stuff we don't need to avoid bloating debug output.
@@ -2586,6 +2620,14 @@ create_groupingsets_plan(PlannerInfo *root, GroupingSetsPath *best_path)
 						rollup->numGroups,
 						best_path->transitionSpace,
 						subplan);
+#ifdef ADB_EXT
+			if (best_path->aggstrategy == AGG_BATCH_HASH)
+			{
+				plan->numBatches = (int)((double)count_batches * (rollup->numGroups / count_groups));
+				if (plan->numBatches <= 0)
+					plan->numBatches = 1;
+			}
+#endif /* ADB_EXT */
 
 		/* Copy cost data from Path to Plan */
 		copy_generic_path_info(&plan->plan, &best_path->path);
@@ -6676,6 +6718,10 @@ make_agg(List *tlist, List *qual,
 	plan->targetlist = tlist;
 	plan->lefttree = lefttree;
 	plan->righttree = NULL;
+
+#ifdef ADB_EXT
+	node->gatherParam = -1;
+#endif /* ADB_EXT */
 
 	return node;
 }

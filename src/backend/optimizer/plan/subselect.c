@@ -2842,6 +2842,8 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 										  &aggcontext);
 					agg->aggParams = aggcontext.paramids;
 				}
+
+				agg->gatherParam = gather_param;
 			}
 			break;
 
@@ -2900,7 +2902,6 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 		case T_Unique:
 		case T_SetOp:
 		case T_Group:
-		case T_BatchSort:
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
@@ -2908,6 +2909,12 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 #endif /* ADB */
 			/* no node-type-specific fields need fixing */
 			break;
+
+#ifdef ADB_EXT
+		case T_BatchSort:
+			((BatchSort*)plan)->gather_param = gather_param;
+			break;
+#endif /* ADB_EXT */
 
 #ifdef ADB
 		case T_ClusterReduce:

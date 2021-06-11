@@ -106,6 +106,17 @@ BEGIN_STRUCT(AggClauseCosts)
 END_STRUCT(AggClauseCosts)
 #endif /* NO_STRUCT_AggClauseCosts */
 
+#ifndef NO_STRUCT_AggregateInstrumentation
+BEGIN_STRUCT(AggregateInstrumentation)
+	NODE_SCALAR(Size,hash_mem_peak)
+	NODE_SCALAR(uint64,hash_disk_used)
+	NODE_SCALAR(int,hash_batches_used)
+#ifdef ADB_EXT
+	NODE_SCALAR(int,hash_batches_fetched)
+#endif
+END_STRUCT(AggregateInstrumentation)
+#endif /* NO_STRUCT_AggregateInstrumentation */
+
 #ifndef NO_STRUCT_AutoVacOpts
 BEGIN_STRUCT(AutoVacOpts)
 	NODE_SCALAR(bool,enabled)
@@ -242,11 +253,11 @@ END_STRUCT(HashInstrumentation)
 
 #ifndef NO_STRUCT_IncrementalSortGroupInfo
 BEGIN_STRUCT(IncrementalSortGroupInfo)
-int64 groupCount
-	NODE_SCALAR(long,maxDiskSpaceUsed)
-	NODE_SCALAR(long,totalDiskSpaceUsed)
-	NODE_SCALAR(long,maxMemorySpaceUsed)
-	NODE_SCALAR(long,totalMemorySpaceUsed)
+	NODE_SCALAR(int64,groupCount)
+	NODE_SCALAR(int64,maxDiskSpaceUsed)
+	NODE_SCALAR(int64,totalDiskSpaceUsed)
+	NODE_SCALAR(int64,maxMemorySpaceUsed)
+	NODE_SCALAR(int64,totalMemorySpaceUsed)
 	NODE_SCALAR(bits32,sortMethods)
 END_STRUCT(IncrementalSortGroupInfo)
 #endif /* NO_STRUCT_IncrementalSortGroupInfo */
@@ -480,6 +491,13 @@ BEGIN_STRUCT(SemiAntiJoinFactors)
 	NODE_SCALAR(Selectivity,match_count)
 END_STRUCT(SemiAntiJoinFactors)
 #endif /* NO_STRUCT_SemiAntiJoinFactors */
+
+#ifndef NO_STRUCT_SharedAggInfo
+BEGIN_STRUCT(SharedAggInfo)
+	NODE_SCALAR(int,num_workers)
+AggregateInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedAggInfo)
+#endif /* NO_STRUCT_SharedAggInfo */
 
 #ifndef NO_STRUCT_SharedHashInfo
 BEGIN_STRUCT(SharedHashInfo)

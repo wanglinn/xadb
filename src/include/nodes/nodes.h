@@ -943,7 +943,7 @@ typedef enum AggStrategy
 	AGG_HASHED,					/* grouped agg, use internal hashtable */
 	AGG_MIXED					/* grouped agg, hash and sort both used */
 #ifdef ADB_EXT
-	,AGG_BATCH_HASH
+	,AGG_BATCH_HASH				/* grouped agg, use batch hash */
 #endif /* ADB_EXT */
 } AggStrategy;
 

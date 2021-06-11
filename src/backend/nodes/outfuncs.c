@@ -941,7 +941,8 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_NODE_FIELD(groupingSets);
 	WRITE_NODE_FIELD(chain);
 #ifdef ADB_EXT
-	WRITE_UINT_FIELD(num_batches);
+	WRITE_INT_FIELD(numBatches);
+	WRITE_INT_FIELD(gatherParam);
 #endif /* ADB_EXT */
 #ifdef ADB
 	WRITE_NODE_FIELD(exec_nodes);
@@ -1012,35 +1013,14 @@ _outSortInfo(StringInfo str, const Sort *node)
 static void
 _outBatchSort(StringInfo str, const BatchSort *node)
 {
-	int			i;
-
 	WRITE_NODE_TYPE("BATCHSORT");
 
-	_outPlanInfo(str, (const Plan *) node);
+	_outSortInfo(str, &node->sort);
 
-	WRITE_INT_FIELD(numSortCols);
 	WRITE_INT_FIELD(numGroupCols);
 	WRITE_INT_FIELD(numBatches);
-
-	appendStringInfoString(str, " :sortColIdx");
-	for (i = 0; i < node->numSortCols; i++)
-		appendStringInfo(str, " %d", node->sortColIdx[i]);
-
-	appendStringInfoString(str, " :sortOperators");
-	for (i = 0; i < node->numSortCols; i++)
-		appendStringInfo(str, " %u", node->sortOperators[i]);
-
-	appendStringInfoString(str, " :collations");
-	for (i = 0; i < node->numSortCols; i++)
-		appendStringInfo(str, " %u", node->collations[i]);
-
-	appendStringInfoString(str, " :nullsFirst");
-	for (i = 0; i < node->numSortCols; i++)
-		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
-
-	appendStringInfoString(str, " :grpColIdx");
-	for (i = 0; i < node->numGroupCols; i++)
-		appendStringInfo(str, " %d", node->grpColIdx[i]);
+	WRITE_INT_FIELD(gather_param);
+	WRITE_ATTRNUMBER_ARRAY(grpColIdx, node->numGroupCols);
 }
 #endif /* ADB_EXT */
 
@@ -2199,7 +2179,7 @@ _outBatchSortPath(StringInfo str, const BatchSortPath *node)
 
 	WRITE_NODE_FIELD(subpath);
 	WRITE_NODE_FIELD(batchkeys);
-	WRITE_NODE_FIELD(groupClause);
+	WRITE_NODE_FIELD(batchgroup);
 	WRITE_UINT_FIELD(numBatches);
 }
 #endif /* ADB_EXT */
@@ -2241,6 +2221,9 @@ _outAggPath(StringInfo str, const AggPath *node)
 	WRITE_UINT64_FIELD(transitionSpace);
 	WRITE_NODE_FIELD(groupClause);
 	WRITE_NODE_FIELD(qual);
+#ifdef ADB_EXT
+	WRITE_UINT_FIELD(num_batches);
+#endif /* ADB_EXT */
 }
 
 static void

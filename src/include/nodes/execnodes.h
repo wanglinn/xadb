@@ -2081,10 +2081,15 @@ typedef struct SortState
 } SortState;
 
 #ifdef ADB_EXT
+/* ----------------
+ *	 BatchSortState information
+ * ----------------
+ */
 typedef struct BatchSortState
 {
-	ScanState	ss;				/* its first field is NodeTag */
-	void	  **batches;			/* private state of tuplesort.c */
+	PlanState	ps;				/* its first field is NodeTag */
+	struct Tuplesortstate
+			  **batches;		/* private state of tuplesort.c */
 	List	   *groupFuns;		/* hash function call info for each group-key */
 	struct ParallelBatchSort
 			   *parallel;		/* parallel info, private in nodeBatchSort.c */
@@ -2178,6 +2183,9 @@ typedef struct AggregateInstrumentation
 	Size		hash_mem_peak;	/* peak hash table memory usage */
 	uint64		hash_disk_used; /* kB of disk space used */
 	int			hash_batches_used;	/* batches used during entire execution */
+#ifdef ADB_EXT
+	int			hash_batches_fetched;	/* batches fetched */
+#endif /* ADB_EXT */
 } AggregateInstrumentation;
 
 /* ----------------
@@ -2283,16 +2291,16 @@ typedef struct AggState
 	AggStatePerGroup *all_pergroups;	/* array of first ->pergroups, than
 										 * ->hash_pergroup */
 	ProjectionInfo *combinedproj;	/* projection machinery */
+	SharedAggInfo *shared_info; /* one entry per worker */
 #ifdef ADB_EXT
-	struct BatchStoreData *batch_store;	/* for batch hash */
 	struct Barrier *batch_barrier;		/* for parallel batch */
-	TupleTableSlot *outer_slot;			/* for read batch */
-	bool			batch_filled;
+	int				current_batch_set;	/* current batch grouping set */
+	int				hash_batches_fetched;	/* batches fetched */
+	bool			batch_filled;		/* is all batches filled? */
 #endif /* ADB_EXT */
 #ifdef ADB
 	bool		skip_trans; 	/* skip the transition step for aggregates */
 #endif /* ADB */
-	SharedAggInfo *shared_info; /* one entry per worker */
 } AggState;
 
 /* ----------------

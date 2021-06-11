@@ -2238,15 +2238,11 @@ _readBatchSort(void)
 {
 	READ_LOCALS(BatchSort);
 
-	ReadCommonPlan(&local_node->plan);
+	ReadCommonSort(&local_node->sort);
 
-	READ_INT_FIELD(numSortCols);
 	READ_INT_FIELD(numGroupCols);
 	READ_INT_FIELD(numBatches);
-	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numSortCols);
-	READ_OID_ARRAY(sortOperators, local_node->numSortCols);
-	READ_OID_ARRAY(collations, local_node->numSortCols);
-	READ_BOOL_ARRAY(nullsFirst, local_node->numSortCols);
+	READ_INT_FIELD(gather_param);
 	READ_ATTRNUMBER_ARRAY(grpColIdx, local_node->numGroupCols);
 
 	READ_DONE();
@@ -2293,7 +2289,8 @@ _readAgg(void)
 	READ_NODE_FIELD(groupingSets);
 	READ_NODE_FIELD(chain);
 #ifdef ADB_EXT
-	READ_UINT_FIELD(num_batches);
+	READ_INT_FIELD(numBatches);
+	READ_INT_FIELD(gatherParam);
 #endif /* ADB_EXT */
 #ifdef ADB
 	READ_NODE_FIELD(exec_nodes);

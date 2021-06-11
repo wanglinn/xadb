@@ -797,16 +797,16 @@ typedef struct Sort
 } Sort;
 
 #ifdef ADB_EXT
+/* ----------------
+ *		batch sort node
+ * ----------------
+ */
 typedef struct BatchSort
 {
-	Plan		plan;
-	int			numSortCols;	/* number of sort-key columns */
+	Sort		sort;
 	int			numGroupCols;	/* number of group-key columns */
 	int			numBatches;		/* number of group */
-	AttrNumber *sortColIdx;		/* their indexes in the target list */
-	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
-	Oid		   *collations;		/* OIDs of collations */
-	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+	int			gather_param;	/* ID of Param of plan Gather or GatherMerge */
 	AttrNumber *grpColIdx;		/* their indexes in the target list */
 }BatchSort;
 #endif /* ADB_EXT */
@@ -866,7 +866,8 @@ typedef struct Agg
 	List	   *groupingSets;	/* grouping sets to use */
 	List	   *chain;			/* chained Agg/Sort nodes */
 #ifdef ADB_EXT
-	uint32		num_batches;	/* valid in HASHED */
+	int			numBatches;		/* valid in AGG_BATCH_HASH */
+	int			gatherParam;	/* param of gather */
 #endif /* ADB_EXT */
 #ifdef ADB
 	List	   *exec_nodes;		/* when not AGGSPLIT_INITIAL_SERIAL this is execute nodes */

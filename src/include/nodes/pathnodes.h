@@ -1758,9 +1758,9 @@ typedef struct BatchSortPath
 {
 	Path		path;
 	Path	   *subpath;		/* path representing input source */
-	List	   *batchkeys;		/* our result is not all ordered, just for each batch,
-								   so we can use Path::pathkeys */
-	List	   *groupClause;	/* a list of SortGroupClause's */
+	List	   *batchkeys;		/* our result is not all ordered, only for each batch,
+								 * so we can not use Path::pathkeys */
+	List	   *batchgroup;		/* a list of SortGroupClause for hash */
 	uint32		numBatches;
 }BatchSortPath;
 #endif /* ADB_EXT */
@@ -2668,6 +2668,7 @@ typedef struct
 	bool		target_parallel_safe;
 	Node	   *havingQual;
 	List	   *targetList;
+	List	   *hashable_groups;
 	PartitionwiseAggregateType patype;
 } GroupPathExtraData;
 

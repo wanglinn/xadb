@@ -5,9 +5,6 @@
 #include "storage/dsm.h"
 #include "storage/sharedfileset.h"
 
-#define BATCH_STORE_MIN_BATCH	2
-#define BATCH_STORE_MAX_BATCH	1024
-
 typedef struct BatchStoreData* BatchStore;
 typedef struct BatchStoreParallelHashData* BatchStoreParallelHash;
 
@@ -32,12 +29,11 @@ extern BatchStore bs_attach_parallel_hash(BatchStoreParallelHash bsph, dsm_segme
 
 extern void bs_destory(BatchStore bs);
 
+extern void bs_clear(BatchStore bs);
 
 extern void bs_end_write(BatchStore bs);
 
 extern bool bs_next_batch(BatchStore bs, bool no_parallel);
 extern void bs_rescan(BatchStore bs);
 extern void bs_end_cur_batch(BatchStore bs);
-
-extern uint32 bs_choose_batch_size(double rows, int width);
 #endif /* BATCH_STORE_H */

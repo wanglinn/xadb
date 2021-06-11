@@ -897,9 +897,6 @@ ExecShutdownNode(PlanState *node)
 			ExecShutdownHashJoin((HashJoinState *) node);
 			break;
 #ifdef ADB_EXT
-		case T_AggState:
-			ExecShutdownAgg((AggState *) node);
-			break;
 		case T_BatchSortState:
 			ExecShutdownBatchSort((BatchSortState*) node);
 			break;

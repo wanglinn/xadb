@@ -30,7 +30,6 @@ typedef struct BatchStoreData
 	BatchStoreFuncs	func;
 	BatchMethod	method;
 	uint32		num_batches;
-	void	  **all_batches;
 	void	   *cur_batch_ptr;
 	uint32		cur_batch_num;
 	union
@@ -45,42 +44,52 @@ typedef struct BatchStoreData
 		{
 			dsm_segment		   *dsm_seg;
 			MemoryContext		accessor_mcontext;
-			Bitmapset		   *our_batches;		/* we got batches(for rescan) */
-			pg_atomic_uint32   *shm_ph_batch_num;	/* in shared memory, parallel hash batch number */
-			bool				ended_parallel;		/* parallel batches loop end? for rescan. */
-			bool				parallel_batch;		/* each worker read part of all batches? */
+			/* in shared memory, next idle parallel hash batch number */
+			pg_atomic_uint32   *shm_ph_batch_num;
 		};
 	};
+	void	 *all_batches[FLEXIBLE_ARRAY_MEMBER];
 }BatchStoreData;
 
 static void bs_write_normal_hash(BatchStore bs, MinimalTuple mtup, uint32 hash);
 static MinimalTuple bs_read_normal_hash(BatchStore bs, uint32 *hash);
 
 static void bs_write_parallel_hash(BatchStore bs, MinimalTuple mtup, uint32 hash);
+static void bs_write_parallel_one_batch_hash(BatchStore bs, MinimalTuple mtup, uint32 hash);
 static MinimalTuple bs_read_parallel_hash(BatchStore bs, uint32 *hash);
 
-static inline BatchStore make_empty_batch_store(uint32 num_batches)
+/*
+ * make an empty batch store
+ */
+static inline BatchStore
+make_empty_batch_store(uint32 num_batches, BatchMethod method)
 {
 	BatchStore bs;
-
-	if (num_batches > BATCH_STORE_MAX_BATCH)
+	if (num_batches == 0)
+	{
 		ereport(ERROR,
-				(errmsg("too many batches")));
+				errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("Can not create an empty BatchStore"));
+	}
 
-	bs = palloc0(MAXALIGN(sizeof(BatchStoreData)) +
-					sizeof(void*) * num_batches);
-	bs->all_batches = (void**)(((char*)bs) + MAXALIGN(sizeof(*bs)));
+	bs = palloc0(offsetof(BatchStoreData, all_batches) + sizeof(void*) * num_batches);
+
+	bs->method = method;
 	bs->num_batches = num_batches;
 	bs->cur_batch_num = InvalidBatch;
 
 	return bs;
 }
 
-BatchStore bs_begin_hash(uint32 num_batches)
+/*
+ * Create a normal batch store
+ */
+BatchStore
+bs_begin_hash(uint32 num_batches)
 {
-	BatchStore bs = make_empty_batch_store(num_batches);
-	bs->method = BSM_HASH;
+	BatchStore bs = make_empty_batch_store(num_batches, BSM_HASH);
 
+	/* Initialize hash read buffer for MinimalTuple */
 	initStringInfo(&bs->hash_read_buf);
 	enlargeStringInfo(&bs->hash_read_buf, MINIMAL_TUPLE_DATA_OFFSET);
 	MemSet(bs->hash_read_buf.data, 0, MINIMAL_TUPLE_DATA_OFFSET);
@@ -92,25 +101,29 @@ BatchStore bs_begin_hash(uint32 num_batches)
 	return bs;
 }
 
-size_t bs_parallel_hash_estimate(uint32 num_batches, uint32 nparticipants)
+size_t
+bs_parallel_hash_estimate(uint32 num_batches, uint32 nparticipants)
 {
 	return MAXALIGN(sizeof(struct BatchStoreParallelHashData)) + 
 				MAXALIGN(sts_estimate(nparticipants)) * num_batches;
 }
 
-static BatchStore bs_begin_parallel_hash(BatchStoreParallelHash bsph,
-										 uint32 my_participant_num, bool init,
-										 SharedFileSet *fileset, const char *name,
-										 dsm_segment *dsm_seg)
+/*
+ * Create or attach shared batch store
+ */
+static BatchStore
+bs_begin_parallel_hash(BatchStoreParallelHash bsph,
+					   uint32 my_participant_num, bool init,
+					   SharedFileSet *fileset, const char *name,
+					   dsm_segment *dsm_seg)
 {
 	uint32			i;
 	MemoryContext	oldcontext;
 	char		   *addr;
 	char			buffer[24];
 	Size			sts_size = MAXALIGN(sts_estimate(bsph->num_participants));
-	BatchStore		bs = make_empty_batch_store(bsph->num_batches);
+	BatchStore		bs = make_empty_batch_store(bsph->num_batches, BSM_PARALLEL_HASH);
 
-	bs->method = BSM_PARALLEL_HASH;
 	bs->shm_ph_batch_num = &bsph->cur_batches;
 
 	bs->accessor_mcontext = AllocSetContextCreate(CurrentMemoryContext,
@@ -143,15 +156,22 @@ static BatchStore bs_begin_parallel_hash(BatchStoreParallelHash bsph,
 
 	bs->dsm_seg = dsm_seg;
 	bs->func.hash_read = bs_read_parallel_hash;
-	bs->func.hash_write = bs_write_parallel_hash;
+	if (bs->num_batches == 1)
+		bs->func.hash_write = bs_write_parallel_one_batch_hash;
+	else
+		bs->func.hash_write = bs_write_parallel_hash;
 
 	return bs;
 }
 
-BatchStore bs_init_parallel_hash(uint32 num_batches,
-								 uint32 nparticipants, uint32 my_participant_num,
-								 BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
-								 SharedFileSet *fileset, const char *name)
+/*
+ * Create a parallel batch store
+ */
+BatchStore
+bs_init_parallel_hash(uint32 num_batches,
+					  uint32 nparticipants, uint32 my_participant_num,
+					  BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
+					  SharedFileSet *fileset, const char *name)
 {
 	Assert(name != NULL && fileset != NULL);
 	bsph->num_batches = num_batches;
@@ -161,13 +181,19 @@ BatchStore bs_init_parallel_hash(uint32 num_batches,
 	return bs_begin_parallel_hash(bsph, my_participant_num, true, fileset, name, dsm_seg);
 }
 
-BatchStore bs_attach_parallel_hash(BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
-								   SharedFileSet *fileset, uint32 my_participant_num)
+/*
+ * Attach from parallel batch store
+ */
+BatchStore
+bs_attach_parallel_hash(BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
+						SharedFileSet *fileset, uint32 my_participant_num)
 {
 	return bs_begin_parallel_hash(bsph, my_participant_num, false, fileset, NULL, dsm_seg);
 }
 
-void bs_destory(BatchStore bs)
+/* Destory batch store */
+void
+bs_destory(BatchStore bs)
 {
 	uint32	i;
 	if (bs == NULL)
@@ -202,13 +228,17 @@ void bs_destory(BatchStore bs)
 	pfree(bs);
 }
 
-static void bs_write_normal_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
+/*
+ * Write MinimalTuple and hash value to normal batch store
+ */
+static void
+bs_write_normal_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
 {
 	uint32 batch = hash % bs->num_batches;
 	uint32 data_len = mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
 	BufFile *buffile = bs->all_batches[batch];
 
-	if (buffile == NULL)
+	if (unlikely(buffile == NULL))
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(bs));
 		buffile = BufFileCreateTemp(false);
@@ -226,13 +256,18 @@ static void bs_write_normal_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
 	}
 }
 
-static MinimalTuple bs_read_normal_hash(BatchStore bs, uint32 *hash)
+/*
+ * Read MinimalTuple and hash value from normal batch store
+ */
+static MinimalTuple
+bs_read_normal_hash(BatchStore bs, uint32 *hash)
 {
 	MinimalTuple	mtup;
 	size_t			nread;
 	uint32			head[2];
 	uint32			data_len;
 
+	/* Read hash value and tuple length */
 	nread = BufFileRead(bs->cur_batch_ptr, head, sizeof(head));
 	if (nread == 0)
 		return NULL;
@@ -242,6 +277,8 @@ static MinimalTuple bs_read_normal_hash(BatchStore bs, uint32 *hash)
 				(errcode_for_file_access(),
 				 errmsg("could not read from batch store temporary file: %m")));
 	*hash = head[0];
+
+	/* Enlarge buffer and read tuple data */
 	enlargeStringInfo(&bs->hash_read_buf, head[1]);
 	mtup = (MinimalTuple)bs->hash_read_buf.data;
 	mtup->t_len = head[1];
@@ -254,7 +291,9 @@ static MinimalTuple bs_read_normal_hash(BatchStore bs, uint32 *hash)
 	return mtup;
 }
 
-void bs_end_write(BatchStore bs)
+/* end write batch store, ready for read */
+void
+bs_end_write(BatchStore bs)
 {
 	uint32 i;
 	switch(bs->method)
@@ -274,21 +313,44 @@ void bs_end_write(BatchStore bs)
 	}
 }
 
-static void bs_write_parallel_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
+/*
+ * Write MinimalTuple and hash value to parallel batch store
+ */
+static void
+bs_write_parallel_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
 {
-	MemoryContext oldcontext = MemoryContextSwitchTo(bs->accessor_mcontext);
 	sts_puttuple(bs->all_batches[hash%bs->num_batches],
 				 &hash,
 				 mtup);
-	MemoryContextSwitchTo(oldcontext);
 }
 
-static MinimalTuple bs_read_parallel_hash(BatchStore bs, uint32 *hash)
+/*
+ * Write MinimalTuple and hash value to parallel batch store,
+ * only for only have one batch
+ */
+static void
+bs_write_parallel_one_batch_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
+{
+	Assert(bs->num_batches == 1);
+	sts_puttuple(bs->all_batches[0],
+				 &hash,
+				 mtup);
+}
+
+/*
+ * Read MinimalTuple and hash value from parallel batch store
+ */
+static MinimalTuple
+bs_read_parallel_hash(BatchStore bs, uint32 *hash)
 {
 	return sts_scan_next(bs->cur_batch_ptr, hash);
 }
 
-bool bs_next_batch(BatchStore bs, bool no_parallel)
+/*
+ * Get next batch from batch store, return false if no more.
+ */
+bool
+bs_next_batch(BatchStore bs, bool no_parallel)
 {
 	uint32 batch;
 	switch(bs->method)
@@ -341,27 +403,63 @@ bool bs_next_batch(BatchStore bs, bool no_parallel)
 	return false;
 }
 
-void bs_rescan(BatchStore bs)
+void
+bs_rescan(BatchStore bs)
 {
 	switch(bs->method)
 	{
 	case BSM_HASH:
-		bs->cur_batch_ptr = NULL;
-		bs->cur_batch_num = InvalidBatch;
 		break;
 	case BSM_PARALLEL_HASH:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("parallel batch store not support rescan yet")));
+		for (uint32 i=bs->num_batches;i>0;)
+			sts_reinitialize(bs->all_batches[--i]);
+		pg_atomic_write_u32(bs->shm_ph_batch_num, InvalidBatch);
 		break;
 	default:
 		ereport(ERROR,
 				(errmsg("unknown batch store method %u", bs->method)));
 		break;
 	}
+	bs->cur_batch_ptr = NULL;
+	bs->cur_batch_num = InvalidBatch;
 }
 
-void bs_end_cur_batch(BatchStore bs)
+/*
+ * Delete all the contents of a batch store
+ */
+void
+bs_clear(BatchStore bs)
+{
+	uint32	i;
+	switch (bs->method)
+	{
+	case BSM_HASH:
+		for (i=bs->num_batches;i>0;)
+		{
+			--i;
+			if (bs->all_batches[i])
+			{
+				BufFileClose(bs->all_batches[i]);
+				bs->all_batches[i] = 0;
+			}
+		}
+		break;
+	case BSM_PARALLEL_HASH:
+		pg_atomic_write_u32(bs->shm_ph_batch_num, InvalidBatch);
+		for (i=bs->num_batches;i>0;)
+			sts_clear(bs->all_batches[--i]);
+		break;
+	default:
+		ereport(ERROR,
+				(errmsg("unknown batch store method %u", bs->method)));
+		break;
+	}
+	bs->cur_batch_ptr = NULL;
+	bs->cur_batch_num = InvalidBatch;
+}
+
+void
+bs_end_cur_batch(BatchStore bs)
 {
 	switch(bs->method)
 	{
@@ -377,26 +475,4 @@ void bs_end_cur_batch(BatchStore bs)
 				(errmsg("unknown batch store method %u", bs->method)));
 		break;
 	}
-}
-
-uint32 bs_choose_batch_size(double rows, int width)
-{
-	size_t	space_allowed;
-	int		numbuckets;
-	int		numbatches;
-	int		num_skew_mcvs;
-
-	ExecChooseHashTableSize(rows, width,
-							false, false, 0,
-							&space_allowed,
-							&numbuckets,
-							&numbatches,
-							&num_skew_mcvs);
-	
-	if (numbatches > BATCH_STORE_MAX_BATCH)
-		numbatches = BATCH_STORE_MAX_BATCH;
-	if (numbatches < BATCH_STORE_MIN_BATCH)
-		numbatches = BATCH_STORE_MIN_BATCH;
-
-	return (uint32)numbatches;
 }

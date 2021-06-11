@@ -256,6 +256,12 @@ static void consider_groupingsets_paths(PlannerInfo *root,
 										grouping_sets_data *gd,
 										const AggClauseCosts *agg_costs,
 										double dNumGroups);
+static void consider_parallel_hash_groupingsets_paths(PlannerInfo *root,
+													  RelOptInfo *grouped_rel,
+													  Path *path,
+													  grouping_sets_data *gd,
+													  const AggClauseCosts *agg_costs,
+													  double dNumGroups);
 static RelOptInfo *create_window_paths(PlannerInfo *root,
 									   RelOptInfo *input_rel,
 									   PathTarget *input_target,
@@ -4718,6 +4724,7 @@ create_grouping_paths(PlannerInfo *root,
 			bool hashable = (gd ? gd->any_hashable : grouping_is_hashable(parse->groupClause));
 #ifdef ADB_EXT
 			if (hashable &&
+				(max_hashagg_batches > 0 || max_sort_batches > 0) &&
 				parse->groupingSets == NIL &&
 				/* each group clause maybe in where clause have "caluse=xxx" */
 				!((flags & GROUPING_CAN_USE_SORT) && root->group_pathkeys == NIL))
@@ -4740,6 +4747,11 @@ create_grouping_paths(PlannerInfo *root,
 		extra.havingQual = parse->havingQual;
 		extra.targetList = parse->targetList;
 		extra.partial_costs_set = false;
+		if (parse->groupClause != NIL &&
+			(gd == NULL || gd->rollups == NIL))
+			extra.hashable_groups = grouping_get_hashable(parse->groupClause);
+		else
+			extra.hashable_groups = NIL;
 
 		/*
 		 * Determine whether partitionwise aggregation is in theory possible.
@@ -5482,6 +5494,77 @@ consider_groupingsets_paths(PlannerInfo *root,
 										  dNumGroups));
 }
 
+static void
+consider_parallel_hash_groupingsets_paths(PlannerInfo *root,
+										  RelOptInfo *grouped_rel,
+										  Path *path,
+										  grouping_sets_data *gd,
+										  const AggClauseCosts *agg_costs,
+										  double dNumGroups)
+{
+	int			hash_mem = get_hash_mem();
+	List	   *new_rollups = NIL;
+	List	   *sets_data;
+	ListCell   *lc;
+	RollupData *rollup;
+	GroupingSetData *gs;
+	double		hashsize;
+	double		numGroups;
+
+	sets_data = list_copy(gd->unsortable_sets);
+	foreach (lc, gd->rollups)
+	{
+		rollup = lfirst_node(RollupData, lc);
+		if (rollup->hashable == false)
+		{
+			list_free(sets_data);
+			return;
+		}
+		sets_data = list_concat(sets_data, rollup->gsets_data);
+	}
+	foreach (lc, sets_data)
+	{
+		gs = lfirst_node(GroupingSetData, lc);
+		numGroups = gs->numGroups / max_hashagg_batches;
+		if (numGroups < 1.0)
+			numGroups = 1.0;
+		hashsize = estimate_hashagg_tablesize(path,
+											  agg_costs,
+											  numGroups);
+		if (hashsize > hash_mem * 1024L)
+		{
+			list_free(sets_data);
+			list_free_deep(new_rollups);
+			return;
+		}
+
+		rollup = makeNode(RollupData);
+		rollup->groupClause = preprocess_groupclause(root, gs->set);
+		rollup->gsets_data = list_make1(gs);
+		rollup->gsets = remap_to_groupclause_idx(rollup->groupClause,
+												 rollup->gsets_data,
+												 gd->tleref_to_colnum_map);
+		rollup->numGroups = gs->numGroups;
+		rollup->hashable = true;
+		rollup->is_hashed = true;
+		new_rollups = lappend(new_rollups, rollup);
+	}
+
+	numGroups = dNumGroups / path->parallel_workers;
+	if (numGroups < list_length(new_rollups))
+		numGroups = list_length(new_rollups);
+	path = (Path*)create_groupingsets_path(root,
+										   grouped_rel,
+										   path,
+										   (List*) root->parse->havingQual,
+										   AGG_BATCH_HASH,
+										   new_rollups,
+										   agg_costs,
+										   numGroups);
+	path->parallel_aware = true;
+	add_partial_path(grouped_rel, path);
+}
+
 /*
  * create_window_paths
  *
@@ -6010,10 +6093,14 @@ create_distinct_paths(PlannerInfo *root,
 	dcontext.num_distinct_rows = numDistinctRows;
 #endif /* ADB */
 
+#ifdef ADB_EXT
 	if (distinct_rel->consider_parallel &&
 		distinctExprs != NIL &&
 		is_parallel_safe(root, (Node*)distinctExprs) == false)
 		distinct_rel->consider_parallel = false;
+	distinct_rel->rows = numDistinctRows;
+	distinct_rel->reltarget = root->upper_targets[UPPERREL_DISTINCT];
+#endif /* ADB_EXT */
 
 	/*
 	 * Consider sort-based implementations of DISTINCT, if possible.
@@ -6033,6 +6120,7 @@ create_distinct_paths(PlannerInfo *root,
 		 * the other.)
 		 */
 		List	   *needed_pathkeys;
+		List	   *hashable_clause;
 
 		if (parse->hasDistinctOn &&
 			list_length(root->distinct_pathkeys) <
@@ -6097,6 +6185,41 @@ create_distinct_paths(PlannerInfo *root,
 										  path,
 										  list_length(root->distinct_pathkeys),
 										  numDistinctRows));
+
+#ifdef ADB_EXT
+		/* add parallel unique */
+		if (max_sort_batches > 0 &&
+			distinct_rel->consider_parallel &&
+			input_rel->partial_pathlist != NIL &&
+			numDistinctRows >= 2.0 &&
+			(hashable_clause = grouping_get_hashable(parse->distinctClause)) != NIL)
+		{
+			double	numPartialDistinctRows;
+			uint32	num_batchs = (uint32)numDistinctRows;
+			if (num_batchs > max_sort_batches)
+				num_batchs = max_sort_batches;
+
+			foreach (lc, input_rel->partial_pathlist)
+			{
+				Path *path = (Path*)create_batchsort_path(root,
+														  distinct_rel,
+														  lfirst(lc),
+														  needed_pathkeys,
+														  hashable_clause,
+														  num_batchs,
+														  true);
+				numPartialDistinctRows = numDistinctRows / path->parallel_workers;
+				if (numPartialDistinctRows < 1.0)
+					numPartialDistinctRows = 1.0;
+				path = (Path*)create_upper_unique_path(root,
+													   distinct_rel,
+													   path,
+													   list_length(root->distinct_pathkeys),
+													   numPartialDistinctRows);
+				add_partial_path(distinct_rel, path);
+			}
+		}
+#endif /* ADB_EXT */
 #ifdef ADB
 		if(needed_pathkeys != dcontext.needed_pathkeys)
 		{
@@ -6151,6 +6274,30 @@ create_distinct_paths(PlannerInfo *root,
 								 NIL,
 								 NULL,
 								 numDistinctRows));
+
+		/* Generate parallel batch hashed aggregate path */
+		if (max_hashagg_batches > 0 &&
+			distinct_rel->consider_parallel &&
+			input_rel->partial_pathlist != NIL &&
+			numDistinctRows > 1.0)
+		{
+			Path *path = linitial(input_rel->partial_pathlist);
+			double numRows = numDistinctRows / path->parallel_workers;
+			if (numRows < 1.0)
+				numRows = 1.0;
+			path = (Path *)create_agg_path(root,
+										   distinct_rel,
+										   path,
+										   path->pathtarget,
+										   AGG_BATCH_HASH,
+										   AGGSPLIT_SIMPLE,
+										   parse->distinctClause,
+										   NIL,
+										   NULL,
+										   numRows);
+			path->parallel_aware = true;
+			add_partial_path(distinct_rel, path);
+		}
 	}
 #ifdef ADB
 	if (grouping_is_hashable(parse->distinctClause))
@@ -6188,6 +6335,8 @@ create_distinct_paths(PlannerInfo *root,
 		}
 	}
 #endif /* ADB */
+
+	generate_useful_gather_paths(root, distinct_rel, false);
 
 	/* Give a helpful error if we failed to find any implementation */
 	if (distinct_rel->pathlist == NIL)
@@ -8254,6 +8403,61 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			}
 		}
 
+#ifdef ADB_EXT
+		/*
+		 * create simple agg using parallel
+		 */
+		if (can_sort &&
+			max_sort_batches > 0 &&
+			grouped_rel->consider_parallel &&
+			extra->hashable_groups != NIL &&
+			input_rel->partial_pathlist != NIL &&
+			dNumGroups >= 2.0)
+		{
+			Path	   *path;
+			double		numGroups;
+			uint32		numBatches = (uint32)dNumGroups;
+
+			if (numBatches > max_sort_batches)
+				numBatches = max_sort_batches;
+			numGroups = dNumGroups / numBatches;
+			if (numGroups < 1.0)
+				numGroups = 1.0;
+
+			Assert(parse->groupingSets == NIL);
+			Assert(parse->groupClause != NIL);
+			foreach (lc, input_rel->partial_pathlist)
+			{
+				path = (Path*)create_batchsort_path(root,
+													grouped_rel,
+													lfirst(lc),
+													root->group_pathkeys,
+													extra->hashable_groups,
+													numBatches,
+													true);
+				if (parse->hasAggs)
+					path = (Path*)create_agg_path(root,
+												  grouped_rel,
+												  path,
+												  grouped_rel->reltarget,
+												  AGG_SORTED,
+												  AGGSPLIT_SIMPLE,
+												  parse->groupClause,
+												  havingQual,
+												  agg_costs,
+												  numGroups);
+				else
+					path = (Path*)create_group_path(root,
+													grouped_rel,
+													path,
+													parse->groupClause,
+													havingQual,
+													numGroups);
+				add_partial_path(grouped_rel, path);
+			}
+		}
+#endif /* ADB_EXT */
+
 		/*
 		 * Instead of operating directly on the input relation, we can
 		 * consider finalizing a partially aggregated path.
@@ -8357,6 +8561,58 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 											   havingQual,
 											   dNumGroups));
 			}
+
+#ifdef ADB_EXT
+			/* create parallel batch sort aggregate paths */
+			if (max_sort_batches > 0 &&
+				grouped_rel->consider_parallel &&
+				extra->hashable_groups != NIL &&
+				partially_grouped_rel->partial_pathlist != NIL &&
+				dNumGroups >= 2.0)
+			{
+				Path	   *path;
+				double		numGroups;
+				uint32		numBatches = (uint32)dNumGroups;
+
+				if (numBatches > max_sort_batches)
+					numBatches = max_sort_batches;
+				numGroups = dNumGroups / numBatches;
+				if (numGroups < 1.0)
+					numGroups = 1.0;
+
+				Assert(parse->groupingSets == NIL);
+				Assert(parse->groupClause != NIL);
+				foreach (lc, partially_grouped_rel->partial_pathlist)
+				{
+					path = (Path*)create_batchsort_path(root,
+														grouped_rel,
+														lfirst(lc),
+														root->group_pathkeys,
+														extra->hashable_groups,
+														numBatches,
+														true);
+					if (parse->hasAggs)
+						path = (Path*)create_agg_path(root,
+													  grouped_rel,
+													  path,
+													  grouped_rel->reltarget,
+													  AGG_SORTED,
+													  AGGSPLIT_FINAL_DESERIAL,
+													  parse->groupClause,
+													  havingQual,
+													  agg_costs,
+													  numGroups);
+					else
+						path = (Path*)create_group_path(root,
+														grouped_rel,
+														path,
+														parse->groupClause,
+														havingQual,
+														numGroups);
+					add_partial_path(grouped_rel, path);
+				}
+			}
+#endif /* ADB_EXT */
 		}
 	}
 
@@ -8370,6 +8626,15 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			consider_groupingsets_paths(root, grouped_rel,
 										cheapest_path, false, true,
 										gd, agg_costs, dNumGroups);
+			if (max_hashagg_batches > 0 &&
+				grouped_rel->consider_parallel &&
+				input_rel->partial_pathlist != NIL)
+				consider_parallel_hash_groupingsets_paths(root,
+														  grouped_rel,
+														  linitial(input_rel->partial_pathlist),
+														  gd,
+														  agg_costs,
+														  dNumGroups);
 		}
 		else
 		{
@@ -8387,28 +8652,29 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 									 havingQual,
 									 agg_costs,
 									 dNumGroups));
+
 #ifdef ADB_EXT
+			if (max_hashagg_batches > 0 &&
+				grouped_rel->consider_parallel &&
+				input_rel->partial_pathlist != NIL &&
+				dNumGroups >= 2.0)
 			{
-				uint32	num_batches;
-				double	hashaggtablesize = estimate_hashagg_tablesize(cheapest_path,
-														  agg_costs,
-														  dNumGroups);
-				num_batches = hashaggtablesize / (work_mem * 1024L);
-				if (num_batches > 0 &&
-					num_batches < BATCH_STORE_MAX_BATCH)
-				{
-					AggPath *path = create_agg_path(root, grouped_rel,
-													cheapest_path,
-													grouped_rel->reltarget,
-													AGG_BATCH_HASH,
-													AGGSPLIT_SIMPLE,
-													parse->groupClause,
-													havingQual,
-													agg_costs,
-													dNumGroups);
-					path->num_batches = num_batches+1;
-					add_path(grouped_rel, (Path*)path);
-				}
+				Path   *path = linitial(input_rel->partial_pathlist);
+				double	numGroups = dNumGroups / path->parallel_workers;
+				if (numGroups < 1.0)
+					numGroups = 1.0;
+				path = (Path*)create_agg_path(root,
+											  grouped_rel,
+											  path,
+											  grouped_rel->reltarget,
+											  AGG_BATCH_HASH,
+											  AGGSPLIT_SIMPLE,
+											  parse->groupClause,
+											  havingQual,
+											  agg_costs,
+											  numGroups);
+				path->parallel_aware = true;
+				add_partial_path(grouped_rel, path);
 			}
 #endif /* ADB_EXT */
 		}
@@ -8433,6 +8699,34 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 									 agg_final_costs,
 									 dNumGroups));
 		}
+
+#ifdef ADB_EXT
+		/*
+		 * Generate a Finalize BatchHashAgg
+		 */
+		if (max_hashagg_batches > 0 &&
+			dNumGroups >= 2.0 &&
+			partially_grouped_rel &&
+			partially_grouped_rel->partial_pathlist)
+		{
+			Path   *path = linitial(partially_grouped_rel->partial_pathlist);
+			double	numGroups = dNumGroups / path->parallel_workers;
+			if (numGroups < 1.0)
+				numGroups = 1.0;
+			path = (Path*)create_agg_path(root,
+										  grouped_rel,
+										  path,
+										  grouped_rel->reltarget,
+										  AGG_BATCH_HASH,
+										  AGGSPLIT_FINAL_DESERIAL,
+										  parse->groupClause,
+										  havingQual,
+										  agg_final_costs,
+										  numGroups);
+			path->parallel_aware = true;
+			add_partial_path(grouped_rel, path);
+		}
+#endif /* ADB_EXT */
 	}
 
 #ifdef ADB
@@ -10634,39 +10928,29 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 		add_cluster_path(dcontext->distinct_rel, path);
 	}
 
-	if (dcontext->can_hash &&
+	if (max_hashagg_batches > 0 &&
+		dcontext->can_hash &&
+		dcontext->num_distinct_rows > 1.0 &&
 		subpath->parallel_workers > 0)
 	{
 		double num_distinct_rows;
-		uint32 num_batches = dcontext->num_distinct_rows;
-		uint32 min_batches = (subpath->parallel_workers + 1) * 3;
-		if (num_batches < min_batches)
-			num_batches = min_batches;
-		if (num_batches > BATCH_STORE_MAX_BATCH)
-			num_batches = BATCH_STORE_MAX_BATCH;
-		if (num_batches >= BATCH_STORE_MIN_BATCH &&
-			num_batches <= BATCH_STORE_MAX_BATCH &&
-			hashentrysize*num_batches <= work_mem*1024)
-		{
-			num_distinct_rows = dcontext->num_distinct_rows / (subpath->parallel_workers + 1);
-			if (num_distinct_rows < 1.0)
-				num_distinct_rows = 1.0;
-			path = (Path*)create_agg_path(root,
-										  dcontext->distinct_rel,
-										  subpath,
-										  subpath->pathtarget,
-										  AGG_BATCH_HASH,
-										  AGGSPLIT_SIMPLE,
-										  dcontext->distinct_clause,
-										  NIL,
-										  NULL,
-										  num_distinct_rows);
-			((AggPath*)path)->num_batches = num_batches;
-			path->parallel_aware = true;
-			path->reduce_info_list = CopyReduceInfoList(reduce_list);
-			path->reduce_is_valid = true;
-			add_cluster_partial_path(dcontext->distinct_rel, path);
-		}
+		num_distinct_rows = dcontext->num_distinct_rows / (subpath->parallel_workers + 1);
+		if (num_distinct_rows < 1.0)
+			num_distinct_rows = 1.0;
+		path = (Path*)create_agg_path(root,
+									  dcontext->distinct_rel,
+									  subpath,
+									  subpath->pathtarget,
+									  AGG_BATCH_HASH,
+									  AGGSPLIT_SIMPLE,
+									  dcontext->distinct_clause,
+									  NIL,
+									  NULL,
+									  num_distinct_rows);
+		path->parallel_aware = true;
+		path->reduce_info_list = CopyReduceInfoList(reduce_list);
+		path->reduce_is_valid = true;
+		add_cluster_partial_path(dcontext->distinct_rel, path);
 	}
 
 	return 0;
@@ -10767,14 +11051,15 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 
 	if (gcontext->can_sort &&
 		gcontext->can_batch &&
-		num_groups >= BATCH_STORE_MIN_BATCH &&
+		num_groups >= 1.0 &&
+		max_sort_batches > 0 &&
 		!pathkeys_contained_in(gcontext->group_pathkeys, subpath->pathkeys))
 	{
 		uint32 num_batches = (uint32)num_groups;
 		Assert(gcontext->group_clause);
 
-		if (num_batches > BATCH_STORE_MAX_BATCH)
-			num_batches = BATCH_STORE_MAX_BATCH;
+		if (num_batches > max_sort_batches)
+			num_batches = max_sort_batches;
 		path = (Path*)create_batchsort_path(root,
 											gcontext->grouped_rel,
 											subpath,
@@ -10823,43 +11108,25 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 
 	if (gcontext->can_batch &&
 		gcontext->can_hash &&
+		max_hashagg_batches > 0 &&
 		/* simple and final should generate in create_cluster_batch_grouping_path function */
 		gcontext->split == AGGSPLIT_INITIAL_SERIAL)
 	{
-		uint32		num_batches;
-
-		num_batches = estimate_hashagg_tablesize(subpath, costs, num_groups) /
-							(work_mem * 1024L);
-		++num_batches;
+		double		num_parallel_groups = num_groups;
 		if (subpath->parallel_workers > 0)
-		{
-			uint32 min_batches = (subpath->parallel_workers+1)*3;
-			if (num_batches < min_batches)
-				num_batches = min_batches;
-		}
+			num_parallel_groups /= (subpath->parallel_workers+1);
 
-		if (num_batches >= BATCH_STORE_MIN_BATCH &&
-			num_batches <= BATCH_STORE_MAX_BATCH)
-		{
-			if (subpath->parallel_workers > 0)
-			{
-				num_groups /= (subpath->parallel_workers+1);
-				if (num_groups < 1.0)
-					num_groups = 1.0;
-			}
-			path = (Path*)create_agg_path(root,
-										  gcontext->grouped_rel,
-										  subpath,
-										  target,
-										  AGG_BATCH_HASH,
-										  gcontext->split,
-										  gcontext->group_clause,
-										  quals,
-										  costs,
-										  num_groups);
-			((AggPath*)path)->num_batches = num_batches;
-			save_cluster_grouping_path(gcontext, path, rlist);
-		}
+		path = (Path*)create_agg_path(root,
+									  gcontext->grouped_rel,
+									  subpath,
+									  target,
+									  AGG_BATCH_HASH,
+									  gcontext->split,
+									  gcontext->group_clause,
+									  quals,
+									  costs,
+									  num_parallel_groups);
+		save_cluster_grouping_path(gcontext, path, rlist);
 	}
 
 	return 0;
@@ -10895,14 +11162,13 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 	if (num_groups < 1.0)
 		num_groups = 1.0;
 
-	num_batches = gcontext->final_groups;
-	if (num_batches < BATCH_STORE_MIN_BATCH)
-		num_batches = BATCH_STORE_MIN_BATCH;
-	if (num_batches > BATCH_STORE_MAX_BATCH)
-		num_batches = BATCH_STORE_MAX_BATCH;
-
-	if (gcontext->can_sort)
+	if (max_sort_batches > 0 &&
+		gcontext->can_sort &&
+		gcontext->final_groups > 1.0)
 	{
+		num_batches = (uint32)gcontext->final_groups;
+		if (num_batches > max_sort_batches)
+			num_batches = max_sort_batches;
 		path = (Path*)create_batchsort_path(root,
 											gcontext->grouped_rel,
 											subpath,
@@ -10934,7 +11200,7 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 	}
 
 	if (gcontext->can_hash &&
-		estimate_hashagg_tablesize(subpath, costs, num_groups/num_batches) <= work_mem * 1024)
+		max_hashagg_batches > 0)
 	{
 		path = (Path*)create_agg_path(root,
 									  gcontext->grouped_rel,
@@ -10946,7 +11212,6 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 									  gcontext->having_quals,
 									  costs,
 									  num_groups);
-		((AggPath*)path)->num_batches = num_batches;
 		path->parallel_aware = true;
 		save_cluster_grouping_path(gcontext, path, rlist);
 	}

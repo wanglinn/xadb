@@ -3540,15 +3540,17 @@ create_sort_path(PlannerInfo *root,
 }
 
 #ifdef ADB_EXT
-BatchSortPath *create_batchsort_path(PlannerInfo *root,
-				 RelOptInfo *rel,
-				 Path *subpath,
-				 List *pathkeys,
-				 List *groupClause,
-				 uint32 numBatches,
-				 bool parallel_sort)
+BatchSortPath *
+create_batchsort_path(PlannerInfo *root,
+					  RelOptInfo *rel,
+					  Path *subpath,
+					  List *pathkeys,
+					  List *groupClause,
+					  uint32 numBatches,
+					  bool parallel_sort)
 {
 	BatchSortPath   *pathnode = makeNode(BatchSortPath);
+	Assert(numBatches > 0);
 
 	pathnode->path.pathtype = T_BatchSort;
 	pathnode->path.parent = rel;
@@ -3561,7 +3563,7 @@ BatchSortPath *create_batchsort_path(PlannerInfo *root,
 		subpath->parallel_safe;
 	pathnode->path.parallel_workers = subpath->parallel_workers;
 	pathnode->batchkeys = pathkeys;
-	pathnode->groupClause = groupClause;
+	pathnode->batchgroup = groupClause;
 	pathnode->numBatches = numBatches;
 
 	pathnode->subpath = subpath;
@@ -3747,6 +3749,16 @@ create_agg_path(PlannerInfo *root,
 	pathnode->path.startup_cost += target->cost.startup;
 	pathnode->path.total_cost += target->cost.startup +
 		target->cost.per_tuple * pathnode->path.rows;
+
+#ifdef ADB_EXT
+	if (aggstrategy == AGG_BATCH_HASH)
+	{
+		Assert(numGroups >= 1.0);
+		pathnode->num_batches = (int)(numGroups * (subpath->parallel_workers+1));
+		if (pathnode->num_batches > max_hashagg_batches)
+			pathnode->num_batches = max_hashagg_batches;
+	}
+#endif /* ADB_EXT */
 
 	return pathnode;
 }
