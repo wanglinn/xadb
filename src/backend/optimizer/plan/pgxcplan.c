@@ -1448,6 +1448,8 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			return NULL;
 	}
 
+#warning TODO create remotedml_plan
+#if 0
 	/*
 	 * For every result relation, build a remote plan to execute remote DML.
 	 */
@@ -1552,7 +1554,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
 		table_close(res_rel, NoLock);
 	}
-
+#endif
 	return (Plan *)mt;
 }
 

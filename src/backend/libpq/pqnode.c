@@ -35,12 +35,7 @@ static int	pq_node_flush_if_writable(void);
 static bool pq_node_is_send_pending(void);
 static int	pq_node_putmessage(char msgtype, const char *s, size_t len);
 static void pq_node_putmessage_noblock(char msgtype, const char *s, size_t len);
-static void pq_node_startcopyout(void);
-static void pq_node_startcopyout_sock(pq_comm_node *node);
-static void pq_node_endcopyout(bool errorAbort);
-static void pq_node_endcopyout_sock(pq_comm_node *node, bool errorAbort);
 
-static int pq_node_putbytes(pq_comm_node *node, const char *s, size_t len);
 static int pq_node_internal_flush(pq_comm_node *node);
 static int pq_node_internal_putbytes(pq_comm_node *node, const char *s, size_t len);
 static void pq_node_proc_start_msg(pq_comm_node *node);
@@ -53,8 +48,6 @@ static PQcommMethods PqCommoNodeMethods = {
 	pq_node_is_send_pending,
 	pq_node_putmessage,
 	pq_node_putmessage_noblock,
-	pq_node_startcopyout,
-	pq_node_endcopyout
 };
 static pq_comm_node *current_pq_node = NULL;
 
@@ -68,7 +61,6 @@ static void pq_node_comm_reset_sock(pq_comm_node *node)
 {
 	AssertArg(node);
 	node->busy = false;
-	pq_node_endcopyout_sock(node, true);
 }
 
 static void pq_node_set_nonblocking_sock(pq_comm_node *node, bool nonblocking)
@@ -112,22 +104,6 @@ int pq_node_flush_sock(pq_comm_node *node)
 	node->busy = true;
 	pq_node_set_nonblocking_sock(node, false);
 	res = pq_node_internal_flush(node);
-	node->busy = false;
-	return res;
-}
-
-static int pq_node_putbytes(pq_comm_node *node, const char *s, size_t len)
-{
-	int			res;
-	AssertArg(node);
-
-	/* Should only be called by old-style COPY OUT */
-	Assert(node->doing_copy_out);
-	/* No-op if reentrant call */
-	if (node->busy)
-		return 0;
-	node->busy = true;
-	res = pq_node_internal_putbytes(node, s, len);
 	node->busy = false;
 	return res;
 }
@@ -315,39 +291,10 @@ void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const cha
 								 * buffer */
 }
 
-static void pq_node_startcopyout(void)
-{
-	Assert(current_pq_node);
-	pq_node_startcopyout_sock(current_pq_node);
-}
-
-static void pq_node_startcopyout_sock(pq_comm_node *node)
-{
-	AssertArg(node);
-	node->doing_copy_out = true;
-}
-
-static void pq_node_endcopyout(bool errorAbort)
-{
-	Assert(current_pq_node);
-	pq_node_endcopyout_sock(current_pq_node, errorAbort);
-}
-
 int	pq_node_get_id_socket(pq_comm_node *node)
 {
 	AssertArg(node);
 	return node->pq_id;
-}
-
-static void pq_node_endcopyout_sock(pq_comm_node *node, bool errorAbort)
-{
-	AssertArg(node);
-	if (!node->doing_copy_out)
-		return;
-	if (errorAbort)
-		pq_node_putbytes(node, "\n\n\\.\n", 5);
-	/* in non-error case, copy.c will have emitted the terminator line */
-	node->doing_copy_out = false;
 }
 
 pgsocket socket_pq_node(pq_comm_node *node)

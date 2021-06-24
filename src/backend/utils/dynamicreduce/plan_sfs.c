@@ -31,13 +31,8 @@ static void OnSFSPlanError(PlanInfo *pi)
 
 static inline void SFSWriteTupleData(BufFile *file, uint32 len, const void *data)
 {
-	if (BufFileWrite(file, &len, sizeof(len)) != sizeof(len) ||
-		BufFileWrite(file, (void*)data, len) != len)
-	{
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not write to SFS plan file: %m")));
-	}
+	BufFileWrite(file, &len, sizeof(len));
+	BufFileWrite(file, (void*)data, len);
 }
 
 static bool OnSFSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)

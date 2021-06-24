@@ -21,6 +21,7 @@
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
+#include "storage/latch.h"
 #include "tcop/tcopprot.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"

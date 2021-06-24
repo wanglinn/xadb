@@ -155,7 +155,6 @@ static TransactionId SnapRcvGetLocalXmin(void);
 
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
-static void SnapRcvSigUsr1Handler(SIGNAL_ARGS);
 static void SnapRcvShutdownHandler(SIGNAL_ARGS);
 static void SnapRcvQuickDieHandler(SIGNAL_ARGS);
 
@@ -251,7 +250,7 @@ SnapRcvGetLocalNextXid(void)
 {
 	FullTransactionId full_xid; 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	full_xid = ShmemVariableCache->nextFullXid;
+	full_xid = ShmemVariableCache->nextXid;
 	LWLockRelease(XidGenLock);
 
 	return XidFromFullTransactionId(full_xid);
@@ -755,7 +754,7 @@ void SnapReceiverMain(void)
 	pqsignal(SIGQUIT, SnapRcvQuickDieHandler);	/* hard crash time */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SnapRcvSigUsr1Handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 
 	/* Reset some signals that are accepted by postmaster but not here */
@@ -1098,18 +1097,6 @@ static void
 SnapRcvSigHupHandler(SIGNAL_ARGS)
 {
 	got_SIGHUP = true;
-}
-
-
-/* SIGUSR1: used by latch mechanism */
-static void
-SnapRcvSigUsr1Handler(SIGNAL_ARGS)
-{
-	int			save_errno = errno;
-
-	latch_sigusr1_handler();
-
-	errno = save_errno;
 }
 
 /*
@@ -1524,20 +1511,20 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 	
 	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessUpdateXid xid %u\n", xid)));
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
 	if (!NormalTransactionIdPrecedes(xid, nextXid))
 	{
-		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextXid);
 		if (unlikely(xid < nextXid))
 			++epoch;
-		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
-		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
+		ShmemVariableCache->nextXid = FullTransactionIdFromEpochAndXid(epoch, xid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextXid);
 
-		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
-		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		FullTransactionIdRetreat(&ShmemVariableCache->latestCompletedXid);
 
 		LOCK_SNAP_RCV();
-		SnapRcv->latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+		SnapRcv->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->latestCompletedXid);
 		UNLOCK_SNAP_RCV();
 	}
 	LWLockRelease(XidGenLock);
@@ -1594,7 +1581,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	 * Extend pg_subtrans and pg_commit_ts too.
 	 */
 
-	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
 	if (TransactionIdFollowsOrEquals(gxid, nextXid))
 	{
 		/* for slave cn/dn, we cannot extend clog and insert wal log */
@@ -1606,12 +1593,12 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 		}
 
 		uint32	epoch;
-		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextXid);
 		if (unlikely(gxid < nextXid))
 			++epoch;
 
-		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, gxid);
-		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
+		ShmemVariableCache->nextXid = FullTransactionIdFromEpochAndXid(epoch, gxid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextXid);
 	}
 	/*
 	 * Now advance the nextXid counter.  This must not happen until after we
@@ -1702,11 +1689,12 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
 
-	if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid,
+	if (TransactionIdPrecedes(XidFromFullTransactionId(ShmemVariableCache->latestCompletedXid),
 							  max_xid))
 	{
+		uint32	epoch = EpochFromFullTransactionId(ShmemVariableCache->latestCompletedXid);
 		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-		ShmemVariableCache->latestCompletedXid = max_xid;
+		ShmemVariableCache->latestCompletedXid = FullTransactionIdFromEpochAndXid(epoch, max_xid);
 		LWLockRelease(XidGenLock);
 	}
 
@@ -2064,7 +2052,7 @@ re_lock_:
 			xmin = xid;
 
 		/* We don't include our own XIDs (if any) in the snapshot */
-		if (xid == MyPgXact->xid)
+		if (xid == MyProc->xid)
 			continue;
 			
 		/* Add XID to snapshot. */
@@ -2134,12 +2122,15 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	}
 
 	UNLOCK_SNAP_RCV();
+#warning TODO get GetOldestXminExt
+#if 0
 	if (!RecoveryInProgress())
 	{
 		oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 		if (NormalTransactionIdPrecedes(oldxmin, xmin))
 			xmin = oldxmin;
 	}
+#endif
 
 	//ereport(LOG,(errmsg("SnapRcvGetLocalXmin xid %d\n", xmin)));
 	return xmin;
@@ -2463,7 +2454,8 @@ re_lock_:
 
 	appendStringInfo(buf, "  global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->global_xmin));
 	appendStringInfo(buf, "  local global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->local_global_xmin));
-	appendStringInfo(buf, "  local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
+#warning TODO PROCARRAY_FLAGS_VACUUM
+	//appendStringInfo(buf, "  local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
 	appendStringInfo(buf, "  last_client_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_client_req_key));
 	appendStringInfo(buf, "  last_ss_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_req_key));
 	appendStringInfo(buf, "  last_ss_resp_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_resp_key));

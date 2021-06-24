@@ -106,6 +106,8 @@ typedef struct ExpansionClean
 	bool			limit_insert;
 }ExpansionClean;
 
+static XLogRecPtr log_heap_dead(Buffer buffer, const OffsetNumber *dead, int ndead, TransactionId latestRemovedXid);
+
 static void CreateSHMQPipe(dsm_segment *seg, shm_mq_handle** mqh_sender, shm_mq_handle **mqh_receiver, bool is_worker)
 {
 	shm_mq			   *mq_sender;
@@ -1251,7 +1253,8 @@ void ExpansionWorkerMain(Datum arg)
 	pq_redirect_to_shm_mq(seg, mqh_sender);
 
 	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
-	MyPgXact->vacuumFlags |= PROC_IS_EXPANSION_WORKER;
+	MyProc->statusFlags |= PROC_IS_EXPANSION_WORKER;
+	ProcGlobal->statusFlags[MyProc->pgxactoff] = MyProc->statusFlags;
 	LWLockRelease(ProcArrayLock);
 
 	BackgroundWorkerInitializeConnectionByOid(extra->dboid, InvalidOid, 0);
@@ -1573,7 +1576,6 @@ static void finish_clean_rel(Relation rel_clean, ItemPointer tid, Buffer buffer)
 {
 	bool		need_release;
 	Page		page;
-	XLogRecPtr	recptr;
 	ItemId		lpp;
 
 	if (BufferIsValid(buffer))
@@ -1594,8 +1596,7 @@ static void finish_clean_rel(Relation rel_clean, ItemPointer tid, Buffer buffer)
 		heap_page_prune_execute(buffer, NULL, 0, &tid->ip_posid, 1, NULL, 0);
 		PageClearFull(page);
 		MarkBufferDirty(buffer);
-		recptr = log_heap_clean(rel_clean, buffer, NULL, 0, &tid->ip_posid, 1, NULL, 0, InvalidTransactionId);
-		PageSetLSN(page, recptr);
+		log_heap_dead(buffer, &tid->ip_posid, 1, InvalidTransactionId);
 	}
 	if (need_release)
 		UnlockReleaseBuffer(buffer);
@@ -1815,10 +1816,7 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 			PageClearFull(page);
 			MarkBufferDirty(buffer);
 			if (RelationNeedsWAL(rel))
-			{
-				recptr = log_heap_clean(rel, buffer, NULL, 0, clean_items, clean_nitem, NULL, 0, InvalidTransactionId);
-				PageSetLSN(page, recptr);
-			}
+				recptr = log_heap_dead(buffer, clean_items, clean_nitem, InvalidTransactionId);
 		}
 		UnlockReleaseBuffer(buffer);
 		CHECK_FOR_INTERRUPTS();
@@ -1872,4 +1870,30 @@ void RemoveCleanInfoFromExpansionClean(Oid relOid)
 		relation_close(rel_clean, RowExclusiveLock);
 		ReleaseSysCache(tuple);
 	}
+}
+
+static XLogRecPtr
+log_heap_dead(Buffer buffer, const OffsetNumber *dead, int ndead, TransactionId latestRemovedXid)
+{
+	xl_heap_prune	xlrec;
+	XLogRecPtr		recptr;
+	Assert(ndead > 0);
+
+	MemSet(&xlrec, 0, sizeof(xlrec));
+	xlrec.latestRemovedXid = latestRemovedXid;
+	xlrec.ndead = ndead;
+
+	XLogBeginInsert();
+	XLogRegisterData((char *) &xlrec, SizeOfHeapPrune);
+
+	XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
+
+	XLogRegisterBufData(0, (char *) dead,
+						ndead * sizeof(OffsetNumber));
+
+	recptr = XLogInsert(RM_HEAP2_ID, XLOG_HEAP2_PRUNE);
+
+	PageSetLSN(BufferGetPage(buffer), recptr);
+
+	return recptr;
 }

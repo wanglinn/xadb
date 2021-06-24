@@ -871,10 +871,10 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 
 			switch (funcexpr->funcid)
 			{
-			case F_NEXTVAL_OID:
-			case F_CURRVAL_OID:
-			case F_SETVAL_OID:
-			case F_SETVAL3_OID:
+			case F_NEXTVAL:
+			case F_CURRVAL:
+			case F_SETVAL_REGCLASS_INT8:
+			case F_SETVAL_REGCLASS_INT8_BOOL:
 				c = linitial(funcexpr->args);
 				if (!IsA(c, Const) ||
 					get_rel_persistence(DatumGetObjectId(c->constvalue)) == RELPERSISTENCE_TEMP)
@@ -2534,10 +2534,10 @@ static bool exprssion_have_sequence_expr(Node *node, void *none)
 	{
 		switch(((FuncExpr*)node)->funcid)
 		{
-		case F_NEXTVAL_OID:
-		case F_CURRVAL_OID:
-		case F_SETVAL_OID:
-		case F_SETVAL3_OID:
+		case F_NEXTVAL:
+		case F_CURRVAL:
+		case F_SETVAL_REGCLASS_INT8:
+		case F_SETVAL_REGCLASS_INT8_BOOL:
 		case F_LASTVAL:
 			return true;
 		default:

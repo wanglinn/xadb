@@ -3,7 +3,7 @@
  * matview.c
  *	  materialized view support
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -51,7 +51,7 @@
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "executor/tstoreReceiver.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "libpq/pqformat.h"
 #include "libpq/libpq-node.h"
 #include "libpq/libpq.h"
@@ -410,7 +410,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 	{
 		tstore = tuplestore_begin_heap(true, false, work_mem);
 		dest = CreateTuplestoreDestReceiver();
-		SetTuplestoreDestReceiverParams(dest, tstore, CurrentMemoryContext, false);
+		SetTuplestoreDestReceiverParams(dest, tstore, CurrentMemoryContext, false, NULL, NULL);
 		OIDNewHeap = InvalidOid;
 	}else
 	{
@@ -518,6 +518,17 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 	}
 #endif /* ADB */
 
+	/*
+	 * Save the rowcount so that pg_stat_statements can track the total number
+	 * of rows processed by REFRESH MATERIALIZED VIEW command. Note that we
+	 * still don't display the rowcount in the command completion tag output,
+	 * i.e., the display_rowcount flag of CMDTAG_REFRESH_MATERIALIZED_VIEW
+	 * command tag is left false in cmdtaglist.h. Otherwise, the change of
+	 * completion tag output might break applications using it.
+	 */
+	if (qc)
+		SetQueryCompletion(qc, CMDTAG_REFRESH_MATERIALIZED_VIEW, processed);
+
 	return address;
 }
 
@@ -553,7 +564,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 	CHECK_FOR_INTERRUPTS();
 
 	/* Plan the query which will generate data for the refresh. */
-	plan = pg_plan_query(query, queryString, 0, NULL);
+	plan = pg_plan_query(query, queryString, CURSOR_OPT_PARALLEL_OK, NULL);
 
 	/*
 	 * Use a snapshot with an updated command ID to ensure this query sees
@@ -1489,7 +1500,7 @@ extern void
 pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 							TupleDesc tupdesc)
 {
-	CopyState	cstate;
+	CopyFromState cstate;
 	Relation	mv_rel = NULL;
 	TupleTableSlot	*slot = MakeTupleTableSlot(NULL, &TTSOpsVirtual);
 
@@ -1522,7 +1533,7 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 		 * Prepare structures to start receiving the data sent by the other
 		 * coordinator through COPY protocol.
 		 */
-		cstate = BeginCopyFrom(NULL, mv_rel, NULL, false, NULL, NULL, NULL);
+		cstate = BeginCopyFrom(NULL, mv_rel, NULL, NULL, false, NULL, NULL, NULL);
 		/* Read the rows one by one and insert into the materialized view */
 		for(;;)
 		{

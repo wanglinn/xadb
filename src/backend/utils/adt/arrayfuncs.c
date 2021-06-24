@@ -3,7 +3,7 @@
  * arrayfuncs.c
  *	  Support functions for arrays.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -410,6 +410,8 @@ array_in(PG_FUNCTION_ARGS)
 
 	/* This checks for overflow of the array dimensions */
 	nitems = ArrayGetNItems(ndim, dim);
+	ArrayCheckBounds(ndim, dim, lBound);
+
 	/* Empty array? */
 	if (nitems == 0)
 		PG_RETURN_ARRAYTYPE_P(construct_empty_array(element_type));
@@ -1346,37 +1348,45 @@ array_recv(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
 				 errmsg("invalid array flags")));
 
+	/* Check element type recorded in the data */
 	element_type = pq_getmsgint(buf, sizeof(Oid));
+
+	/*
+	 * From a security standpoint, it doesn't matter whether the input's
+	 * element type matches what we expect: the element type's receive
+	 * function has to be robust enough to cope with invalid data.  However,
+	 * from a user-friendliness standpoint, it's nicer to complain about type
+	 * mismatches than to throw "improper binary format" errors.  But there's
+	 * a problem: only built-in types have OIDs that are stable enough to
+	 * believe that a mismatch is a real issue.  So complain only if both OIDs
+	 * are in the built-in range.  Otherwise, carry on with the element type
+	 * we "should" be getting.
+	 */
 	if (element_type != spec_element_type)
 	{
-		/* XXX Can we allow taking the input element type in any cases? */
-		ereport(ERROR,
-				(errcode(ERRCODE_DATATYPE_MISMATCH),
-				 errmsg("wrong element type")));
+		if (element_type < FirstGenbkiObjectId &&
+			spec_element_type < FirstGenbkiObjectId)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("binary data has array element type %u (%s) instead of expected %u (%s)",
+							element_type,
+							format_type_extended(element_type, -1,
+												 FORMAT_TYPE_ALLOW_INVALID),
+							spec_element_type,
+							format_type_extended(spec_element_type, -1,
+												 FORMAT_TYPE_ALLOW_INVALID))));
+		element_type = spec_element_type;
 	}
 
 	for (i = 0; i < ndim; i++)
 	{
 		dim[i] = pq_getmsgint(buf, 4);
 		lBound[i] = pq_getmsgint(buf, 4);
-
-		/*
-		 * Check overflow of upper bound. (ArrayGetNItems() below checks that
-		 * dim[i] >= 0)
-		 */
-		if (dim[i] != 0)
-		{
-			int			ub = lBound[i] + dim[i] - 1;
-
-			if (lBound[i] > ub)
-				ereport(ERROR,
-						(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-						 errmsg("integer out of range")));
-		}
 	}
 
 	/* This checks for overflow of array dimensions */
 	nitems = ArrayGetNItems(ndim, dim);
+	ArrayCheckBounds(ndim, dim, lBound);
 
 	/*
 	 * We arrange to look up info about element type, including its receive
@@ -2061,7 +2071,8 @@ array_get_element_expanded(Datum arraydatum,
  * array bound.
  *
  * NOTE: we assume it is OK to scribble on the provided subscript arrays
- * lowerIndx[] and upperIndx[].  These are generally just temporaries.
+ * lowerIndx[] and upperIndx[]; also, these arrays must be of size MAXDIM
+ * even when nSubscripts is less.  These are generally just temporaries.
  */
 Datum
 array_get_slice(Datum arraydatum,
@@ -2281,7 +2292,7 @@ array_set_element(Datum arraydatum,
 					(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
 					 errmsg("wrong number of array subscripts")));
 
-		if (indx[0] < 0 || indx[0] * elmlen >= arraytyplen)
+		if (indx[0] < 0 || indx[0] >= arraytyplen / elmlen)
 			ereport(ERROR,
 					(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
 					 errmsg("array subscript out of range")));
@@ -2396,10 +2407,13 @@ array_set_element(Datum arraydatum,
 		}
 	}
 
+	/* This checks for overflow of the array dimensions */
+	newnitems = ArrayGetNItems(ndim, dim);
+	ArrayCheckBounds(ndim, dim, lb);
+
 	/*
 	 * Compute sizes of items and areas to copy
 	 */
-	newnitems = ArrayGetNItems(ndim, dim);
 	if (newhasnulls)
 		overheadlen = ARR_OVERHEAD_WITHNULLS(ndim, newnitems);
 	else
@@ -2598,8 +2612,11 @@ array_set_element_expanded(Datum arraydatum,
 
 	/*
 	 * Copy new element into array's context, if needed (we assume it's
-	 * already detoasted, so no junk should be created).  If we fail further
-	 * down, this memory is leaked, but that's reasonably harmless.
+	 * already detoasted, so no junk should be created).  Doing this before
+	 * we've made any significant changes ensures that our behavior is sane
+	 * even when the source is a reference to some element of this same array.
+	 * If we fail further down, this memory is leaked, but that's reasonably
+	 * harmless.
 	 */
 	if (!eah->typbyval && !isNull)
 	{
@@ -2652,6 +2669,13 @@ array_set_element_expanded(Datum arraydatum,
 						(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
 						 errmsg("array subscript out of range")));
 		}
+	}
+
+	/* Check for overflow of the array dimensions */
+	if (dimschanged)
+	{
+		(void) ArrayGetNItems(ndim, dim);
+		ArrayCheckBounds(ndim, dim, lb);
 	}
 
 	/* Now we can calculate linear offset of target item in array */
@@ -2789,7 +2813,8 @@ array_set_element_expanded(Datum arraydatum,
  * (XXX TODO: allow a corresponding behavior for multidimensional arrays)
  *
  * NOTE: we assume it is OK to scribble on the provided index arrays
- * lowerIndx[] and upperIndx[].  These are generally just temporaries.
+ * lowerIndx[] and upperIndx[]; also, these arrays must be of size MAXDIM
+ * even when nSubscripts is less.  These are generally just temporaries.
  *
  * NOTE: For assignments, we throw an error for silly subscripts etc,
  * rather than returning a NULL or empty array as the fetch operations do.
@@ -2972,6 +2997,7 @@ array_set_slice(Datum arraydatum,
 
 	/* Do this mainly to check for overflow */
 	nitems = ArrayGetNItems(ndim, dim);
+	ArrayCheckBounds(ndim, dim, lb);
 
 	/*
 	 * Make sure source array has enough entries.  Note we ignore the shape of
@@ -3386,7 +3412,9 @@ construct_md_array(Datum *elems,
 				 errmsg("number of array dimensions (%d) exceeds the maximum allowed (%d)",
 						ndims, MAXDIM)));
 
+	/* This checks for overflow of the array dimensions */
 	nelems = ArrayGetNItems(ndims, dims);
+	ArrayCheckBounds(ndims, dims, lbs);
 
 	/* if ndims <= 0 or any dims[i] == 0, return empty array */
 	if (nelems <= 0)
@@ -4088,7 +4116,7 @@ hash_array_extended(PG_FUNCTION_ARGS)
 	typalign = typentry->typalign;
 
 	InitFunctionCallInfoData(*locfcinfo, &typentry->hash_extended_proc_finfo, 2,
-							 InvalidOid, NULL, NULL);
+							 PG_GET_COLLATION(), NULL, NULL);
 
 	/* Loop over source data */
 	nitems = ArrayGetNItems(ndims, dims);
@@ -5461,6 +5489,10 @@ makeArrayResultArr(ArrayBuildStateArr *astate,
 		int			dataoffset,
 					nbytes;
 
+		/* Check for overflow of the array dimensions */
+		(void) ArrayGetNItems(astate->ndims, astate->dims);
+		ArrayCheckBounds(astate->ndims, astate->dims, astate->lbs);
+
 		/* Compute required space */
 		nbytes = astate->nbytes;
 		if (astate->nullbitmap != NULL)
@@ -5890,7 +5922,9 @@ array_fill_internal(ArrayType *dims, ArrayType *lbs,
 		lbsv = deflbs;
 	}
 
+	/* This checks for overflow of the array dimensions */
 	nitems = ArrayGetNItems(ndims, dimv);
+	ArrayCheckBounds(ndims, dimv, lbsv);
 
 	/* fast track for empty array */
 	if (nitems <= 0)
@@ -6642,4 +6676,47 @@ width_bucket_array_variable(Datum operand,
 	}
 
 	return left;
+}
+
+/*
+ * Trim the last N elements from an array by building an appropriate slice.
+ * Only the first dimension is trimmed.
+ */
+Datum
+trim_array(PG_FUNCTION_ARGS)
+{
+	ArrayType  *v = PG_GETARG_ARRAYTYPE_P(0);
+	int			n = PG_GETARG_INT32(1);
+	int			array_length = ARR_DIMS(v)[0];
+	int16		elmlen;
+	bool		elmbyval;
+	char		elmalign;
+	int			lower[MAXDIM];
+	int			upper[MAXDIM];
+	bool		lowerProvided[MAXDIM];
+	bool		upperProvided[MAXDIM];
+	Datum		result;
+
+	/* Per spec, throw an error if out of bounds */
+	if (n < 0 || n > array_length)
+		ereport(ERROR,
+				(errcode(ERRCODE_ARRAY_ELEMENT_ERROR),
+				 errmsg("number of elements to trim must be between 0 and %d",
+						array_length)));
+
+	/* Set all the bounds as unprovided except the first upper bound */
+	memset(lowerProvided, false, sizeof(lowerProvided));
+	memset(upperProvided, false, sizeof(upperProvided));
+	upper[0] = ARR_LBOUND(v)[0] + array_length - n - 1;
+	upperProvided[0] = true;
+
+	/* Fetch the needed information about the element type */
+	get_typlenbyvalalign(ARR_ELEMTYPE(v), &elmlen, &elmbyval, &elmalign);
+
+	/* Get the slice */
+	result = array_get_slice(PointerGetDatum(v), 1,
+							 upper, lower, upperProvided, lowerProvided,
+							 -1, elmlen, elmbyval, elmalign);
+
+	PG_RETURN_DATUM(result);
 }

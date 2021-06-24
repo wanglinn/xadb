@@ -26,4 +26,7 @@ CATALOG(monitor_varparm,9799,MonitorVarParmRelationId)
  */
 typedef FormData_monitor_varparm *Form_monitor_varparm;
 
+DECLARE_UNIQUE_INDEX(monitor_varparm_oid_index, 9773, on monitor_varparm using btree(oid oid_ops));
+#define MonitorVarparmOidIndexId 9773
+
 #endif /* MONITOR_VARPARM_H */

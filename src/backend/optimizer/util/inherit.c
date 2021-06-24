@@ -3,7 +3,7 @@
  * inherit.c
  *	  Routines to process child relations in inheritance trees
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -219,6 +219,10 @@ expand_inherited_rtentry(PlannerInfo *root, RelOptInfo *rel,
 	 * targetlist and update parent rel's reltarget.  This should match what
 	 * preprocess_targetlist() would have added if the mark types had been
 	 * requested originally.
+	 *
+	 * (Someday it might be useful to fold these resjunk columns into the
+	 * row-identity-column management used for UPDATE/DELETE.  Today is not
+	 * that day, however.)
 	 */
 	if (oldrc)
 	{
@@ -585,6 +589,46 @@ expand_single_inheritance_child(PlannerInfo *root, RangeTblEntry *parentrte,
 
 		root->rowMarks = lappend(root->rowMarks, childrc);
 	}
+
+	/*
+	 * If we are creating a child of the query target relation (only possible
+	 * in UPDATE/DELETE), add it to all_result_relids, as well as
+	 * leaf_result_relids if appropriate, and make sure that we generate
+	 * required row-identity data.
+	 */
+	if (bms_is_member(parentRTindex, root->all_result_relids))
+	{
+		/* OK, record the child as a result rel too. */
+		root->all_result_relids = bms_add_member(root->all_result_relids,
+												 childRTindex);
+
+		/* Non-leaf partitions don't need any row identity info. */
+		if (childrte->relkind != RELKIND_PARTITIONED_TABLE)
+		{
+			Var		   *rrvar;
+
+			root->leaf_result_relids = bms_add_member(root->leaf_result_relids,
+													  childRTindex);
+
+			/*
+			 * If we have any child target relations, assume they all need to
+			 * generate a junk "tableoid" column.  (If only one child survives
+			 * pruning, we wouldn't really need this, but it's not worth
+			 * thrashing about to avoid it.)
+			 */
+			rrvar = makeVar(childRTindex,
+							TableOidAttributeNumber,
+							OIDOID,
+							-1,
+							InvalidOid,
+							0);
+			add_row_identity_var(root, rrvar, childRTindex, "tableoid");
+
+			/* Register any row-identity columns needed by this child. */
+			add_row_identity_columns(root, childRTindex,
+									 childrte, childrel);
+		}
+	}
 }
 
 /*
@@ -748,7 +792,8 @@ apply_child_basequals(PlannerInfo *root, RelOptInfo *parentrel,
 			}
 			/* reconstitute RestrictInfo with appropriate properties */
 			childquals = lappend(childquals,
-								 make_restrictinfo((Expr *) onecq,
+								 make_restrictinfo(root,
+												   (Expr *) onecq,
 												   rinfo->is_pushed_down,
 												   rinfo->outerjoin_delayed,
 												   pseudoconstant,
@@ -785,7 +830,7 @@ apply_child_basequals(PlannerInfo *root, RelOptInfo *parentrel,
 
 				/* not likely that we'd see constants here, so no check */
 				childquals = lappend(childquals,
-									 make_restrictinfo(qual,
+									 make_restrictinfo(root, qual,
 													   true, false, false,
 													   security_level,
 													   NULL, NULL, NULL));

@@ -114,7 +114,8 @@ static inline void DRFetchOpenSharedFile(DynamicReduceIOBuffer *io, uint32 id)
 	char name[MAXPGPATH];
 	Assert(io->shared_file == NULL);
 	io->shared_file = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
-										DynamicReduceSharedFileName(name, id));
+										DynamicReduceSharedFileName(name, id),
+										O_RDONLY);
 	io->shared_file_no = id;
 	MemoryContextSwitchTo(oldcontext);
 }

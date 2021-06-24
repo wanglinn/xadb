@@ -374,8 +374,8 @@ static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, con
 	conn = get_gtmcoord_connect(dbname);
 
 	/* start message */
-	if(PQsendQueryStart(conn) == false
-		|| pqPutMsgStart('A', true, conn) < 0)
+	if (PQsendQueryStart(conn, true) == false ||
+		pqPutMsgStart('A', conn) < 0)
 	{
 		/* error message should be set up already */
 		ereport(ERROR, (errmsg("Start message for agtm failed:%s", PQerrorMessage(conn))));

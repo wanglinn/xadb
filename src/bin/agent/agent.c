@@ -13,6 +13,7 @@
 #include "getopt_long.h"
 #include "utils/memutils.h"
 
+int			MyProcPid;
 const char *agent_argv0;
 static const char *progname;
 static int listen_port = 0;
@@ -33,6 +34,7 @@ int main(int argc, char **argv)
 {
 	agent_argv0 = argv[0];
 	progname = get_progname(argv[0]);
+	MyProcPid = getpid();
 
 	parse_options(argc, argv);
 	MemoryContextInit();
@@ -213,6 +215,7 @@ static void begin_service(void)
 			setsid();
 			/* umask(0); */
 			chdir("/");
+			MyProcPid = pid;
 		}else if(pid > 0)
 		{
 			printf("%d\n", (int)pid);

@@ -23,5 +23,7 @@ CATALOG(mgr_hba,9780,HbaRelationId)
  */
 typedef FormData_mgr_hba *Form_mgr_hba;
 
+DECLARE_UNIQUE_INDEX(mgr_hba_oid_index, 9767, on mgr_hba using btree(oid oid_ops));
+#define HbaOidIndexId 9767
 
 #endif /* MGR_HBA_H */

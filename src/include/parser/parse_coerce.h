@@ -4,7 +4,7 @@
  *	Routines for type coercion.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/parser/parse_coerce.h
@@ -80,6 +80,8 @@ extern Node *coerce_to_common_type_extend(ParseState *pstate, Node *node,
 										  CoercionContext coercion,
 										  CoercionForm display);
 #endif /* ADB_GRAM_ORA */
+
+extern int32 select_common_typmod(ParseState *pstate, List *exprs, Oid common_type);
 
 extern bool check_generic_type_consistency(const Oid *actual_arg_types,
 										   const Oid *declared_arg_types,

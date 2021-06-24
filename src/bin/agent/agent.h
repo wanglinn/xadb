@@ -5,6 +5,8 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
+#include <signal.h>
+
 #define CHECK_FOR_INTERRUPTS()		\
 	do { 							\
 		if (InterruptPending)		\
@@ -19,9 +21,9 @@ do { \
 	QueryCancelHoldoffCount--; \
 } while(0)
 
-extern PGDLLIMPORT volatile bool InterruptPending;
-extern PGDLLIMPORT volatile bool QueryCancelPending;
-extern PGDLLIMPORT volatile bool ProcDiePending;
+extern PGDLLIMPORT volatile sig_atomic_t InterruptPending;
+extern PGDLLIMPORT volatile sig_atomic_t QueryCancelPending;
+extern PGDLLIMPORT volatile sig_atomic_t ProcDiePending;
 extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
 extern PGDLLIMPORT volatile uint32 CritSectionCount;
 extern void agt_ProcessInterrupts(void);

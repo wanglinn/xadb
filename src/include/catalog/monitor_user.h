@@ -47,4 +47,7 @@ CATALOG(monitor_user,9798,MuserRelationId)
  */
 typedef FormData_monitor_user *Form_monitor_user;
 
+DECLARE_UNIQUE_INDEX(monitor_user_oid_index, 9776, on monitor_user using btree(oid oid_ops));
+#define MonitorUserOidIndexId 9776
+
 #endif /* MONITOR_USER_H */

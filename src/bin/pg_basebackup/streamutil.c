@@ -5,7 +5,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/streamutil.c
@@ -18,11 +18,12 @@
 #include <unistd.h>
 
 #include "access/xlog_internal.h"
+#include "common/connect.h"
 #include "common/fe_memutils.h"
 #include "common/file_perm.h"
 #include "common/logging.h"
+#include "common/string.h"
 #include "datatype/timestamp.h"
-#include "fe_utils/connect.h"
 #include "port/pg_bswap.h"
 #include "pqexpbuffer.h"
 #include "receivelog.h"
@@ -49,13 +50,11 @@ char	   *dbuser = NULL;
 char	   *dbport = NULL;
 char	   *dbname = NULL;
 int			dbgetpassword = 0;	/* 0=auto, -1=never, 1=always */
-static bool have_password = false;
-static char password[100];
-
+static char *password = NULL;
+PGconn	   *conn = NULL;
 #ifdef WITH_RDMA
 bool		is_rs = false;
 #endif
-PGconn	   *conn = NULL;
 
 /*
  * Connect to the server. Returns a valid PGconn pointer if connected,
@@ -171,20 +170,21 @@ GetConnection(void)
 #endif
 
 	/* If -W was given, force prompt for password, but only the first time */
-	need_password = (dbgetpassword == 1 && !have_password);
+	need_password = (dbgetpassword == 1 && !password);
 
 	do
 	{
 		/* Get a new password if appropriate */
 		if (need_password)
 		{
-			simple_prompt("Password: ", password, sizeof(password), false);
-			have_password = true;
+			if (password)
+				free(password);
+			password = simple_prompt("Password: ", false);
 			need_password = false;
 		}
 
 		/* Use (or reuse, on a subsequent connection) password if we have it */
-		if (have_password)
+		if (password)
 		{
 			keywords[i] = "password";
 			values[i] = password;
@@ -220,8 +220,7 @@ GetConnection(void)
 
 	if (PQstatus(tmpconn) != CONNECTION_OK)
 	{
-		pg_log_error("could not connect to server: %s",
-					 PQerrorMessage(tmpconn));
+		pg_log_error("%s", PQerrorMessage(tmpconn));
 		PQfinish(tmpconn);
 		free(values);
 		free(keywords);

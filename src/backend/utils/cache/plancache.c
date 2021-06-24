@@ -44,7 +44,7 @@
  * if the old one gets invalidated.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -233,6 +233,7 @@ CreateCachedPlan(RawStmt *raw_parse_tree,
 	plansource->generation = 0;
 	plansource->generic_cost = -1;
 	plansource->total_custom_cost = 0;
+	plansource->num_generic_plans = 0;
 	plansource->num_custom_plans = 0;
 
 	MemoryContextSwitchTo(oldcxt);
@@ -300,6 +301,7 @@ CreateOneShotCachedPlan(RawStmt *raw_parse_tree,
 	plansource->generation = 0;
 	plansource->generic_cost = -1;
 	plansource->total_custom_cost = 0;
+	plansource->num_generic_plans = 0;
 	plansource->num_custom_plans = 0;
 
 	return plansource;
@@ -584,7 +586,7 @@ ReleaseGenericPlan(CachedPlanSource *plansource ADB_ONLY_COMMA_ARG(bool is_clust
 #else
 		plansource->gplan = NULL;
 #endif
-		ReleaseCachedPlan(plan, false);
+		ReleaseCachedPlan(plan, NULL);
 	}
 }
 
@@ -984,8 +986,9 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	 * rejected a generic plan, it's possible to reach here with is_valid
 	 * false due to an invalidation while making the generic plan.  In theory
 	 * the invalidation must be a false positive, perhaps a consequence of an
-	 * sinval reset event or the CLOBBER_CACHE_ALWAYS debug code.  But for
-	 * safety, let's treat it as real and redo the RevalidateCachedQuery call.
+	 * sinval reset event or the debug_invalidate_system_caches_always code.
+	 * But for safety, let's treat it as real and redo the
+	 * RevalidateCachedQuery call.
 	 */
 	if (!plansource->is_valid)
 		qlist = RevalidateCachedQuery(plansource, queryEnv);
@@ -1269,32 +1272,32 @@ cached_plan_cost(CachedPlan *plan, bool include_planner)
  * execution.
  *
  * On return, the refcount of the plan has been incremented; a later
- * ReleaseCachedPlan() call is expected.  The refcount has been reported
- * to the CurrentResourceOwner if useResOwner is true (note that that must
- * only be true if it's a "saved" CachedPlanSource).
+ * ReleaseCachedPlan() call is expected.  If "owner" is not NULL then
+ * the refcount has been reported to that ResourceOwner (note that this
+ * is only supported for "saved" CachedPlanSources).
  *
  * Note: if any replanning activity is required, the caller's memory context
  * is used for that work.
  */
 CachedPlan *
 GetCachedPlan(CachedPlanSource *plansource, ParamListInfo boundParams,
-			  bool useResOwner, QueryEnvironment *queryEnv)
+			  ResourceOwner owner, QueryEnvironment *queryEnv)
 #ifdef ADB
 {
-	return GetCachedPlanADB(plansource, boundParams, useResOwner, queryEnv, false);
+	return GetCachedPlanADB(plansource, boundParams, owner, queryEnv, false);
 }
 
 CachedPlan *GetCachedClusterPlan(CachedPlanSource *plansource,
 								 ParamListInfo boundParams,
-								 bool useResOwner,
+								 ResourceOwner owner,
 								 QueryEnvironment *queryEnv)
 {
-	return GetCachedPlanADB(plansource, boundParams, useResOwner, queryEnv, true);
+	return GetCachedPlanADB(plansource, boundParams, owner, queryEnv, true);
 }
 
 CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 							 ParamListInfo boundParams,
-							 bool useResOwner,
+							 ResourceOwner owner,
 							 QueryEnvironment *queryEnv,
 							 bool cluster_safe)
 #endif /* ADB */
@@ -1307,7 +1310,7 @@ CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 	Assert(plansource->magic == CACHEDPLANSOURCE_MAGIC);
 	Assert(plansource->is_complete);
 	/* This seems worth a real test, though */
-	if (useResOwner && !plansource->is_saved)
+	if (owner && !plansource->is_saved)
 		elog(ERROR, "cannot apply ResourceOwner to non-saved cached plan");
 
 	/* Make sure the querytree list is valid and we have parse-time locks */
@@ -1383,22 +1386,24 @@ CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 	{
 		/* Build a custom plan */
 		plan = BuildCachedPlan(plansource, qlist, boundParams, queryEnv ADB_ONLY_COMMA_ARG(cluster_safe));
-		/* Accumulate total costs of custom plans, but 'ware overflow */
-		if (plansource->num_custom_plans < INT_MAX)
-		{
-			plansource->total_custom_cost += cached_plan_cost(plan, true);
-			plansource->num_custom_plans++;
-		}
+		/* Accumulate total costs of custom plans */
+		plansource->total_custom_cost += cached_plan_cost(plan, true);
+
+		plansource->num_custom_plans++;
+	}
+	else
+	{
+		plansource->num_generic_plans++;
 	}
 
 	Assert(plan != NULL);
 
 	/* Flag the plan as in use by caller */
-	if (useResOwner)
-		ResourceOwnerEnlargePlanCacheRefs(CurrentResourceOwner);
+	if (owner)
+		ResourceOwnerEnlargePlanCacheRefs(owner);
 	plan->refcount++;
-	if (useResOwner)
-		ResourceOwnerRememberPlanCacheRef(CurrentResourceOwner, plan);
+	if (owner)
+		ResourceOwnerRememberPlanCacheRef(owner, plan);
 
 	/*
 	 * Saved plans should be under CacheMemoryContext so they will not go away
@@ -1443,21 +1448,21 @@ drop_datanode_statements(Plan *plannode, Node *GlobOrStmt, void *context)
  * ReleaseCachedPlan: release active use of a cached plan.
  *
  * This decrements the reference count, and frees the plan if the count
- * has thereby gone to zero.  If useResOwner is true, it is assumed that
- * the reference count is managed by the CurrentResourceOwner.
+ * has thereby gone to zero.  If "owner" is not NULL, it is assumed that
+ * the reference count is managed by that ResourceOwner.
  *
- * Note: useResOwner = false is used for releasing references that are in
+ * Note: owner == NULL is used for releasing references that are in
  * persistent data structures, such as the parent CachedPlanSource or a
  * Portal.  Transient references should be protected by a resource owner.
  */
 void
-ReleaseCachedPlan(CachedPlan *plan, bool useResOwner)
+ReleaseCachedPlan(CachedPlan *plan, ResourceOwner owner)
 {
 	Assert(plan->magic == CACHEDPLAN_MAGIC);
-	if (useResOwner)
+	if (owner)
 	{
 		Assert(plan->is_saved);
-		ResourceOwnerForgetPlanCacheRef(CurrentResourceOwner, plan);
+		ResourceOwnerForgetPlanCacheRef(owner, plan);
 	}
 	Assert(plan->refcount > 0);
 	plan->refcount--;
@@ -1768,6 +1773,7 @@ CopyCachedPlan(CachedPlanSource *plansource)
 	/* We may as well copy any acquired cost knowledge */
 	newsource->generic_cost = plansource->generic_cost;
 	newsource->total_custom_cost = plansource->total_custom_cost;
+	newsource->num_generic_plans = plansource->num_generic_plans;
 	newsource->num_custom_plans = plansource->num_custom_plans;
 
 	MemoryContextSwitchTo(oldcxt);

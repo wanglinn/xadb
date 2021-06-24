@@ -2,7 +2,7 @@
  * dbsize.c
  *		Database object size functions, and related inquiries
  *
- * Copyright (c) 2002-2020, PostgreSQL Global Development Group
+ * Copyright (c) 2002-2021, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/utils/adt/dbsize.c
@@ -115,7 +115,7 @@ calculate_database_size(Oid dbOid)
 	 */
 	aclresult = pg_database_aclcheck(dbOid, GetUserId(), ACL_CONNECT);
 	if (aclresult != ACLCHECK_OK &&
-		!is_member_of_role(GetUserId(), DEFAULT_ROLE_READ_ALL_STATS))
+		!is_member_of_role(GetUserId(), ROLE_PG_READ_ALL_STATS))
 	{
 		aclcheck_error(aclresult, OBJECT_DATABASE,
 					   get_database_name(dbOid));
@@ -215,7 +215,7 @@ calculate_tablespace_size(Oid tblspcOid)
 	 * is default for current database.
 	 */
 	if (tblspcOid != MyDatabaseTableSpace &&
-		!is_member_of_role(GetUserId(), DEFAULT_ROLE_READ_ALL_STATS))
+		!is_member_of_role(GetUserId(), ROLE_PG_READ_ALL_STATS))
 	{
 		aclresult = pg_tablespace_aclcheck(tblspcOid, GetUserId(), ACL_CREATE);
 		if (aclresult != ACLCHECK_OK)
@@ -662,14 +662,6 @@ numeric_to_cstring(Numeric n)
 	return DatumGetCString(DirectFunctionCall1(numeric_out, d));
 }
 
-static Numeric
-int64_to_numeric(int64 v)
-{
-	Datum		d = Int64GetDatum(v);
-
-	return DatumGetNumeric(DirectFunctionCall1(int8_numeric, d));
-}
-
 static bool
 numeric_is_less(Numeric a, Numeric b)
 {
@@ -698,9 +690,9 @@ numeric_half_rounded(Numeric n)
 	Datum		two;
 	Datum		result;
 
-	zero = DirectFunctionCall1(int8_numeric, Int64GetDatum(0));
-	one = DirectFunctionCall1(int8_numeric, Int64GetDatum(1));
-	two = DirectFunctionCall1(int8_numeric, Int64GetDatum(2));
+	zero = NumericGetDatum(int64_to_numeric(0));
+	one = NumericGetDatum(int64_to_numeric(1));
+	two = NumericGetDatum(int64_to_numeric(2));
 
 	if (DatumGetBool(DirectFunctionCall2(numeric_ge, d, zero)))
 		d = DirectFunctionCall2(numeric_add, d, one);
@@ -715,12 +707,10 @@ static Numeric
 numeric_shift_right(Numeric n, unsigned count)
 {
 	Datum		d = NumericGetDatum(n);
-	Datum		divisor_int64;
 	Datum		divisor_numeric;
 	Datum		result;
 
-	divisor_int64 = Int64GetDatum((int64) (1 << count));
-	divisor_numeric = DirectFunctionCall1(int8_numeric, divisor_int64);
+	divisor_numeric = NumericGetDatum(int64_to_numeric(((int64) 1) << count));
 	result = DirectFunctionCall2(numeric_div_trunc, d, divisor_numeric);
 	return DatumGetNumeric(result);
 }
@@ -915,8 +905,7 @@ pg_size_bytes(PG_FUNCTION_ARGS)
 		{
 			Numeric		mul_num;
 
-			mul_num = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
-														  Int64GetDatum(multiplier)));
+			mul_num = int64_to_numeric(multiplier);
 
 			num = DatumGetNumeric(DirectFunctionCall2(numeric_mul,
 													  NumericGetDatum(mul_num),
@@ -957,25 +946,18 @@ pg_relation_filenode(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	relform = (Form_pg_class) GETSTRUCT(tuple);
 
-	switch (relform->relkind)
+	if (RELKIND_HAS_STORAGE(relform->relkind))
 	{
-		case RELKIND_RELATION:
-		case RELKIND_MATVIEW:
-		case RELKIND_INDEX:
-		case RELKIND_SEQUENCE:
-		case RELKIND_TOASTVALUE:
-			/* okay, these have storage */
-			if (relform->relfilenode)
-				result = relform->relfilenode;
-			else				/* Consult the relation mapper */
-				result = RelationMapOidToFilenode(relid,
-												  relform->relisshared);
-			break;
-
-		default:
-			/* no storage, return NULL */
-			result = InvalidOid;
-			break;
+		if (relform->relfilenode)
+			result = relform->relfilenode;
+		else					/* Consult the relation mapper */
+			result = RelationMapOidToFilenode(relid,
+											  relform->relisshared);
+	}
+	else
+	{
+		/* no storage, return NULL */
+		result = InvalidOid;
 	}
 
 	ReleaseSysCache(tuple);
@@ -1034,38 +1016,30 @@ pg_relation_filepath(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	relform = (Form_pg_class) GETSTRUCT(tuple);
 
-	switch (relform->relkind)
+	if (RELKIND_HAS_STORAGE(relform->relkind))
 	{
-		case RELKIND_RELATION:
-		case RELKIND_MATVIEW:
-		case RELKIND_INDEX:
-		case RELKIND_SEQUENCE:
-		case RELKIND_TOASTVALUE:
-			/* okay, these have storage */
-
-			/* This logic should match RelationInitPhysicalAddr */
-			if (relform->reltablespace)
-				rnode.spcNode = relform->reltablespace;
-			else
-				rnode.spcNode = MyDatabaseTableSpace;
-			if (rnode.spcNode == GLOBALTABLESPACE_OID)
-				rnode.dbNode = InvalidOid;
-			else
-				rnode.dbNode = MyDatabaseId;
-			if (relform->relfilenode)
-				rnode.relNode = relform->relfilenode;
-			else				/* Consult the relation mapper */
-				rnode.relNode = RelationMapOidToFilenode(relid,
-														 relform->relisshared);
-			break;
-
-		default:
-			/* no storage, return NULL */
-			rnode.relNode = InvalidOid;
-			/* some compilers generate warnings without these next two lines */
+		/* This logic should match RelationInitPhysicalAddr */
+		if (relform->reltablespace)
+			rnode.spcNode = relform->reltablespace;
+		else
+			rnode.spcNode = MyDatabaseTableSpace;
+		if (rnode.spcNode == GLOBALTABLESPACE_OID)
 			rnode.dbNode = InvalidOid;
-			rnode.spcNode = InvalidOid;
-			break;
+		else
+			rnode.dbNode = MyDatabaseId;
+		if (relform->relfilenode)
+			rnode.relNode = relform->relfilenode;
+		else					/* Consult the relation mapper */
+			rnode.relNode = RelationMapOidToFilenode(relid,
+													 relform->relisshared);
+	}
+	else
+	{
+		/* no storage, return NULL */
+		rnode.relNode = InvalidOid;
+		/* some compilers generate warnings without these next two lines */
+		rnode.dbNode = InvalidOid;
+		rnode.spcNode = InvalidOid;
 	}
 
 	if (!OidIsValid(rnode.relNode))

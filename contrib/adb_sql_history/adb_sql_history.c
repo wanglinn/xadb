@@ -486,7 +486,7 @@ static void insert_sql(int sql_idx, char *sql)
     SpinLockAcquire(&sql_item->mutex);
     sql_item->pid = MyProcPid;
     sql_item->dbid = MyDatabaseId;
-    StrNCpy(sql_item->sql, sql, pgstat_track_activity_query_size);
+    strlcpy(sql_item->sql, sql, pgstat_track_activity_query_size);
     sql_item->lasttime = GetCurrentTimestamp();
     sql_item->ecount = 1;
     SpinLockRelease(&sql_item->mutex);

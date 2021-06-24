@@ -3,7 +3,7 @@
  * tlist.c
  *	  Target list manipulation routines
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -20,11 +20,6 @@
 #include "optimizer/optimizer.h"
 #include "optimizer/tlist.h"
 
-
-/* Test if an expression node represents a SRF call.  Beware multiple eval! */
-#define IS_SRF_CALL(node) \
-	((IsA(node, FuncExpr) && ((FuncExpr *) (node))->funcretset) || \
-	 (IsA(node, OpExpr) && ((OpExpr *) (node))->opretset))
 
 /*
  * Data structures for split_pathtarget_at_srfs().  To preserve the identity
@@ -79,34 +74,6 @@ tlist_member(Expr *node, List *targetlist)
 		TargetEntry *tlentry = (TargetEntry *) lfirst(temp);
 
 		if (equal(node, tlentry->expr))
-			return tlentry;
-	}
-	return NULL;
-}
-
-/*
- * tlist_member_ignore_relabel
- *	  Same as above, except that we ignore top-level RelabelType nodes
- *	  while checking for a match.  This is needed for some scenarios
- *	  involving binary-compatible sort operations.
- */
-TargetEntry *
-tlist_member_ignore_relabel(Expr *node, List *targetlist)
-{
-	ListCell   *temp;
-
-	while (node && IsA(node, RelabelType))
-		node = ((RelabelType *) node)->arg;
-
-	foreach(temp, targetlist)
-	{
-		TargetEntry *tlentry = (TargetEntry *) lfirst(temp);
-		Expr	   *tlexpr = tlentry->expr;
-
-		while (tlexpr && IsA(tlexpr, RelabelType))
-			tlexpr = ((RelabelType *) tlexpr)->arg;
-
-		if (equal(node, tlexpr))
 			return tlentry;
 	}
 	return NULL;
@@ -667,6 +634,13 @@ make_pathtarget_from_tlist(List *tlist)
 		i++;
 	}
 
+	/*
+	 * Mark volatility as unknown.  The contain_volatile_functions function
+	 * will determine if there are any volatile functions when called for the
+	 * first time with this PathTarget.
+	 */
+	target->has_volatile_expr = VOLATILITY_UNKNOWN;
+
 	return target;
 }
 
@@ -812,6 +786,16 @@ add_column_to_pathtarget(PathTarget *target, Expr *expr, Index sortgroupref)
 		target->sortgrouprefs = (Index *) palloc0(nexprs * sizeof(Index));
 		target->sortgrouprefs[nexprs - 1] = sortgroupref;
 	}
+
+	/*
+	 * Reset has_volatile_expr to UNKNOWN.  We just leave it up to
+	 * contain_volatile_functions to set this properly again.  Technically we
+	 * could save some effort here and just check the new Expr, but it seems
+	 * better to keep the logic for setting this flag in one location rather
+	 * than duplicating the logic here.
+	 */
+	if (target->has_volatile_expr == VOLATILITY_NOVOLATILE)
+		target->has_volatile_expr = VOLATILITY_UNKNOWN;
 }
 
 /*

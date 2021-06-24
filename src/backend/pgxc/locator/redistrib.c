@@ -116,7 +116,7 @@ static void DoReduceDataForShadowRel(Relation master,
 					   Oid preferred);
 static List *distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo, RelationLocInfo *newLocInfo
 	, RedistribOperation commandType);
-static TupleTableSlot *NextRowForDistribScanNone(CopyState cstate, ExprContext *context, void *data);
+static TupleTableSlot *NextRowForDistribScanNone(CopyFromState cstate, ExprContext *context, void *data);
 static List *MakeMainRelTargetForShadow(Relation mainRel, Index relid, bool targetEntry);
 static int process_distrib_cmd(void *context, const char *data, int len);
 static AuxiliaryRelCopy *MakeShadowRelCopyInfoFromMaster(Relation masterRel, RelationLocInfo *newLocInfo, int shadowId);
@@ -1406,7 +1406,7 @@ distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo
 }
 
 static TupleTableSlot *
-NextRowForDistribScanNone(CopyState cstate, ExprContext * context, void *data)
+NextRowForDistribScanNone(CopyFromState cstate, ExprContext * context, void *data)
 {
 	return NULL;
 }

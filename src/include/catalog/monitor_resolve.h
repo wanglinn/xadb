@@ -29,4 +29,7 @@ CATALOG(monitor_resolve,9796,MonitorResolveRelationId)
 */
 typedef FormData_monitor_resolve *Form_monitor_resolve;
 
+DECLARE_UNIQUE_INDEX(monitor_resolve_oid_index, 9775, on monitor_resolve using btree(oid oid_ops));
+#define MonitorResolveOidIndexId 9775
+
 #endif /* MONITOR_RESOLVE_H */

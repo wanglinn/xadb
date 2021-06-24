@@ -43,6 +43,11 @@ CATALOG(mgr_host,9781,HostRelationId)
  */
 typedef FormData_mgr_host *Form_mgr_host;
 
+DECLARE_UNIQUE_INDEX(mgr_host_oid_index, 9763, on mgr_host using btree(oid oid_ops));
+#define HostOidIndexId 9763
+DECLARE_UNIQUE_INDEX(mgr_host_hostname_index, 9764, on mgr_host using btree(hostname name_ops));
+#define HostHostnameIndexId					9764
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define HOST_PROTOCOL_TELNET			't'

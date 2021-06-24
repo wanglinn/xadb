@@ -3,7 +3,7 @@
  * pg_proc.c
  *	  routines to support manipulation of the pg_proc relation
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -32,6 +32,7 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
+#include "parser/analyze.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "tcop/pquery.h"
@@ -81,6 +82,7 @@ ProcedureCreate(const char *procedureName,
 				Oid languageValidator,
 				const char *prosrc,
 				const char *probin,
+				Node *prosqlbody,
 				char prokind,
 				bool security_definer,
 				bool isLeakProof,
@@ -119,6 +121,7 @@ ProcedureCreate(const char *procedureName,
 	char	   *detailmsg;
 	int			i;
 	Oid			trfid;
+	ObjectAddresses *addrs;
 
 	/*
 	 * sanity checks
@@ -253,6 +256,9 @@ ProcedureCreate(const char *procedureName,
 						elog(ERROR, "variadic parameter must be last");
 					break;
 				case PROARGMODE_OUT:
+					if (OidIsValid(variadicType) && prokind == PROKIND_PROCEDURE)
+						elog(ERROR, "variadic parameter must be last");
+					break;
 				case PROARGMODE_TABLE:
 					/* okay */
 					break;
@@ -340,6 +346,10 @@ ProcedureCreate(const char *procedureName,
 		values[Anum_pg_proc_probin - 1] = CStringGetTextDatum(probin);
 	else
 		nulls[Anum_pg_proc_probin - 1] = true;
+	if (prosqlbody)
+		values[Anum_pg_proc_prosqlbody - 1] = CStringGetTextDatum(nodeToString(prosqlbody));
+	else
+		nulls[Anum_pg_proc_prosqlbody - 1] = true;
 	if (proconfig != PointerGetDatum(NULL))
 		values[Anum_pg_proc_proconfig - 1] = proconfig;
 	else
@@ -466,10 +476,12 @@ ProcedureCreate(const char *procedureName,
 			if (isnull)
 				proargmodes = PointerGetDatum(NULL);	/* just to be sure */
 
-			n_old_arg_names = get_func_input_arg_names(proargnames,
+			n_old_arg_names = get_func_input_arg_names(prokind,
+													   proargnames,
 													   proargmodes,
 													   &old_arg_names);
-			n_new_arg_names = get_func_input_arg_names(parameterNames,
+			n_new_arg_names = get_func_input_arg_names(prokind,
+													   parameterNames,
 													   parameterModes,
 													   &new_arg_names);
 			for (j = 0; j < n_old_arg_names; j++)
@@ -590,68 +602,61 @@ ProcedureCreate(const char *procedureName,
 	if (is_update)
 		deleteDependencyRecordsFor(ProcedureRelationId, retval, true);
 
-	myself.classId = ProcedureRelationId;
-	myself.objectId = retval;
-	myself.objectSubId = 0;
+	addrs = new_object_addresses();
+
+	ObjectAddressSet(myself, ProcedureRelationId, retval);
 
 	/* dependency on namespace */
-	referenced.classId = NamespaceRelationId;
-	referenced.objectId = procNamespace;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	ObjectAddressSet(referenced, NamespaceRelationId, procNamespace);
+	add_exact_object_address(&referenced, addrs);
 
 	/* dependency on implementation language */
-	referenced.classId = LanguageRelationId;
-	referenced.objectId = languageObjectId;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	ObjectAddressSet(referenced, LanguageRelationId, languageObjectId);
+	add_exact_object_address(&referenced, addrs);
 
 	/* dependency on return type */
-	referenced.classId = TypeRelationId;
-	referenced.objectId = returnType;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	ObjectAddressSet(referenced, TypeRelationId, returnType);
+	add_exact_object_address(&referenced, addrs);
 
 	/* dependency on transform used by return type, if any */
 	if ((trfid = get_transform_oid(returnType, languageObjectId, true)))
 	{
-		referenced.classId = TransformRelationId;
-		referenced.objectId = trfid;
-		referenced.objectSubId = 0;
-		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+		ObjectAddressSet(referenced, TransformRelationId, trfid);
+		add_exact_object_address(&referenced, addrs);
 	}
 
 	/* dependency on parameter types */
 	for (i = 0; i < allParamCount; i++)
 	{
-		referenced.classId = TypeRelationId;
-		referenced.objectId = allParams[i];
-		referenced.objectSubId = 0;
-		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+		ObjectAddressSet(referenced, TypeRelationId, allParams[i]);
+		add_exact_object_address(&referenced, addrs);
 
 		/* dependency on transform used by parameter type, if any */
 		if ((trfid = get_transform_oid(allParams[i], languageObjectId, true)))
 		{
-			referenced.classId = TransformRelationId;
-			referenced.objectId = trfid;
-			referenced.objectSubId = 0;
-			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+			ObjectAddressSet(referenced, TransformRelationId, trfid);
+			add_exact_object_address(&referenced, addrs);
 		}
 	}
+
+	/* dependency on support function, if any */
+	if (OidIsValid(prosupport))
+	{
+		ObjectAddressSet(referenced, ProcedureRelationId, prosupport);
+		add_exact_object_address(&referenced, addrs);
+	}
+
+	record_object_address_dependencies(&myself, addrs, DEPENDENCY_NORMAL);
+	free_object_addresses(addrs);
+
+	/* dependency on SQL routine body */
+	if (languageObjectId == SQLlanguageId && prosqlbody)
+		recordDependencyOnExpr(&myself, prosqlbody, NIL, DEPENDENCY_NORMAL);
 
 	/* dependency on parameter default expressions */
 	if (parameterDefaults)
 		recordDependencyOnExpr(&myself, (Node *) parameterDefaults,
 							   NIL, DEPENDENCY_NORMAL);
-
-	/* dependency on support function, if any */
-	if (OidIsValid(prosupport))
-	{
-		referenced.classId = ProcedureRelationId;
-		referenced.objectId = prosupport;
-		referenced.objectSubId = 0;
-		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
-	}
 
 	/* dependency on owner */
 	if (!is_update)
@@ -888,63 +893,73 @@ fmgr_sql_validator(PG_FUNCTION_ARGS)
 		sqlerrcontext.previous = error_context_stack;
 		error_context_stack = &sqlerrcontext;
 
-		/*
-		 * We can't do full prechecking of the function definition if there
-		 * are any polymorphic input types, because actual datatypes of
-		 * expression results will be unresolvable.  The check will be done at
-		 * runtime instead.
-		 *
-		 * We can run the text through the raw parser though; this will at
-		 * least catch silly syntactic errors.
-		 */
-		raw_parsetree_list = pg_parse_query(prosrc);
+		/* If we have prosqlbody, pay attention to that not prosrc */
+		tmp = SysCacheGetAttr(PROCOID, tuple, Anum_pg_proc_prosqlbody, &isnull);
+		if (!isnull)
+		{
+			Node	   *n;
+
+			n = stringToNode(TextDatumGetCString(tmp));
+			if (IsA(n, List))
+				querytree_list = castNode(List, n);
+			else
+				querytree_list = list_make1(list_make1(n));
+		}
+		else
+		{
+			/*
+			 * We can't do full prechecking of the function definition if
+			 * there are any polymorphic input types, because actual datatypes
+			 * of expression results will be unresolvable.  The check will be
+			 * done at runtime instead.
+			 *
+			 * We can run the text through the raw parser though; this will at
+			 * least catch silly syntactic errors.
+			 */
+			raw_parsetree_list = pg_parse_query(prosrc);
+			querytree_list = NIL;
+
+			if (!haspolyarg)
+			{
+				/*
+				 * OK to do full precheck: analyze and rewrite the queries,
+				 * then verify the result type.
+				 */
+				SQLFunctionParseInfoPtr pinfo;
+
+				/* But first, set up parameter information */
+				pinfo = prepare_sql_fn_parse_info(tuple, NULL, InvalidOid);
+
+				foreach(lc, raw_parsetree_list)
+				{
+					RawStmt    *parsetree = lfirst_node(RawStmt, lc);
+					List	   *querytree_sublist;
+
+					querytree_sublist = pg_analyze_and_rewrite_params(parsetree,
+																	  prosrc,
+																	  (ParserSetupHook) sql_fn_parser_setup,
+																	  pinfo,
+																	  NULL);
+#ifdef ADB
+					/* Check if the list of queries contains temporary objects */
+					if (IsCnMaster())
+					{
+						if (pgxc_query_contains_utility(querytree_sublist))
+							ereport(ERROR,
+									(errcode(ERRCODE_SYNTAX_ERROR),
+									errmsg("In XC, SQL functions cannot contain utility statements")));
+					}
+#endif
+					querytree_list = lappend(querytree_list,
+											 querytree_sublist);
+				}
+			}
+		}
 
 		if (!haspolyarg)
 		{
-			/*
-			 * OK to do full precheck: analyze and rewrite the queries, then
-			 * verify the result type.
-			 */
-			SQLFunctionParseInfoPtr pinfo;
 			Oid			rettype;
 			TupleDesc	rettupdesc;
-
-			/* But first, set up parameter information */
-			pinfo = prepare_sql_fn_parse_info(tuple, NULL, InvalidOid);
-
-			querytree_list = NIL;
-			foreach(lc, raw_parsetree_list)
-			{
-				RawStmt    *parsetree = lfirst_node(RawStmt, lc);
-				List	   *querytree_sublist;
-
-#ifdef ADB
-				/* Block CTAS in SQL functions */
-				if (IsA(parsetree, CreateTableAsStmt))
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							errmsg("In XC, SQL functions cannot contain utility statements")));
-#endif
-
-				querytree_sublist = pg_analyze_and_rewrite_params(parsetree,
-																  prosrc,
-																  (ParserSetupHook) sql_fn_parser_setup,
-																  pinfo,
-																  NULL);
-#ifdef ADB
-				/* Check if the list of queries contains temporary objects */
-				if (IsCnMaster())
-				{
-					if (pgxc_query_contains_utility(querytree_sublist))
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("In XC, SQL functions cannot contain utility statements")));
-				}
-#endif
-
-				querytree_list = list_concat(querytree_list,
-											 querytree_sublist);
-			}
 
 			check_sql_fn_statements(querytree_list);
 

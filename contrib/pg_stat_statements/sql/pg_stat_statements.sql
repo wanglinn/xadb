@@ -4,6 +4,7 @@ CREATE EXTENSION pg_stat_statements;
 -- simple and compound statements
 --
 SET pg_stat_statements.track_utility = FALSE;
+SET pg_stat_statements.track_planning = TRUE;
 SELECT pg_stat_statements_reset();
 
 SELECT 1 AS "int";
@@ -250,6 +251,31 @@ DROP FUNCTION PLUS_TWO(INTEGER);
 SELECT query, calls, rows FROM pg_stat_statements ORDER BY query COLLATE "C";
 
 --
+-- Track the total number of rows retrieved or affected by the utility
+-- commands of COPY, FETCH, CREATE TABLE AS, CREATE MATERIALIZED VIEW,
+-- REFRESH MATERIALIZED VIEW and SELECT INTO
+--
+SELECT pg_stat_statements_reset();
+
+CREATE TABLE pgss_ctas AS SELECT a, 'ctas' b FROM generate_series(1, 10) a;
+SELECT generate_series(1, 10) c INTO pgss_select_into;
+COPY pgss_ctas (a, b) FROM STDIN;
+11	copy
+12	copy
+13	copy
+\.
+CREATE MATERIALIZED VIEW pgss_matv AS SELECT * FROM pgss_ctas;
+REFRESH MATERIALIZED VIEW pgss_matv;
+BEGIN;
+DECLARE pgss_cursor CURSOR FOR SELECT * FROM pgss_matv;
+FETCH NEXT pgss_cursor;
+FETCH FORWARD 5 pgss_cursor;
+FETCH FORWARD ALL pgss_cursor;
+COMMIT;
+
+SELECT query, plans, calls, rows FROM pg_stat_statements ORDER BY query COLLATE "C";
+
+--
 -- Track user activity and reset them
 --
 SELECT pg_stat_statements_reset();
@@ -312,6 +338,9 @@ SELECT query, calls, rows FROM pg_stat_statements ORDER BY query COLLATE "C";
 --
 DROP ROLE regress_stats_user1;
 DROP ROLE regress_stats_user2;
+DROP MATERIALIZED VIEW pgss_matv;
+DROP TABLE pgss_ctas;
+DROP TABLE pgss_select_into;
 
 --
 -- [re]plan counting
@@ -328,5 +357,84 @@ SELECT 42;
 SELECT 42;
 SELECT 42;
 SELECT query, plans, calls, rows FROM pg_stat_statements ORDER BY query COLLATE "C";
+
+--
+-- access to pg_stat_statements_info view
+--
+SELECT pg_stat_statements_reset();
+SELECT dealloc FROM pg_stat_statements_info;
+
+--
+-- top level handling
+--
+SET pg_stat_statements.track = 'top';
+DELETE FROM test;
+DO $$
+BEGIN
+    DELETE FROM test;
+END;
+$$ LANGUAGE plpgsql;
+SELECT query, toplevel, plans, calls FROM pg_stat_statements WHERE query LIKE '%DELETE%' ORDER BY query COLLATE "C", toplevel;
+
+SET pg_stat_statements.track = 'all';
+DELETE FROM test;
+DO $$
+BEGIN
+    DELETE FROM test;
+END;
+$$ LANGUAGE plpgsql;
+SELECT query, toplevel, plans, calls FROM pg_stat_statements WHERE query LIKE '%DELETE%' ORDER BY query COLLATE "C", toplevel;
+
+-- FROM [ONLY]
+CREATE TABLE tbl_inh(id integer);
+CREATE TABLE tbl_inh_1() INHERITS (tbl_inh);
+INSERT INTO tbl_inh_1 SELECT 1;
+
+SELECT * FROM tbl_inh;
+SELECT * FROM ONLY tbl_inh;
+
+SELECT COUNT(*) FROM pg_stat_statements WHERE query LIKE '%FROM%tbl_inh%';
+
+-- WITH TIES
+CREATE TABLE limitoption AS SELECT 0 AS val FROM generate_series(1, 10);
+SELECT *
+FROM limitoption
+WHERE val < 2
+ORDER BY val
+FETCH FIRST 2 ROWS WITH TIES;
+
+SELECT *
+FROM limitoption
+WHERE val < 2
+ORDER BY val
+FETCH FIRST 2 ROW ONLY;
+
+SELECT COUNT(*) FROM pg_stat_statements WHERE query LIKE '%FETCH FIRST%';
+
+-- GROUP BY [DISTINCT]
+SELECT a, b, c
+FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t (a, b, c)
+GROUP BY ROLLUP(a, b), rollup(a, c)
+ORDER BY a, b, c;
+SELECT a, b, c
+FROM (VALUES (1, 2, 3), (4, NULL, 6), (7, 8, 9)) AS t (a, b, c)
+GROUP BY DISTINCT ROLLUP(a, b), rollup(a, c)
+ORDER BY a, b, c;
+
+SELECT COUNT(*) FROM pg_stat_statements WHERE query LIKE '%GROUP BY%ROLLUP%';
+
+-- GROUPING SET agglevelsup
+SELECT (
+  SELECT (
+    SELECT GROUPING(a,b) FROM (VALUES (1)) v2(c)
+  ) FROM (VALUES (1,2)) v1(a,b) GROUP BY (a,b)
+) FROM (VALUES(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+SELECT (
+  SELECT (
+    SELECT GROUPING(e,f) FROM (VALUES (1)) v2(c)
+  ) FROM (VALUES (1,2)) v1(a,b) GROUP BY (a,b)
+) FROM (VALUES(6,7)) v3(e,f) GROUP BY ROLLUP(e,f);
+
+SELECT COUNT(*) FROM pg_stat_statements WHERE query LIKE '%SELECT GROUPING%';
 
 DROP EXTENSION pg_stat_statements;

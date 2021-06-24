@@ -216,14 +216,9 @@ static void bs_write_normal_hash(BatchStore bs, MinimalTuple mtup, uint32 hash)
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	if (BufFileWrite(buffile, &hash, sizeof(hash)) != sizeof(hash) ||
-		BufFileWrite(buffile, &mtup->t_len, sizeof(mtup->t_len)) != sizeof(mtup->t_len) ||
-		BufFileWrite(buffile, ((char*)mtup) + MINIMAL_TUPLE_DATA_OFFSET, data_len) != data_len)
-	{
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not write to batch store temporary file: %m")));
-	}
+	BufFileWrite(buffile, &hash, sizeof(hash));
+	BufFileWrite(buffile, &mtup->t_len, sizeof(mtup->t_len));
+	BufFileWrite(buffile, ((char*)mtup) + MINIMAL_TUPLE_DATA_OFFSET, data_len);
 }
 
 static MinimalTuple bs_read_normal_hash(BatchStore bs, uint32 *hash)

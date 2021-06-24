@@ -2738,13 +2738,7 @@ Datum mgr_runmode_cndn(nodenames_supplier supplier,
 	}
 	nodestrname = (char *) list_nth(info->node_list, info->index);
 	++(info->index);
-	if(namestrcpy(&nodenamedata, nodestrname) != 0)
-	{
-		table_close(info->rel_node, RowExclusiveLock);
-		list_free(info->node_list);
-		pfree(info);
-		ereport(ERROR, (errmsg("namestrcpy %s fail", nodestrname)));
-	}
+	namestrcpy(&nodenamedata, nodestrname);
 	aimtuple = mgr_get_tuple_node_from_name_type(info->rel_node, NameStr(nodenamedata));
 	if (!HeapTupleIsValid(aimtuple))
 	{
@@ -15653,14 +15647,7 @@ static void mgr_run_gtm_dn_slave( HeapTuple tuple,
 	slave_node = (Form_mgr_node)GETSTRUCT(tuple);
 	Assert(slave_node);
 	nodestrname = (char*)(NameStr(slave_node->nodename));
-	if(namestrcpy(&nodenamedata, nodestrname) != 0)
-	{
-		table_endscan(info->rel_scan);
-		table_close(info->rel_node, RowExclusiveLock);
-		list_free(info->node_list);
-		MgrFree(info);
-		ereport(ERROR, (errmsg("namestrcpy %s fail", nodestrname)));
-	}
+	namestrcpy(&nodenamedata, nodestrname);
 
     if (cmdtype == AGT_CMD_DN_START || cmdtype == AGT_CMD_GTMCOORD_START_SLAVE){
 		updateDoctorStatusOfMgrNode(nodestrname, slave_node->nodetype, true, CURE_STATUS_NORMAL);

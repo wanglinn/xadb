@@ -202,7 +202,7 @@ typedef struct OraclePartitionSpec
 %type <node>	CreateStmt TableElement columnDef generic_option_arg ColConstraint ColConstraintElem
 				def_arg columnElem ConstraintAttr a_expr b_expr c_expr columnref indirection_el
 				opt_slice_bound AexprConst ora_part_child
-%type <list>	OptTableElementList TableElementList type_list opt_array_bounds opt_interval
+%type <list>	OptTableElementList TableElementList opt_array_bounds opt_interval
 				create_generic_options generic_option_list ColQualList
 				opt_definition definition def_list qual_all_Op any_operator OptParenthesizedSeqOptList
 				SeqOptList any_name opt_column_list columnList indirection opt_indirection expr_list
@@ -716,9 +716,7 @@ Typename:	SimpleTypename opt_array_bounds
 					$$->setof = true;
 				}
 		;
-type_list:	Typename								{ $$ = list_make1($1); }
-			| type_list ',' Typename				{ $$ = lappend($1, $3); }
-		;
+
 opt_array_bounds:
 			opt_array_bounds '[' ']'
 					{  $$ = lappend($1, makeInteger(-1)); }
@@ -1438,14 +1436,6 @@ b_expr:		c_expr
 				{
 					$$ = (Node *) makeSimpleA_Expr(AEXPR_NOT_DISTINCT, "=", $1, $6, @2);
 				}
-			| b_expr IS OF '(' type_list ')'		%prec IS
-				{
-					$$ = (Node *) makeSimpleA_Expr(AEXPR_OF, "=", $1, (Node *) $5, @2);
-				}
-			| b_expr IS NOT OF '(' type_list ')'	%prec IS
-				{
-					$$ = (Node *) makeSimpleA_Expr(AEXPR_OF, "<>", $1, (Node *) $6, @2);
-				}
 			| b_expr IS DOCUMENT_P					%prec IS
 				{
 					$$ = makeXmlExpr(IS_DOCUMENT, NULL, NIL,
@@ -1491,28 +1481,6 @@ c_expr:		columnref								{ $$ = $1; }
 						n->arg = $2;
 						n->indirection = check_indirection($4, yyscanner);
 						$$ = (Node *)n;
-					}
-					else if (operator_precedence_warning)
-					{
-						/*
-						 * If precedence warnings are enabled, insert
-						 * AEXPR_PAREN nodes wrapping all explicitly
-						 * parenthesized subexpressions; this prevents bogus
-						 * warnings from being issued when the ordering has
-						 * been forced by parentheses.  Take care that an
-						 * AEXPR_PAREN node has the same exprLocation as its
-						 * child, so as not to cause surprising changes in
-						 * error cursor positioning.
-						 *
-						 * In principle we should not be relying on a GUC to
-						 * decide whether to insert AEXPR_PAREN nodes.
-						 * However, since they have no effect except to
-						 * suppress warnings, it's probably safe enough; and
-						 * we'd just as soon not waste cycles on dummy parse
-						 * nodes if we don't have to.
-						 */
-						$$ = (Node *) makeA_Expr(AEXPR_PAREN, NIL, $2, NULL,
-												 exprLocation($2));
 					}
 					else
 						$$ = $2;
@@ -2550,18 +2518,21 @@ static List* db2_yyparse_internal(const char *str, core_yyscan_t yyscanner)
 		if (edata->sqlerrcode != ERRCODE_SYNTAX_ERROR)
 			ReThrowError(edata);
 
-		stmts = raw_parser(str);
+		stmts = raw_parser(str, RAW_PARSE_DEFAULT);
 	}PG_END_TRY();
 
 	return stmts;
 }
 
-List* db2_raw_parser(const char *str)
+List* db2_raw_parser(const char *str, RawParseMode mode)
 {
 	List *stmts;
 	core_yyscan_t yyscanner;
 	db2_yy_extra_type yyextra;
-
+#warning TODO support RawParseMode
+	if (mode != RAW_PARSE_DEFAULT)
+		ereport(ERROR,
+				errmsg("db2_raw_parser only support RAW_PARSE_DEFAULT for now"));
 	/* initialize the flex scanner */
 	Assert(lengthof(db2ScanKeywordTokens) == db2ScanKeywords.num_keywords);
 	yyscanner = scanner_init(str, &yyextra.core_yy_extra,

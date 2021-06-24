@@ -10,7 +10,7 @@
  * analyze.c and related files.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -55,11 +55,11 @@ static char *str_udeescape(const char *str, char escape,
  * raw_parser
  *		Given a query in string form, do lexical and grammatical analysis.
  *
- * Returns a list of raw (un-analyzed) parse trees.  The immediate elements
- * of the list are always RawStmt nodes.
+ * Returns a list of raw (un-analyzed) parse trees.  The contents of the
+ * list have the form required by the specified RawParseMode.
  */
 List *
-raw_parser(const char *str)
+raw_parser(const char *str, RawParseMode mode)
 {
 	core_yyscan_t yyscanner;
 	base_yy_extra_type yyextra;
@@ -69,8 +69,26 @@ raw_parser(const char *str)
 	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
 							 &ScanKeywords, ScanKeywordTokens);
 
-	/* base_yylex() only needs this much initialization */
-	yyextra.have_lookahead = false;
+	/* base_yylex() only needs us to initialize the lookahead token, if any */
+	if (mode == RAW_PARSE_DEFAULT)
+		yyextra.have_lookahead = false;
+	else
+	{
+		/* this array is indexed by RawParseMode enum */
+		static const int mode_token[] = {
+			0,					/* RAW_PARSE_DEFAULT */
+			MODE_TYPE_NAME,		/* RAW_PARSE_TYPE_NAME */
+			MODE_PLPGSQL_EXPR,	/* RAW_PARSE_PLPGSQL_EXPR */
+			MODE_PLPGSQL_ASSIGN1,	/* RAW_PARSE_PLPGSQL_ASSIGN1 */
+			MODE_PLPGSQL_ASSIGN2,	/* RAW_PARSE_PLPGSQL_ASSIGN2 */
+			MODE_PLPGSQL_ASSIGN3	/* RAW_PARSE_PLPGSQL_ASSIGN3 */
+		};
+
+		yyextra.have_lookahead = true;
+		yyextra.lookahead_token = mode_token[mode];
+		yyextra.lookahead_yylloc = 0;
+		yyextra.lookahead_end = NULL;
+	}
 
 	/* initialize the bison parser */
 	parser_init(&yyextra);
@@ -87,6 +105,31 @@ raw_parser(const char *str)
 	return yyextra.parsetree;
 }
 
+#ifdef ADB_MULTI_GRAM
+List *
+raw_parser_for_gram(const char *str, RawParseMode mode, ParseGrammar grammar)
+{
+	switch(grammar)
+	{
+	case PARSE_GRAM_POSTGRES:
+		return raw_parser(str, mode);
+#ifdef ADB_GRAM_ORA
+	case PARSE_GRAM_ORACLE:
+		return ora_raw_parser(str, mode);
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB_GRAM_DB2
+	case PARSE_GRAM_DB2:
+		return db2_raw_parser(str, mode);
+#endif /* ADB_GRAM_DB2 */
+	default:
+		ereport(ERROR,
+				errmsg("Unknown grammar %d", grammar),
+				errcode(ERRCODE_INTERNAL_ERROR),
+				errhint("Use SQL:\"set grammar=postgres|oracle|db2\" to change grammar"));
+		return NIL;	/* keep compiler quite */
+	}
+}
+#endif
 
 /*
  * Intermediate filter between parser and core lexer (core_yylex in scan.l).
@@ -124,7 +167,8 @@ base_yylex(YYSTYPE *lvalp, YYLTYPE *llocp, core_yyscan_t yyscanner)
 		cur_token = yyextra->lookahead_token;
 		lvalp->core_yystype = yyextra->lookahead_yylval;
 		*llocp = yyextra->lookahead_yylloc;
-		*(yyextra->lookahead_end) = yyextra->lookahead_hold_char;
+		if (yyextra->lookahead_end)
+			*(yyextra->lookahead_end) = yyextra->lookahead_hold_char;
 		yyextra->have_lookahead = false;
 	}
 	else
@@ -776,7 +820,7 @@ check_indirection(List *indirection, core_yyscan_t yyscanner)
  * the productions that use this call.
  */
 List *
-extractArgTypes(List *parameters)
+extractArgTypes(ObjectType objtype, List *parameters)
 {
 	List	   *result = NIL;
 	ListCell   *i;
@@ -785,7 +829,7 @@ extractArgTypes(List *parameters)
 	{
 		FunctionParameter *p = (FunctionParameter *) lfirst(i);
 
-		if (p->mode != FUNC_PARAM_OUT && p->mode != FUNC_PARAM_TABLE)
+		if ((p->mode != FUNC_PARAM_OUT || objtype == OBJECT_PROCEDURE) && p->mode != FUNC_PARAM_TABLE)
 			result = lappend(result, p->argType);
 	}
 	return result;
@@ -798,7 +842,7 @@ List *
 extractAggrArgTypes(List *aggrargs)
 {
 	Assert(list_length(aggrargs) == 2);
-	return extractArgTypes((List *) linitial(aggrargs));
+	return extractArgTypes(OBJECT_AGGREGATE, (List *) linitial(aggrargs));
 }
 
 /* makeOrderedSetArgs()
@@ -811,7 +855,7 @@ makeOrderedSetArgs(List *directargs, List *orderedargs,
 				   core_yyscan_t yyscanner)
 {
 	FunctionParameter *lastd = (FunctionParameter *) llast(directargs);
-	int			ndirectargs;
+	Value	   *ndirectargs;
 
 	/* No restriction unless last direct arg is VARIADIC */
 	if (lastd->mode == FUNC_PARAM_VARIADIC)
@@ -835,10 +879,10 @@ makeOrderedSetArgs(List *directargs, List *orderedargs,
 	}
 
 	/* don't merge into the next line, as list_concat changes directargs */
-	ndirectargs = list_length(directargs);
+	ndirectargs = makeInteger(list_length(directargs));
 
 	return list_make2(list_concat(directargs, orderedargs),
-					  makeInteger(ndirectargs));
+					  ndirectargs);
 }
 
 /* insertSelectOptions()
@@ -897,7 +941,7 @@ insertSelectOptions(SelectStmt *stmt,
 		if (!stmt->sortClause && limitClause->limitOption == LIMIT_OPTION_WITH_TIES)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("WITH TIES options can not be specified without ORDER BY clause")));
+					 errmsg("WITH TIES cannot be specified without ORDER BY clause")));
 		stmt->limitOption = limitClause->limitOption;
 	}
 	if (withClause)
@@ -1010,16 +1054,10 @@ doNegateFloat(Value *v)
 Node *
 makeAndExpr(Node *lexpr, Node *rexpr, int location)
 {
-	Node	   *lexp = lexpr;
-
-	/* Look through AEXPR_PAREN nodes so they don't affect flattening */
-	while (IsA(lexp, A_Expr) &&
-		   ((A_Expr *) lexp)->kind == AEXPR_PAREN)
-		lexp = ((A_Expr *) lexp)->lexpr;
 	/* Flatten "a AND b AND c ..." to a single BoolExpr on sight */
-	if (IsA(lexp, BoolExpr))
+	if (IsA(lexpr, BoolExpr))
 	{
-		BoolExpr *blexpr = (BoolExpr *) lexp;
+		BoolExpr *blexpr = (BoolExpr *) lexpr;
 
 		if (blexpr->boolop == AND_EXPR)
 		{
@@ -1033,16 +1071,10 @@ makeAndExpr(Node *lexpr, Node *rexpr, int location)
 Node *
 makeOrExpr(Node *lexpr, Node *rexpr, int location)
 {
-	Node	   *lexp = lexpr;
-
-	/* Look through AEXPR_PAREN nodes so they don't affect flattening */
-	while (IsA(lexp, A_Expr) &&
-		   ((A_Expr *) lexp)->kind == AEXPR_PAREN)
-		lexp = ((A_Expr *) lexp)->lexpr;
 	/* Flatten "a OR b OR c ..." to a single BoolExpr on sight */
-	if (IsA(lexp, BoolExpr))
+	if (IsA(lexpr, BoolExpr))
 	{
-		BoolExpr *blexpr = (BoolExpr *) lexp;
+		BoolExpr *blexpr = (BoolExpr *) lexpr;
 
 		if (blexpr->boolop == OR_EXPR)
 		{

@@ -2080,8 +2080,9 @@ ListNodeSize:
 			resTarget5->name = "nodesize";
 			resTarget5->indirection = NIL;
 			resTarget5->val = (Node *)makeFuncCall(list_make1(makeString("pg_size_pretty")),
-												list_make1(makeColumnRef("nodesize", NIL, -1, 0)),
-												-1);
+												   list_make1(makeColumnRef("nodesize", NIL, -1, 0)),
+												   COERCE_EXPLICIT_CALL,
+												   -1);
 			resTarget5->location = -1;
 
 			stmt->targetList = list_make5(resTarget1, resTarget2, resTarget3, resTarget4, resTarget5);

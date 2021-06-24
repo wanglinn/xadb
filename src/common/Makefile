@@ -56,13 +56,16 @@ OBJS_COMMON = \
 	exec.o \
 	f2s.o \
 	file_perm.o \
+	file_utils.o \
 	hashfn.o \
+	hex.o \
 	ip.o \
 	jsonapi.o \
 	keywords.o \
 	kwlookup.o \
 	link-canary.o \
-	md5.o \
+	md5_common.o \
+	pg_get_line.o \
 	pg_lzcompress.o \
 	pgfnames.o \
 	psprintf.o \
@@ -77,12 +80,18 @@ OBJS_COMMON = \
 	wait_error.o \
 	wchar.o
 
-ifeq ($(with_openssl),yes)
+ifeq ($(with_ssl),openssl)
 OBJS_COMMON += \
 	protocol_openssl.o \
-	sha2_openssl.o
+	cryptohash_openssl.o \
+	hmac_openssl.o
 else
-OBJS_COMMON += sha2.o
+OBJS_COMMON += \
+	cryptohash.o \
+	hmac.o \
+	md5.o \
+	sha1.o \
+	sha2.o
 endif
 
 ifeq ($(filter yes,$(with_rdma) $(with_reduce_rdma)),)
@@ -90,26 +99,30 @@ OBJS_COMMON += adb_rsocket.o
 endif
 
 # A few files are currently only built for frontend, not server
-# (Mkvcbuild.pm has a copy of this list, too)
-OBJS_FRONTEND = \
+# (Mkvcbuild.pm has a copy of this list, too).  logging.c is excluded
+# from OBJS_FRONTEND_SHLIB (shared library) as a matter of policy,
+# because it is not appropriate for general purpose libraries such
+# as libpq to report errors directly.
+OBJS_FRONTEND_SHLIB = \
 	$(OBJS_COMMON) \
-	fe_archive.o \
 	fe_memutils.o \
-	file_utils.o \
-	logging.o \
-	restricted_token.o
+	restricted_token.o \
+	sprompt.o
 ifeq ($(enable_grammar_oracle),yes)
-  OBJS_FRONTEND += ora_keywords.o
+  OBJS_FRONTEND_SHLIB += ora_keywords.o
 endif
 ifeq ($(enable_grammar_db2),yes)
-  OBJS_FRONTEND += db2_keywords.o
+  OBJS_FRONTEND_SHLIB += db2_keywords.o
 endif
+OBJS_FRONTEND = \
+	$(OBJS_FRONTEND_SHLIB) \
+	logging.o
 
 OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
 %_pg.o: CFLAGS += $(PERMIT_DECLARATION_AFTER_STATEMENT)
 
 # foo.o, foo_shlib.o, and foo_srv.o are all built from foo.c
-OBJS_SHLIB = $(OBJS_FRONTEND:%.o=%_shlib.o)
+OBJS_SHLIB = $(OBJS_FRONTEND_SHLIB:%.o=%_shlib.o)
 OBJS_SRV = $(OBJS_COMMON:%.o=%_srv.o)
 ifeq ($(enable_grammar_oracle),yes)
   OBJS_SRV += ora_keywords_srv.o

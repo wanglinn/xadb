@@ -5,7 +5,7 @@
 #    Perl script that generates fmgroids.h, fmgrprotos.h, and fmgrtab.c
 #    from pg_proc.dat
 #
-# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 #
@@ -60,6 +60,7 @@ if (defined $defines)
 		}
 	}
 }
+# ADB_END
 
 # Read all the input files into internal data structures.
 # Note: We pass data file names as arguments and then look for matching
@@ -88,13 +89,11 @@ foreach my $datfile (@ARGV)
 
 # Collect certain fields from pg_proc.dat.
 my @fmgr = ();
+my %proname_counts;
 
 foreach my $row (@{ $catalog_data{pg_proc} })
 {
 	my %bki_values = %$row;
-
-	# Select out just the rows for internal-language procedures.
-	next if $bki_values{prolang} ne 'internal';
 
 #ADB_BEGIN
 	if (defined $bki_values{row_macros})
@@ -108,11 +107,21 @@ foreach my $row (@{ $catalog_data{pg_proc} })
 	push @fmgr,
 	  {
 		oid    => $bki_values{oid},
+		name   => $bki_values{proname},
+		lang   => $bki_values{prolang},
+		kind   => $bki_values{prokind},
 		strict => $bki_values{proisstrict},
 		retset => $bki_values{proretset},
 		nargs  => $bki_values{pronargs},
+		args   => $bki_values{proargtypes},
 		prosrc => $bki_values{prosrc},
+#ADB_BEGIN
+		nsp    => $bki_values{pronamespace},
+#ADB_END
 	  };
+
+	# Count so that we can detect overloaded pronames.
+	$proname_counts{ $bki_values{pronamespace} . $bki_values{proname} }++;
 }
 
 # Emit headers for both files
@@ -137,7 +146,7 @@ print $ofh <<OFH;
  * These macros can be used to avoid a catalog lookup when a specific
  * fmgr-callable function needs to be referenced.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -155,13 +164,10 @@ print $ofh <<OFH;
 /*
  *	Constant macros for the OIDs of entries in pg_proc.
  *
- *	NOTE: macros are named after the prosrc value, ie the actual C name
- *	of the implementing function, not the proname which may be overloaded.
- *	For example, we want to be able to assign different macro names to both
- *	char_text() and name_text() even though these both appear with proname
- *	'text'.  If the same C function appears in more than one pg_proc entry,
- *	its equivalent macro will be defined with the lowest OID among those
- *	entries.
+ *	F_XXX macros are named after the proname field; if that is not unique,
+ *	we append the proargtypes field, replacing spaces with underscores.
+ *	For example, we have F_OIDEQ because that proname is unique, but
+ *	F_POW_FLOAT8_FLOAT8 (among others) because that proname is not.
  */
 OFH
 
@@ -171,7 +177,7 @@ print $pfh <<PFH;
  * fmgrprotos.h
  *    Prototypes for built-in functions.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -197,7 +203,7 @@ print $tfh <<TFH;
  * fmgrtab.c
  *    The function manager's table of internal functions.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -219,14 +225,28 @@ print $tfh <<TFH;
 
 TFH
 
-# Emit #define's and extern's -- only one per prosrc value
+# Emit fmgroids.h and fmgrprotos.h entries in OID order.
 my %seenit;
 foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 {
-	next if $seenit{ $s->{prosrc} };
-	$seenit{ $s->{prosrc} } = 1;
-	print $ofh "#define F_" . uc $s->{prosrc} . " $s->{oid}\n";
-	print $pfh "extern Datum $s->{prosrc}(PG_FUNCTION_ARGS);\n";
+	my $sqlname = $s->{name};
+#ADB_BEGIN
+	if ($s->{nsp} ne 'pg_catalog')
+	{
+		$sqlname = $s->{nsp} . " $s->{name}";
+	}
+#ADB_END
+	$sqlname .= "_" . $s->{args} if ($proname_counts{ $s->{nsp} . $s->{name} } > 1);
+	$sqlname =~ s/\s+|\./_/g;
+	print $ofh "#define F_" . uc $sqlname . " $s->{oid}\n";
+	# We want only one extern per internal-language, non-aggregate function
+	if (   $s->{lang} eq 'internal'
+		&& $s->{kind} ne 'a'
+		&& !$seenit{ $s->{prosrc} })
+	{
+		$seenit{ $s->{prosrc} } = 1;
+		print $pfh "extern Datum $s->{prosrc}(PG_FUNCTION_ARGS);\n";
+	}
 }
 
 # Create the fmgr_builtins table, collect data for fmgr_builtin_oid_index
@@ -239,22 +259,18 @@ my $last_builtin_oid = 0;
 my $fmgr_count       = 0;
 foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 {
+	next if $s->{lang} ne 'internal';
+	# We do not need entries for aggregate functions
+	next if $s->{kind} eq 'a';
+
+	print $tfh ",\n" if ($fmgr_count > 0);
 	print $tfh
 	  "  { $s->{oid}, $s->{nargs}, $bmap{$s->{strict}}, $bmap{$s->{retset}}, \"$s->{prosrc}\", $s->{prosrc} }";
 
 	$fmgr_builtin_oid_index[ $s->{oid} ] = $fmgr_count++;
 	$last_builtin_oid = $s->{oid};
-
-	if ($fmgr_count <= $#fmgr)
-	{
-		print $tfh ",\n";
-	}
-	else
-	{
-		print $tfh "\n";
-	}
 }
-print $tfh "};\n";
+print $tfh "\n};\n";
 
 printf $tfh qq|
 const int fmgr_nbuiltins = (sizeof(fmgr_builtins) / sizeof(FmgrBuiltin));

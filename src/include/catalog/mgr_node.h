@@ -59,6 +59,9 @@ CATALOG(mgr_node,9782,NodeRelationId)
  */
 typedef FormData_mgr_node *Form_mgr_node;
 
+DECLARE_UNIQUE_INDEX(mgr_node_oid_index, 9766, on mgr_node using btree(oid oid_ops));
+#define NodeOidIndexId 9766
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define CNDN_TYPE_COORDINATOR_MASTER		'c'

@@ -34,6 +34,7 @@
  *   BitmapIndexScanState
  *   BitmapHeapScanState
  *   TidScanState
+ *   TidRangeScanState
  *   SubqueryScanState
  *   FunctionScanState
  *   TableFuncScanState
@@ -48,6 +49,7 @@
  *   MergeJoinState
  *   HashJoinState
  *   MaterialState
+ *   ResultCacheState
  *   SortState
  *   IncrementalSortState
  *   GroupState
@@ -71,11 +73,9 @@
  *   ParamTuplestoreScanState
  *   ConnectByState
  *   ExprState
- *   AggrefExprState
  *   WindowFuncExprState
  *   SetExprState
  *   SubPlanState
- *   AlternativeSubPlanState
  *   DomainConstraintState
  *   PlannerInfo
  *   RelOptInfo
@@ -213,6 +213,7 @@ BEGIN_NODE(Plan)
 	NODE_SCALAR(int,plan_width)
 	NODE_SCALAR(bool,parallel_aware)
 	NODE_SCALAR(bool,parallel_safe)
+	NODE_SCALAR(bool,async_capable)
 	NODE_SCALAR(int,plan_node_id)
 	NODE_NODE(List,targetlist)
 	NODE_NODE(List,qual)
@@ -246,9 +247,7 @@ BEGIN_NODE(ModifyTable)
 	NODE_SCALAR(Index,rootRelation)
 	NODE_SCALAR(bool,partColsUpdated)
 	NODE_NODE(List,resultRelations)
-	NODE_SCALAR(int,resultRelIndex)
-	NODE_SCALAR(int,rootResultRelIndex)
-	NODE_NODE(List,plans)
+	NODE_NODE(List,updateColnosLists)
 	NODE_NODE(List,withCheckOptionLists)
 	NODE_NODE(List,returningLists)
 	NODE_NODE(List,fdwPrivLists)
@@ -258,6 +257,7 @@ BEGIN_NODE(ModifyTable)
 	NODE_ENUM(OnConflictAction,onConflictAction)
 	NODE_OID_LIST(class,arbiterIndexes)
 	NODE_NODE(List,onConflictSet)
+	NODE_NODE(List,onConflictCols)
 	NODE_NODE(Node,onConflictWhere)
 	NODE_SCALAR(Index,exclRelRTI)
 	NODE_NODE(List,exclRelTlist)
@@ -275,6 +275,7 @@ BEGIN_NODE(Append)
 	NODE_BASE2(Plan,plan)
 	NODE_BITMAPSET(Bitmapset,apprelids)
 	NODE_NODE(List,appendplans)
+	NODE_SCALAR(int,nasyncplans)
 	NODE_SCALAR(int,first_partial_plan)
 	NODE_NODE(PartitionPruneInfo,part_prune_info)
 END_NODE(Append)
@@ -390,6 +391,13 @@ BEGIN_NODE(TidScan)
 END_NODE(TidScan)
 #endif /* NO_NODE_TidScan */
 
+#ifndef NO_NODE_TidRangeScan
+BEGIN_NODE(TidRangeScan)
+	NODE_BASE2(Scan,scan)
+	NODE_NODE(List,tidrangequals)
+END_NODE(TidRangeScan)
+#endif /* NO_NODE_TidRangeScan */
+
 #ifndef NO_NODE_SubqueryScan
 BEGIN_NODE(SubqueryScan)
 	NODE_BASE2(Scan,scan)
@@ -445,6 +453,7 @@ END_NODE(WorkTableScan)
 BEGIN_NODE(ForeignScan)
 	NODE_BASE2(Scan,scan)
 	NODE_ENUM(CmdType,operation)
+	NODE_SCALAR(Index,resultRelation)
 	NODE_SCALAR(Oid,fs_server)
 	NODE_NODE(List,fdw_exprs)
 	NODE_NODE(List,fdw_private)
@@ -501,6 +510,18 @@ BEGIN_NODE(Material)
 	NODE_BASE2(Plan,plan)
 END_NODE(Material)
 #endif /* NO_NODE_Material */
+
+#ifndef NO_NODE_ResultCache
+BEGIN_NODE(ResultCache)
+	NODE_BASE2(Plan,plan)
+	NODE_SCALAR(int,numKeys)
+	NODE_SCALAR_POINT(Oid,hashOperators,NODE_ARG_->numKeys)
+	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numKeys)
+	NODE_NODE(List,param_exprs)
+	NODE_SCALAR(bool,singlerow)
+	NODE_SCALAR(uint32,est_entries)
+END_NODE(ResultCache)
+#endif /* NO_NODE_ResultCache */
 
 #ifndef NO_NODE_Sort
 BEGIN_NODE(Sort)
@@ -1066,6 +1087,8 @@ BEGIN_NODE(Aggref)
 	NODE_SCALAR(char,aggkind)
 	NODE_SCALAR(Index,agglevelsup)
 	NODE_ENUM(AggSplit,aggsplit)
+	NODE_SCALAR(int,aggno)
+	NODE_SCALAR(int,aggtransno)
 	NODE_SCALAR(int,location)
 END_NODE(Aggref)
 #endif /* NO_NODE_Aggref */
@@ -1102,6 +1125,7 @@ BEGIN_NODE(SubscriptingRef)
 	NODE_BASE2(Expr,xpr)
 	NODE_OID(type,refcontainertype)
 	NODE_OID(type,refelemtype)
+	NODE_SCALAR(Oid,refrestype)
 	NODE_SCALAR(int32,reftypmod)
 	NODE_OID(collation,refcollid)
 	NODE_NODE(List,refupperindexpr)
@@ -1163,6 +1187,7 @@ BEGIN_NODE(ScalarArrayOpExpr)
 	NODE_BASE2(Expr,xpr)
 	NODE_OID(operator,opno)
 	NODE_OID(proc,opfuncid)
+	NODE_SCALAR(Oid,hashfuncid)
 	NODE_SCALAR(bool,useOr)
 	NODE_OID(collation,inputcollid)
 	NODE_NODE(List,args)
@@ -1570,6 +1595,7 @@ BEGIN_NODE(JoinExpr)
 	NODE_NODE(Node,larg)
 	NODE_NODE(Node,rarg)
 	NODE_NODE(List,usingClause)
+	NODE_NODE(Alias,join_using_alias)
 	NODE_NODE(Node,quals)
 	NODE_NODE(Alias,alias)
 	NODE_SCALAR(int,rtindex)
@@ -1688,6 +1714,7 @@ BEGIN_NODE(IndexOptInfo)
 	NODE_SCALAR(bool,amhasgettuple)
 	NODE_SCALAR(bool,amhasgetbitmap)
 	NODE_SCALAR(bool,amcanparallel)
+	NODE_SCALAR(bool,amcanmarkpos)
 	NODE_OTHER_POINT(void,amcostestimate)
 END_NODE(IndexOptInfo)
 #endif /* NO_NODE_IndexOptInfo */
@@ -1763,6 +1790,13 @@ BEGIN_NODE(TidPath)
 END_NODE(TidPath)
 #endif /* NO_NODE_TidPath */
 
+#ifndef NO_NODE_TidRangePath
+BEGIN_NODE(TidRangePath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(List,tidrangequals)
+END_NODE(TidRangePath)
+#endif /* NO_NODE_TidRangePath */
+
 #ifndef NO_NODE_SubqueryScanPath
 BEGIN_NODE(SubqueryScanPath)
 	NODE_BASE2(Path,path)
@@ -1805,7 +1839,6 @@ END_NODE(HashPath)
 #ifndef NO_NODE_AppendPath
 BEGIN_NODE(AppendPath)
 	NODE_BASE2(Path,path)
-	NODE_NODE(List,partitioned_rels)
 	NODE_NODE(List,subpaths)
 	NODE_SCALAR(int,first_partial_path)
 	NODE_SCALAR(double,limit_tuples)
@@ -1815,7 +1848,6 @@ END_NODE(AppendPath)
 #ifndef NO_NODE_MergeAppendPath
 BEGIN_NODE(MergeAppendPath)
 	NODE_BASE2(Path,path)
-	NODE_NODE(List,partitioned_rels)
 	NODE_NODE(List,subpaths)
 	NODE_SCALAR(double,limit_tuples)
 END_NODE(MergeAppendPath)
@@ -1837,6 +1869,18 @@ BEGIN_NODE(MaterialPath)
 	NODE_NODE(Path,subpath)
 END_NODE(MaterialPath)
 #endif /* NO_NODE_MaterialPath */
+
+#ifndef NO_NODE_ResultCachePath
+BEGIN_NODE(ResultCachePath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_NODE(List,hash_operators)
+	NODE_NODE(List,param_exprs)
+	NODE_SCALAR(bool,singlerow)
+	NODE_SCALAR(double,calls)
+	NODE_SCALAR(uint32,est_entries)
+END_NODE(ResultCachePath)
+#endif /* NO_NODE_ResultCachePath */
 
 #ifndef NO_NODE_UniquePath
 BEGIN_NODE(UniquePath)
@@ -1990,14 +2034,14 @@ END_NODE(LockRowsPath)
 #ifndef NO_NODE_ModifyTablePath
 BEGIN_NODE(ModifyTablePath)
 	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
 	NODE_ENUM(CmdType,operation)
 	NODE_SCALAR(bool,canSetTag)
 	NODE_SCALAR(Index,nominalRelation)
 	NODE_SCALAR(Index,rootRelation)
 	NODE_SCALAR(bool,partColsUpdated)
 	NODE_NODE(List,resultRelations)
-	NODE_NODE(List,subpaths)
-	NODE_NODE(List,subroots)
+	NODE_NODE(List,updateColnosLists)
 	NODE_NODE(List,withCheckOptionLists)
 	NODE_NODE(List,returningLists)
 	NODE_NODE(List,rowMarks)
@@ -2061,6 +2105,7 @@ END_NODE(ClusterGatherPath)
 BEGIN_NODE(ClusterMergeGatherPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
+	NODE_NODE(List,rnodes)
 END_NODE(ClusterMergeGatherPath)
 #endif /* NO_NODE_ClusterMergeGatherPath */
 
@@ -2068,6 +2113,7 @@ END_NODE(ClusterMergeGatherPath)
 BEGIN_NODE(ClusterReducePath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
+	NODE_NODE(List,rnodes)
 	NODE_NODE(Expr,special_reduce)
 	NODE_SCALAR(Oid,special_node)
 END_NODE(ClusterReducePath)
@@ -2147,6 +2193,7 @@ BEGIN_NODE(PathTarget)
 	NODE_SCALAR_POINT(Index,sortgrouprefs,list_length(NODE_ARG_->exprs))
 	NODE_STRUCT_MEB(QualCost,cost)
 	NODE_SCALAR(int,width)
+	NODE_ENUM(VolatileFunctionStatus,has_volatile_expr)
 #ifdef ADB_GRAM_ORA
 	NODE_NODE(List,as_loc_list)
 	NODE_NODE(List,expr_loc_list)
@@ -2164,6 +2211,7 @@ BEGIN_NODE(RestrictInfo)
 	NODE_SCALAR(bool,can_join)
 	NODE_SCALAR(bool,pseudoconstant)
 	NODE_SCALAR(bool,leakproof)
+	NODE_ENUM(VolatileFunctionStatus,has_volatile)
 	NODE_SCALAR(Index,security_level)
 	NODE_RELIDS(Relids,clause_relids)
 	NODE_RELIDS(Relids,required_relids)
@@ -2188,6 +2236,7 @@ BEGIN_NODE(RestrictInfo)
 	NODE_SCALAR(Selectivity,right_bucketsize)
 	NODE_SCALAR(Selectivity,left_mcvfreq)
 	NODE_SCALAR(Selectivity,right_mcvfreq)
+	NODE_SCALAR(Oid,hasheqoperator)
 END_NODE(RestrictInfo)
 #endif /* NO_NODE_RestrictInfo */
 
@@ -2239,6 +2288,15 @@ BEGIN_NODE(AppendRelInfo)
 	NODE_SCALAR(Oid,parent_reloid)
 END_NODE(AppendRelInfo)
 #endif /* NO_NODE_AppendRelInfo */
+
+#ifndef NO_NODE_RowIdentityVarInfo
+BEGIN_NODE(RowIdentityVarInfo)
+	NODE_NODE(Var,rowidvar)
+	NODE_SCALAR(int32,rowidwidth)
+	NODE_STRING(rowidname)
+	NODE_RELIDS(Relids,rowidrels)
+END_NODE(RowIdentityVarInfo)
+#endif /* NO_NODE_RowIdentityVarInfo */
 
 #ifndef NO_NODE_PlaceHolderInfo
 BEGIN_NODE(PlaceHolderInfo)
@@ -2294,6 +2352,7 @@ BEGIN_NODE(StatisticExtInfo)
 	NODE_NODE(RelOptInfo,rel)
 	NODE_SCALAR(char,kind)
 	NODE_BITMAPSET(Bitmapset,keys)
+	NODE_NODE(List,exprs)
 END_NODE(StatisticExtInfo)
 #endif /* NO_NODE_StatisticExtInfo */
 
@@ -2328,6 +2387,7 @@ BEGIN_NODE(Query)
 	NODE_SCALAR(bool,hasModifyingCTE)
 	NODE_SCALAR(bool,hasForUpdate)
 	NODE_SCALAR(bool,hasRowSecurity)
+	NODE_SCALAR(bool,isReturn)
 	NODE_NODE(List,cteList)
 	NODE_NODE(List,rtable)
 	NODE_NODE(FromExpr,jointree)
@@ -2336,6 +2396,7 @@ BEGIN_NODE(Query)
 	NODE_NODE(OnConflictExpr,onConflict)
 	NODE_NODE(List,returningList)
 	NODE_NODE(List,groupClause)
+	NODE_SCALAR(bool,groupDistinct)
 	NODE_NODE(List,groupingSets)
 	NODE_NODE(Node,havingQual)
 	NODE_NODE(List,windowClause)
@@ -2377,7 +2438,6 @@ BEGIN_NODE(PlannedStmt)
 	NODE_NODE(Plan,planTree)
 	NODE_NODE(List,rtable)
 	NODE_NODE(List,resultRelations)
-	NODE_NODE(List,rootResultRelations)
 	NODE_NODE(List,appendRelations)
 	NODE_NODE(List,subplans)
 	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
@@ -2432,6 +2492,7 @@ BEGIN_NODE(SelectStmt)
 	NODE_NODE(List,fromClause)
 	NODE_NODE(Node,whereClause)
 	NODE_NODE(List,groupClause)
+	NODE_SCALAR(bool,groupDistinct)
 	NODE_NODE(Node,havingClause)
 	NODE_NODE(List,windowClause)
 	NODE_NODE(List,valuesLists)
@@ -2451,6 +2512,22 @@ BEGIN_NODE(SelectStmt)
 END_NODE(SelectStmt)
 #endif /* NO_NODE_SelectStmt */
 
+#ifndef NO_NODE_ReturnStmt
+BEGIN_NODE(ReturnStmt)
+	NODE_NODE(Node,returnval)
+END_NODE(ReturnStmt)
+#endif /* NO_NODE_ReturnStmt */
+
+#ifndef NO_NODE_PLAssignStmt
+BEGIN_NODE(PLAssignStmt)
+	NODE_STRING(name)
+	NODE_NODE(List,indirection)
+	NODE_SCALAR(int,nnames)
+	NODE_NODE(SelectStmt,val)
+	NODE_SCALAR(int,location)
+END_NODE(PLAssignStmt)
+#endif /* NO_NODE_PLAssignStmt */
+
 #ifndef NO_NODE_AlterTableStmt
 BEGIN_NODE(AlterTableStmt)
 #if defined(ADB_MULTI_GRAM)
@@ -2458,7 +2535,7 @@ BEGIN_NODE(AlterTableStmt)
 #endif
 	NODE_NODE(RangeVar,relation)
 	NODE_NODE(List,cmds)
-	NODE_ENUM(ObjectType,relkind)
+	NODE_ENUM(ObjectType,objtype)
 	NODE_SCALAR(bool,missing_ok)
 END_NODE(AlterTableStmt)
 #endif /* NO_NODE_AlterTableStmt */
@@ -2508,6 +2585,7 @@ BEGIN_NODE(GrantStmt)
 	NODE_NODE(List,privileges)
 	NODE_NODE(List,grantees)
 	NODE_SCALAR(bool,grant_option)
+	NODE_NODE(RoleSpec,grantor)
 	NODE_ENUM(DropBehavior,behavior)
 END_NODE(GrantStmt)
 #endif /* NO_NODE_GrantStmt */
@@ -2540,7 +2618,7 @@ END_NODE(ClosePortalStmt)
 BEGIN_NODE(ClusterStmt)
 	NODE_NODE(RangeVar,relation)
 	NODE_STRING(indexname)
-	NODE_SCALAR(int,options)
+	NODE_NODE(List,params)
 END_NODE(ClusterStmt)
 #endif /* NO_NODE_ClusterStmt */
 
@@ -2676,6 +2754,7 @@ BEGIN_NODE(CreateFunctionStmt)
 	NODE_NODE(List,parameters)
 	NODE_NODE(TypeName,returnType)
 	NODE_NODE(List,options)
+	NODE_NODE(Node,sql_body)
 END_NODE(CreateFunctionStmt)
 #endif /* NO_NODE_CreateFunctionStmt */
 
@@ -2816,7 +2895,7 @@ BEGIN_NODE(CreateTableAsStmt)
 #endif
 	NODE_NODE(Node,query)
 	NODE_NODE(IntoClause,into)
-	NODE_ENUM(ObjectType,relkind)
+	NODE_ENUM(ObjectType,objtype)
 	NODE_SCALAR(bool,is_select_into)
 	NODE_SCALAR(bool,if_not_exists)
 END_NODE(CreateTableAsStmt)
@@ -2870,6 +2949,8 @@ END_NODE(DiscardStmt)
 
 #ifndef NO_NODE_CreateTrigStmt
 BEGIN_NODE(CreateTrigStmt)
+	NODE_SCALAR(bool,replace)
+	NODE_SCALAR(bool,isconstraint)
 	NODE_STRING(trigname)
 	NODE_NODE(RangeVar,relation)
 	NODE_NODE(List,funcname)
@@ -2879,7 +2960,6 @@ BEGIN_NODE(CreateTrigStmt)
 	NODE_SCALAR(int16,events)
 	NODE_NODE(List,columns)
 	NODE_NODE(Node,whenClause)
-	NODE_SCALAR(bool,isconstraint)
 	NODE_NODE(List,transitionRels)
 	NODE_SCALAR(bool,deferrable)
 	NODE_SCALAR(bool,initdeferred)
@@ -2941,8 +3021,7 @@ BEGIN_NODE(ReindexStmt)
 	NODE_ENUM(ReindexObjectType,kind)
 	NODE_NODE(RangeVar,relation)
 	NODE_STRING(name)
-	NODE_SCALAR(int,options)
-	NODE_SCALAR(bool,concurrent)
+	NODE_NODE(List,params)
 END_NODE(ReindexStmt)
 #endif /* NO_NODE_ReindexStmt */
 
@@ -3472,6 +3551,7 @@ BEGIN_NODE(CreateStatsStmt)
 	NODE_NODE(List,relations)
 	NODE_STRING(stxcomment)
 	NODE_SCALAR(bool,if_not_exists)
+	NODE_SCALAR(bool,transformed)
 END_NODE(CreateStatsStmt)
 #endif /* NO_NODE_CreateStatsStmt */
 
@@ -3608,11 +3688,12 @@ BEGIN_NODE(FuncCall)
 	NODE_NODE(List,args)
 	NODE_NODE(List,agg_order)
 	NODE_NODE(Node,agg_filter)
+	NODE_NODE(WindowDef,over)
 	NODE_SCALAR(bool,agg_within_group)
 	NODE_SCALAR(bool,agg_star)
 	NODE_SCALAR(bool,agg_distinct)
 	NODE_SCALAR(bool,func_variadic)
-	NODE_NODE(WindowDef,over)
+	NODE_ENUM(CoercionForm,funcformat)
 #ifdef ADB_EXT
 	NODE_NODE(KeepClause,agg_keep)
 #endif
@@ -3777,6 +3858,7 @@ END_NODE(TypeName)
 BEGIN_NODE(ColumnDef)
 	NODE_STRING(colname)
 	NODE_NODE(TypeName,typeName)
+	NODE_STRING(compression)
 	NODE_SCALAR(int,inhcount)
 	NODE_SCALAR(bool,is_local)
 	NODE_SCALAR(bool,is_not_null)
@@ -3807,6 +3889,13 @@ BEGIN_NODE(IndexElem)
 	NODE_ENUM(SortByNulls,nulls_ordering)
 END_NODE(IndexElem)
 #endif /* NO_NODE_IndexElem */
+
+#ifndef NO_NODE_StatsElem
+BEGIN_NODE(StatsElem)
+	NODE_STRING(name)
+	NODE_NODE(Node,expr)
+END_NODE(StatsElem)
+#endif /* NO_NODE_StatsElem */
 
 #ifndef NO_NODE_Constraint
 BEGIN_NODE(Constraint)
@@ -3868,6 +3957,7 @@ BEGIN_NODE(RangeTblEntry)
 	NODE_NODE(List,joinaliasvars)
 	NODE_NODE(List,joinleftcols)
 	NODE_NODE(List,joinrightcols)
+	NODE_NODE(Alias,join_using_alias)
 	NODE_NODE(List,functions)
 	NODE_SCALAR(bool,funcordinality)
 	NODE_NODE(TableFunc,tablefunc)
@@ -4000,6 +4090,7 @@ END_NODE(CreateOpClassItem)
 BEGIN_NODE(TableLikeClause)
 	NODE_NODE(RangeVar,relation)
 	NODE_SCALAR(bits32,options)
+	NODE_SCALAR(Oid,relationOid)
 END_NODE(TableLikeClause)
 #endif /* NO_NODE_TableLikeClause */
 
@@ -4065,12 +4156,38 @@ BEGIN_NODE(OnConflictClause)
 END_NODE(OnConflictClause)
 #endif /* NO_NODE_OnConflictClause */
 
+#ifndef NO_NODE_CTESearchClause
+BEGIN_NODE(CTESearchClause)
+	NODE_NODE(List,search_col_list)
+	NODE_SCALAR(bool,search_breadth_first)
+	NODE_STRING(search_seq_column)
+	NODE_SCALAR(int,location)
+END_NODE(CTESearchClause)
+#endif /* NO_NODE_CTESearchClause */
+
+#ifndef NO_NODE_CTECycleClause
+BEGIN_NODE(CTECycleClause)
+	NODE_NODE(List,cycle_col_list)
+	NODE_STRING(cycle_mark_column)
+	NODE_NODE(Node,cycle_mark_value)
+	NODE_NODE(Node,cycle_mark_default)
+	NODE_STRING(cycle_path_column)
+	NODE_SCALAR(int,location)
+	NODE_SCALAR(Oid,cycle_mark_type)
+	NODE_SCALAR(int,cycle_mark_typmod)
+	NODE_SCALAR(Oid,cycle_mark_collation)
+	NODE_SCALAR(Oid,cycle_mark_neop)
+END_NODE(CTECycleClause)
+#endif /* NO_NODE_CTECycleClause */
+
 #ifndef NO_NODE_CommonTableExpr
 BEGIN_NODE(CommonTableExpr)
 	NODE_STRING(ctename)
 	NODE_NODE(List,aliascolnames)
 	NODE_ENUM(CTEMaterialize,ctematerialized)
 	NODE_NODE(Node,ctequery)
+	NODE_NODE(CTESearchClause,search_clause)
+	NODE_NODE(CTECycleClause,cycle_clause)
 	NODE_SCALAR(int,location)
 	NODE_SCALAR(bool,cterecursive)
 	NODE_SCALAR(int,cterefcount)
@@ -4140,6 +4257,7 @@ END_NODE(PartitionRangeDatum)
 BEGIN_NODE(PartitionCmd)
 	NODE_NODE(RangeVar,name)
 	NODE_NODE(PartitionBoundSpec,bound)
+	NODE_SCALAR(bool,concurrent)
 END_NODE(PartitionCmd)
 #endif /* NO_NODE_PartitionCmd */
 
@@ -4168,6 +4286,7 @@ BEGIN_NODE(CreateReplicationSlotCmd)
 	NODE_ENUM(ReplicationKind,kind)
 	NODE_STRING(plugin)
 	NODE_SCALAR(bool,temporary)
+	NODE_SCALAR(bool,two_phase)
 	NODE_NODE(List,options)
 END_NODE(CreateReplicationSlotCmd)
 #endif /* NO_NODE_CreateReplicationSlotCmd */

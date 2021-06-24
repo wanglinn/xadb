@@ -15,7 +15,7 @@
 #include "commands/tablecmds.h"
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -226,7 +226,7 @@ ChooseAuxTableName(const char *name1, const char *name2,
 	char		modlabel[NAMEDATALEN];
 
 	/* try the unmodified label first */
-	StrNCpy(modlabel, label, sizeof(modlabel));
+	strlcpy(modlabel, label, sizeof(modlabel));
 
 	for (;;)
 	{
@@ -634,6 +634,14 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 					case PGRES_BAD_RESPONSE:
 					case PGRES_FATAL_ERROR:
 						PQNReportResultError(res, conn, ERROR, true);
+						break;
+					case PGRES_PIPELINE_SYNC:
+					case PGRES_PIPELINE_ABORTED:
+						PQclear(res);
+						ereport(ERROR,
+								errcode(ERRCODE_INTERNAL_ERROR),
+								errmsg("datanode copy command result pipeline mode"),
+								errnode(PQNConnectName(conn)));
 						break;
 					}
 					PQclear(res);

@@ -34,7 +34,7 @@ libpq-node.o: CFLAGS += -I$(libpq_srcdir)
 libpq-node.bc: BITCODE_CFLAGS += -I$(libpq_srcdir)
 endif
 
-ifeq ($(with_openssl),yes)
+ifeq ($(with_ssl),openssl)
 OBJS += be-secure-openssl.o
 endif
 

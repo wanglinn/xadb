@@ -3,7 +3,7 @@
  * execAmi.c
  *	  miscellaneous executor access method routines
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/executor/execAmi.c
@@ -44,6 +44,7 @@
 #include "executor/nodeProjectSet.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
+#include "executor/nodeResultCache.h"
 #include "executor/nodeSamplescan.h"
 #include "executor/nodeSeqscan.h"
 #include "executor/nodeSetOp.h"
@@ -51,6 +52,7 @@
 #include "executor/nodeSubplan.h"
 #include "executor/nodeSubqueryscan.h"
 #include "executor/nodeTableFuncscan.h"
+#include "executor/nodeTidrangescan.h"
 #include "executor/nodeTidscan.h"
 #include "executor/nodeUnique.h"
 #include "executor/nodeValuesscan.h"
@@ -215,6 +217,10 @@ ExecReScan(PlanState *node)
 			ExecReScanTidScan((TidScanState *) node);
 			break;
 
+		case T_TidRangeScanState:
+			ExecReScanTidRangeScan((TidRangeScanState *) node);
+			break;
+
 		case T_SubqueryScanState:
 			ExecReScanSubqueryScan((SubqueryScanState *) node);
 			break;
@@ -295,6 +301,10 @@ ExecReScan(PlanState *node)
 
 		case T_MaterialState:
 			ExecReScanMaterial((MaterialState *) node);
+			break;
+
+		case T_ResultCacheState:
+			ExecReScanResultCache((ResultCacheState *) node);
 			break;
 
 		case T_SortState:
@@ -503,6 +513,12 @@ ExecSupportsMarkRestore(Path *pathnode)
 	{
 		case T_IndexScan:
 		case T_IndexOnlyScan:
+
+			/*
+			 * Not all index types support mark/restore.
+			 */
+			return castNode(IndexPath, pathnode)->indexinfo->amcanmarkpos;
+
 		case T_Material:
 		case T_Sort:
 			return true;
@@ -607,6 +623,10 @@ ExecSupportsBackwardScan(Plan *node)
 			{
 				ListCell   *l;
 
+				/* With async, tuples may be interleaved, so can't back up. */
+				if (((Append *) node)->nasyncplans > 0)
+					return false;
+
 				foreach(l, ((Append *) node)->appendplans)
 				{
 					if (!ExecSupportsBackwardScan((Plan *) lfirst(l)))
@@ -643,6 +663,7 @@ ExecSupportsBackwardScan(Plan *node)
 
 		case T_SeqScan:
 		case T_TidScan:
+		case T_TidRangeScan:
 		case T_FunctionScan:
 		case T_ValuesScan:
 		case T_CteScan:

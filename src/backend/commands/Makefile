@@ -24,6 +24,9 @@ OBJS = \
 	constraint.o \
 	conversioncmds.o \
 	copy.o \
+	copyfrom.o \
+	copyfromparse.o \
+	copyto.o \
 	createas.o \
 	dbcommands.o \
 	define.o \
@@ -60,9 +63,9 @@ OBJS = \
 	view.o
 
 ifeq ($(enable_cluster),yes)
-	OBJS += auxtablecmds.o
-	CFLAGS += -I$(top_srcdir)/src/interfaces
-	BITCODE_CFLAGS += -I$(top_srcdir)/src/interfaces
+OBJS += auxtablecmds.o
+copyfrom.o  indexcmds.o  matview.o  vacuum.o  auxtablecmds.o  cluster.o  analyze.o: CFLAGS += -I$(libpq_srcdir)
+copyfrom.bc indexcmds.bc matview.bc vacuum.bc auxtablecmds.bc cluster.bc analyze.bc: BITCODE_CFLAGS += -I$(libpq_srcdir)
 endif
 
 ifeq ($(enable_grammar_oracle),yes)

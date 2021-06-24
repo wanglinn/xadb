@@ -21,4 +21,11 @@ CATALOG(adb_clean,9031,AdbCleanRelationId) BKI_SHARED_RELATION
 
 typedef FormData_adb_clean *Form_adb_clean;
 
+DECLARE_TOAST(adb_clean, 9321, 9117);
+#define AdbCleanToastTable 9321
+#define AdbCleanToastIndex 9117
+
+DECLARE_UNIQUE_INDEX(adb_clean_index, 9032, on adb_clean using btree(clndb oid_ops, clnrel oid_ops));
+#define AdbCleanIndexId				  9032
+
 #endif							/* ADB_CLEAN_H */

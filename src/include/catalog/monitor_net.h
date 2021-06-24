@@ -34,4 +34,7 @@ CATALOG(monitor_net,9795,MonitorNetRelationId)
  */
 typedef FormData_monitor_net *Form_monitor_net;
 
+DECLARE_UNIQUE_INDEX(monitor_net_oid_index, 9771, on monitor_net using btree(oid oid_ops));
+#define MonitorNetOidIndexId 9771
+
 #endif /* MONITOR_NET_H */

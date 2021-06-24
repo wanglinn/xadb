@@ -107,6 +107,57 @@ in_error_recursion_trouble(void)
 	return (recursion_depth > 2);
 }
 
+/*
+ * errstart_cold
+ *		A simple wrapper around errstart, but hinted to be "cold".  Supporting
+ *		compilers are more likely to move code for branches containing this
+ *		function into an area away from the calling function's code.  This can
+ *		result in more commonly executed code being more compact and fitting
+ *		on fewer cache lines.
+ */
+pg_attribute_cold bool
+errstart_cold(int elevel, const char *domain)
+{
+	return errstart(elevel, domain);
+}
+
+/*
+ * errhidestmt --- optionally suppress STATEMENT: field of log entry
+ *
+ * This should be called if the message text already includes the statement.
+ */
+int
+errhidestmt(bool hide_stmt)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+
+	/* we don't bother incrementing recursion_depth */
+	CHECK_STACK_DEPTH();
+
+	edata->hide_stmt = hide_stmt;
+
+	return 0;					/* return value does not matter */
+}
+
+/*
+ * errhidecontext --- optionally suppress CONTEXT: field of log entry
+ *
+ * This should only be used for verbose debugging messages where the repeated
+ * inclusion of context would bloat the log volume too much.
+ */
+int
+errhidecontext(bool hide_ctx)
+{
+	ErrorData  *edata = &errordata[errordata_stack_depth];
+
+	/* we don't bother incrementing recursion_depth */
+	CHECK_STACK_DEPTH();
+
+	edata->hide_ctx = hide_ctx;
+
+	return 0;					/* return value does not matter */
+}
+
 bool errstart(int elevel, const char *domain)
 {
 	ErrorData  *edata;

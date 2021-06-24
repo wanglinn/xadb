@@ -38,6 +38,13 @@ CATALOG(pgxc_class,9020,PgxcClassRelationId)
 
 typedef FormData_pgxc_class *Form_pgxc_class;
 
+DECLARE_TOAST(pgxc_class, 9126, 9127);
+#define PgxcClassToastTable 9126
+#define PgxcClassToastIndex 9127
+
+DECLARE_UNIQUE_INDEX(pgxc_class_pcrelid_index, 9021, on pgxc_class using btree(pcrelid oid_ops));
+#define PgxcClassPgxcRelIdIndexId 	9021
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 typedef enum PgxcClassAlterType

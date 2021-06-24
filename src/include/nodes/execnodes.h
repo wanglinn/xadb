@@ -4,7 +4,7 @@
  *	  definitions for executor state nodes
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/nodes/execnodes.h
@@ -17,6 +17,7 @@
 #include "access/tupconvert.h"
 #include "executor/instrument.h"
 #include "fmgr.h"
+#include "lib/ilist.h"
 #include "lib/pairingheap.h"
 #include "nodes/params.h"
 #include "nodes/plannodes.h"
@@ -36,7 +37,6 @@
 #endif
 
 struct PlanState;				/* forward references in this file */
-struct PartitionRoutingInfo;
 struct ParallelHashJoinState;
 struct ExecRowMark;
 struct ExprState;
@@ -360,10 +360,6 @@ typedef struct ProjectionInfo
  *						attribute numbers of the "original" tuple and the
  *						attribute numbers of the "clean" tuple.
  *	  resultSlot:		tuple slot used to hold cleaned tuple.
- *	  junkAttNo:		not used by junkfilter code.  Can be used by caller
- *						to remember the attno of a specific junk attribute
- *						(nodeModifyTable.c keeps the "ctid" or "wholerow"
- *						attno here).
  * ----------------
  */
 typedef struct JunkFilter
@@ -373,7 +369,6 @@ typedef struct JunkFilter
 	TupleDesc	jf_cleanTupType;
 	AttrNumber *jf_cleanMap;
 	TupleTableSlot *jf_resultSlot;
-	AttrNumber	jf_junkAttNo;
 #ifdef ADB
 	/*
 	 * Similar to jf_junkAttNo that is used for ctid, we also need xc_node_id
@@ -410,12 +405,15 @@ typedef struct OnConflictSetState
  * relation, and perhaps also fire triggers.  ResultRelInfo holds all the
  * information needed about a result relation, including indexes.
  *
- * Normally, a ResultRelInfo refers to a table that is in the query's
- * range table; then ri_RangeTableIndex is the RT index and ri_RelationDesc
- * is just a copy of the relevant es_relations[] entry.  But sometimes,
- * in ResultRelInfos used only for triggers, ri_RangeTableIndex is zero
- * and ri_RelationDesc is a separately-opened relcache pointer that needs
- * to be separately closed.  See ExecGetTriggerResultRel.
+ * Normally, a ResultRelInfo refers to a table that is in the query's range
+ * table; then ri_RangeTableIndex is the RT index and ri_RelationDesc is
+ * just a copy of the relevant es_relations[] entry.  However, in some
+ * situations we create ResultRelInfos for relations that are not in the
+ * range table, namely for targets of tuple routing in a partitioned table,
+ * and when firing triggers in tables other than the target tables (See
+ * ExecGetTriggerResultRel).  In these situations, ri_RangeTableIndex is 0
+ * and ri_RelationDesc is a separately-opened relcache pointer that needs to
+ * be separately closed.
  */
 typedef struct ResultRelInfo
 {
@@ -435,6 +433,21 @@ typedef struct ResultRelInfo
 
 	/* array of key/attr info for indices */
 	IndexInfo **ri_IndexRelationInfo;
+
+	/*
+	 * For UPDATE/DELETE result relations, the attribute number of the row
+	 * identity junk attribute in the source plan's output tuples
+	 */
+	AttrNumber	ri_RowIdAttNo;
+
+	/* Projection to generate new tuple in an INSERT/UPDATE */
+	ProjectionInfo *ri_projectNew;
+	/* Slot to hold that tuple */
+	TupleTableSlot *ri_newTupleSlot;
+	/* Slot to hold the old tuple being updated */
+	TupleTableSlot *ri_oldTupleSlot;
+	/* Have the projection and the slots above been initialized? */
+	bool		ri_projectNewInfoValid;
 
 	/* triggers to be fired, if any */
 	TriggerDesc *ri_TrigDesc;
@@ -462,6 +475,12 @@ typedef struct ResultRelInfo
 	/* true when modifying foreign table directly */
 	bool		ri_usesFdwDirectModify;
 
+	/* batch insert stuff */
+	int			ri_NumSlots;	/* number of slots in the array */
+	int			ri_BatchSize;	/* max slots inserted in a single batch */
+	TupleTableSlot **ri_Slots;	/* input tuples for batch insert */
+	TupleTableSlot **ri_PlanSlots;
+
 	/* list of WithCheckOption's to be checked */
 	List	   *ri_WithCheckOptions;
 
@@ -477,9 +496,6 @@ typedef struct ResultRelInfo
 	/* number of stored generated columns we need to compute */
 	int			ri_NumGeneratedNeeded;
 
-	/* for removing junk attributes from tuples */
-	JunkFilter *ri_junkFilter;
-
 	/* list of RETURNING expressions */
 	List	   *ri_returningList;
 
@@ -492,19 +508,35 @@ typedef struct ResultRelInfo
 	/* ON CONFLICT evaluation state */
 	OnConflictSetState *ri_onConflict;
 
-	/* partition check expression */
-	List	   *ri_PartitionCheck;
-
-	/* partition check expression state */
+	/* partition check expression state (NULL if not set up yet) */
 	ExprState  *ri_PartitionCheckExpr;
 
-	/* relation descriptor for root partitioned table */
-	Relation	ri_PartitionRoot;
+	/*
+	 * Information needed by tuple routing target relations
+	 *
+	 * RootResultRelInfo gives the target relation mentioned in the query, if
+	 * it's a partitioned table. It is not set if the target relation
+	 * mentioned in the query is an inherited table, nor when tuple routing is
+	 * not needed.
+	 *
+	 * RootToPartitionMap and PartitionTupleSlot, initialized by
+	 * ExecInitRoutingInfo, are non-NULL if partition has a different tuple
+	 * format than the root table.
+	 */
+	struct ResultRelInfo *ri_RootResultRelInfo;
+	TupleConversionMap *ri_RootToPartitionMap;
+	TupleTableSlot *ri_PartitionTupleSlot;
 
-	/* Additional information specific to partition tuple routing */
-	struct PartitionRoutingInfo *ri_PartitionInfo;
+	/*
+	 * Map to convert child result relation tuples to the format of the table
+	 * actually mentioned in the query (called "root").  Computed only if
+	 * needed.  A NULL map value indicates that no conversion is needed, so we
+	 * must have a separate flag to show if the map has been computed.
+	 */
+	TupleConversionMap *ri_ChildToRootMap;
+	bool		ri_ChildToRootMapValid;
 
-	/* For use by copy.c when performing multi-inserts */
+	/* for use by copyfrom.c when performing multi-inserts */
 	struct CopyMultiInsertBuffer *ri_CopyMultiInsertBuffer;
 
 #ifdef ADB
@@ -518,9 +550,26 @@ typedef struct ResultRelInfo
 } ResultRelInfo;
 
 /* ----------------
+ *	  AsyncRequest
+ *
+ * State for an asynchronous tuple request.
+ * ----------------
+ */
+typedef struct AsyncRequest
+{
+	struct PlanState *requestor;	/* Node that wants a tuple */
+	struct PlanState *requestee;	/* Node from which a tuple is wanted */
+	int			request_index;	/* Scratch space for requestor */
+	bool		callback_pending;	/* Callback is needed */
+	bool		request_complete;	/* Request complete, result valid */
+	TupleTableSlot *result;		/* Result (NULL or an empty slot if no more
+								 * tuples) */
+} AsyncRequest;
+
+/* ----------------
  *	  EState information
  *
- * Master working state for an Executor invocation
+ * Working state for an Executor invocation
  * ----------------
  */
 typedef struct EState
@@ -546,28 +595,23 @@ typedef struct EState
 	CommandId	es_output_cid;
 
 	/* Info about target table(s) for insert/update/delete queries: */
-	ResultRelInfo *es_result_relations; /* array of ResultRelInfos */
-	int			es_num_result_relations;	/* length of array */
-	ResultRelInfo *es_result_relation_info; /* currently active array elt */
+	ResultRelInfo **es_result_relations;	/* Array of per-range-table-entry
+											 * ResultRelInfo pointers, or NULL
+											 * if not a target table */
+	List	   *es_opened_result_relations; /* List of non-NULL entries in
+											 * es_result_relations in no
+											 * specific order */
 #ifdef ADB
 	struct PlanState	*es_result_remoterel;	/* currently active remote rel */
 	Bitmapset  *es_reduce_drived_set;			/* already be reduce-drived plan ID set */
 	bool		es_reduce_plan_inited;			/* true if ClusterReduce plan has been initialized */
 #endif
 
-	/*
-	 * Info about the partition root table(s) for insert/update/delete queries
-	 * targeting partitioned tables.  Only leaf partitions are mentioned in
-	 * es_result_relations, but we need access to the roots for firing
-	 * triggers and for runtime tuple routing.
-	 */
-	ResultRelInfo *es_root_result_relations;	/* array of ResultRelInfos */
-	int			es_num_root_result_relations;	/* length of the array */
 	PartitionDirectory es_partition_directory;	/* for PartitionDesc lookup */
 
 	/*
 	 * The following list contains ResultRelInfos created by the tuple routing
-	 * code for partitions that don't already have one.
+	 * code for partitions that aren't found in the es_result_relations array.
 	 */
 	List	   *es_tuple_routing_result_relations;
 
@@ -673,10 +717,7 @@ typedef struct ExecRowMark
  * Each LockRows and ModifyTable node keeps a list of the rowmarks it needs to
  * deal with.  In addition to a pointer to the related entry in es_rowmarks,
  * this struct carries the column number(s) of the resjunk columns associated
- * with the rowmark (see comments for PlanRowMark for more detail).  In the
- * case of ModifyTable, there has to be a separate ExecAuxRowMark list for
- * each child plan, because the resjunk columns could be at different physical
- * column positions in different subplans.
+ * with the rowmark (see comments for PlanRowMark for more detail).
  */
 typedef struct ExecAuxRowMark
 {
@@ -770,17 +811,6 @@ typedef tuplehash_iterator TupleHashIterator;
  * has to be shared with other parts of the execution state tree.
  * ----------------------------------------------------------------
  */
-
-/* ----------------
- *		AggrefExprState node
- * ----------------
- */
-typedef struct AggrefExprState
-{
-	NodeTag		type;
-	Aggref	   *aggref;			/* expression plan node */
-	int			aggno;			/* ID number for agg within its plan node */
-} AggrefExprState;
 
 /* ----------------
  *		WindowFuncExprState node
@@ -896,6 +926,8 @@ typedef struct SubPlanState
 	MemoryContext hashtablecxt; /* memory context containing hash tables */
 	MemoryContext hashtempcxt;	/* temp memory context for hash tables */
 	ExprContext *innerecontext; /* econtext for computing inner tuples */
+	int			numCols;		/* number of columns being hashed */
+	/* each of the remaining fields is an array of length numCols: */
 	AttrNumber *keyColIdx;		/* control data for hash tables */
 	Oid		   *tab_eq_funcoids;	/* equality func oids for table
 									 * datatype(s) */
@@ -909,18 +941,6 @@ typedef struct SubPlanState
 	struct Hashstorestate *hashstore;
 #endif /* ADB */
 } SubPlanState;
-
-/* ----------------
- *		AlternativeSubPlanState node
- * ----------------
- */
-typedef struct AlternativeSubPlanState
-{
-	NodeTag		type;
-	AlternativeSubPlan *subplan;	/* expression plan node */
-	List	   *subplans;		/* SubPlanStates of alternative subplans */
-	int			active;			/* list index of the one we're using */
-} AlternativeSubPlanState;
 
 /*
  * DomainConstraintState - one item to check during CoerceToDomain
@@ -1019,6 +1039,8 @@ typedef struct PlanState
 	ExprContext *ps_ExprContext;	/* node's expression-evaluation context */
 	ProjectionInfo *ps_ProjInfo;	/* info for doing tuple projection */
 
+	bool		async_capable;	/* true if node is async-capable */
+
 	/*
 	 * Scanslot's descriptor if known. This is a bit of a hack, but otherwise
 	 * it's hard for expression compilation to optimize based on the
@@ -1109,9 +1131,8 @@ typedef struct PlanState
  * EvalPlanQualSlot), and/or found using the rowmark mechanism (non-locking
  * rowmarks by the EPQ machinery itself, locking ones by the caller).
  *
- * While the plan to be checked may be changed using EvalPlanQualSetPlan() -
- * e.g. so all source plans for a ModifyTable node can be processed - all such
- * plans need to share the same EState.
+ * While the plan to be checked may be changed using EvalPlanQualSetPlan(),
+ * all such plans need to share the same EState.
  */
 typedef struct EPQState
 {
@@ -1208,20 +1229,30 @@ typedef struct ModifyTableState
 	CmdType		operation;		/* INSERT, UPDATE, or DELETE */
 	bool		canSetTag;		/* do we set the command tag/es_processed? */
 	bool		mt_done;		/* are we done? */
-	PlanState **mt_plans;		/* subplans (one per target rel) */
-#ifdef ADB
-	PlanState **mt_remoterels;	/* per-target remote query node */
-#endif
-	int			mt_nplans;		/* number of plans in the array */
-	int			mt_whichplan;	/* which one is being executed (0..n-1) */
-	TupleTableSlot **mt_scans;	/* input tuple corresponding to underlying
-								 * plans */
-	ResultRelInfo *resultRelInfo;	/* per-subplan target relations */
-	ResultRelInfo *rootResultRelInfo;	/* root target relation (partitioned
-										 * table root) */
-	List	  **mt_arowmarks;	/* per-subplan ExecAuxRowMark lists */
+	int			mt_nrels;		/* number of entries in resultRelInfo[] */
+	ResultRelInfo *resultRelInfo;	/* info about target relation(s) */
+
+	/*
+	 * Target relation mentioned in the original statement, used to fire
+	 * statement-level triggers and as the root for tuple routing.  (This
+	 * might point to one of the resultRelInfo[] entries, but it can also be a
+	 * distinct struct.)
+	 */
+	ResultRelInfo *rootResultRelInfo;
+
 	EPQState	mt_epqstate;	/* for evaluating EvalPlanQual rechecks */
 	bool		fireBSTriggers; /* do we need to fire stmt triggers? */
+
+	/*
+	 * These fields are used for inherited UPDATE and DELETE, to track which
+	 * target relation a given tuple is from.  If there are a lot of target
+	 * relations, we use a hash table to translate table OIDs to
+	 * resultRelInfo[] indexes; otherwise mt_resultOidHash is NULL.
+	 */
+	int			mt_resultOidAttno;	/* resno of "tableoid" junk attr */
+	Oid			mt_lastResultOid;	/* last-seen value of tableoid */
+	int			mt_lastResultIndex; /* corresponding index in resultRelInfo[] */
+	HTAB	   *mt_resultOidHash;	/* optional hash table to speed lookups */
 
 	/*
 	 * Slot for storing tuples in the root partitioned table's rowtype during
@@ -1237,21 +1268,21 @@ typedef struct ModifyTableState
 
 	/* controls transition table population for INSERT...ON CONFLICT UPDATE */
 	struct TransitionCaptureState *mt_oc_transition_capture;
-
-	/* Per plan map for tuple conversion from child to root */
-	TupleConversionMap **mt_per_subplan_tupconv_maps;
+#ifdef ADB
+	PlanState **mt_remoterels;	/* per-target remote query node */
+#endif
 } ModifyTableState;
 
 /* ----------------
  *	 AppendState information
  *
  *		nplans				how many plans are in the array
- *		whichplan			which plan is being executed (0 .. n-1), or a
- *							special negative value. See nodeAppend.c.
+ *		whichplan			which synchronous plan is being executed (0 .. n-1)
+ *							or a special negative value. See nodeAppend.c.
  *		prune_state			details required to allow partitions to be
  *							eliminated from the scan, or NULL if not possible.
- *		valid_subplans		for runtime pruning, valid appendplans indexes to
- *							scan.
+ *		valid_subplans		for runtime pruning, valid synchronous appendplans
+ *							indexes to scan.
  * ----------------
  */
 
@@ -1267,12 +1298,25 @@ struct AppendState
 	PlanState **appendplans;	/* array of PlanStates for my inputs */
 	int			as_nplans;
 	int			as_whichplan;
+	bool		as_begun;		/* false means need to initialize */
+	Bitmapset  *as_asyncplans;	/* asynchronous plans indexes */
+	int			as_nasyncplans; /* # of asynchronous plans */
+	AsyncRequest **as_asyncrequests;	/* array of AsyncRequests */
+	TupleTableSlot **as_asyncresults;	/* unreturned results of async plans */
+	int			as_nasyncresults;	/* # of valid entries in as_asyncresults */
+	bool		as_syncdone;	/* true if all synchronous plans done in
+								 * asynchronous mode, else false */
+	int			as_nasyncremain;	/* # of remaining asynchronous plans */
+	Bitmapset  *as_needrequest; /* asynchronous plans needing a new request */
+	struct WaitEventSet *as_eventset;	/* WaitEventSet used to configure file
+										 * descriptor wait events */
 	int			as_first_partial_plan;	/* Index of 'appendplans' containing
 										 * the first partial plan */
 	ParallelAppendState *as_pstate; /* parallel coordination info */
 	Size		pstate_len;		/* size of parallel coordination info */
 	struct PartitionPruneState *as_prune_state;
 	Bitmapset  *as_valid_subplans;
+	Bitmapset  *as_valid_asyncplans;	/* valid asynchronous plans indexes */
 	bool		(*choose_next_subplan) (AppendState *);
 };
 
@@ -1672,6 +1716,24 @@ typedef struct TidScanState
 } TidScanState;
 
 /* ----------------
+ *	 TidRangeScanState information
+ *
+ *		trss_tidexprs		list of TidOpExpr structs (see nodeTidrangescan.c)
+ *		trss_mintid			the lowest TID in the scan range
+ *		trss_maxtid			the highest TID in the scan range
+ *		trss_inScan			is a scan currently in progress?
+ * ----------------
+ */
+typedef struct TidRangeScanState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	List	   *trss_tidexprs;
+	ItemPointerData trss_mintid;
+	ItemPointerData trss_maxtid;
+	bool		trss_inScan;
+} TidRangeScanState;
+
+/* ----------------
  *	 SubqueryScanState information
  *
  *		SubqueryScanState is used for scanning a sub-query in the range table.
@@ -1839,6 +1901,7 @@ typedef struct ForeignScanState
 	ScanState	ss;				/* its first field is NodeTag */
 	ExprState  *fdw_recheck_quals;	/* original quals not in ss.ps.qual */
 	Size		pscan_len;		/* size of parallel coordination information */
+	ResultRelInfo *resultRelInfo;	/* result rel info, if UPDATE or DELETE */
 	/* use struct pointer to avoid including fdwapi.h here */
 	struct FdwRoutine *fdwroutine;
 	void	   *fdw_state;		/* foreign-data wrapper can keep state here */
@@ -2027,6 +2090,71 @@ typedef struct MaterialState
 	Tuplestorestate *tuplestorestate;
 } MaterialState;
 
+struct ResultCacheEntry;
+struct ResultCacheTuple;
+struct ResultCacheKey;
+
+typedef struct ResultCacheInstrumentation
+{
+	uint64		cache_hits;		/* number of rescans where we've found the
+								 * scan parameter values to be cached */
+	uint64		cache_misses;	/* number of rescans where we've not found the
+								 * scan parameter values to be cached. */
+	uint64		cache_evictions;	/* number of cache entries removed due to
+									 * the need to free memory */
+	uint64		cache_overflows;	/* number of times we've had to bypass the
+									 * cache when filling it due to not being
+									 * able to free enough space to store the
+									 * current scan's tuples. */
+	uint64		mem_peak;		/* peak memory usage in bytes */
+} ResultCacheInstrumentation;
+
+/* ----------------
+ *	 Shared memory container for per-worker resultcache information
+ * ----------------
+ */
+typedef struct SharedResultCacheInfo
+{
+	int			num_workers;
+	ResultCacheInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER];
+} SharedResultCacheInfo;
+
+/* ----------------
+ *	 ResultCacheState information
+ *
+ *		resultcache nodes are used to cache recent and commonly seen results
+ *		from a parameterized scan.
+ * ----------------
+ */
+typedef struct ResultCacheState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	int			rc_status;		/* value of ExecResultCache state machine */
+	int			nkeys;			/* number of cache keys */
+	struct resultcache_hash *hashtable; /* hash table for cache entries */
+	TupleDesc	hashkeydesc;	/* tuple descriptor for cache keys */
+	TupleTableSlot *tableslot;	/* min tuple slot for existing cache entries */
+	TupleTableSlot *probeslot;	/* virtual slot used for hash lookups */
+	ExprState  *cache_eq_expr;	/* Compare exec params to hash key */
+	ExprState **param_exprs;	/* exprs containing the parameters to this
+								 * node */
+	FmgrInfo   *hashfunctions;	/* lookup data for hash funcs nkeys in size */
+	Oid		   *collations;		/* collation for comparisons nkeys in size */
+	uint64		mem_used;		/* bytes of memory used by cache */
+	uint64		mem_limit;		/* memory limit in bytes for the cache */
+	MemoryContext tableContext; /* memory context to store cache data */
+	dlist_head	lru_list;		/* least recently used entry list */
+	struct ResultCacheTuple *last_tuple;	/* Used to point to the last tuple
+											 * returned during a cache hit and
+											 * the tuple we last stored when
+											 * populating the cache. */
+	struct ResultCacheEntry *entry; /* the entry that 'last_tuple' belongs to
+									 * or NULL if 'last_tuple' is NULL. */
+	bool		singlerow;		/* true if the cache entry is to be marked as
+								 * complete after caching the first tuple. */
+	ResultCacheInstrumentation stats;	/* execution statistics */
+	SharedResultCacheInfo *shared_info; /* statistics for parallel workers */
+} ResultCacheState;
 
 /* ----------------
  *	 When performing sorting by multiple keys, it's possible that the input
@@ -2090,10 +2218,10 @@ typedef struct BatchSortState
 typedef struct IncrementalSortGroupInfo
 {
 	int64		groupCount;
-	long		maxDiskSpaceUsed;
-	long		totalDiskSpaceUsed;
-	long		maxMemorySpaceUsed;
-	long		totalMemorySpaceUsed;
+	int64		maxDiskSpaceUsed;
+	int64		totalDiskSpaceUsed;
+	int64		maxMemorySpaceUsed;
+	int64		totalMemorySpaceUsed;
 	bits32		sortMethods;	/* bitmask of TuplesortMethod */
 } IncrementalSortGroupInfo;
 
@@ -2160,6 +2288,27 @@ typedef struct GroupState
 } GroupState;
 
 /* ---------------------
+ *	per-worker aggregate information
+ * ---------------------
+ */
+typedef struct AggregateInstrumentation
+{
+	Size		hash_mem_peak;	/* peak hash table memory usage */
+	uint64		hash_disk_used; /* kB of disk space used */
+	int			hash_batches_used;	/* batches used during entire execution */
+} AggregateInstrumentation;
+
+/* ----------------
+ *	 Shared memory container for per-worker aggregate information
+ * ----------------
+ */
+typedef struct SharedAggInfo
+{
+	int			num_workers;
+	AggregateInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER];
+} SharedAggInfo;
+
+/* ---------------------
  *	AggState information
  *
  *	ss.ss_ScanTupleSlot refers to output of underlying plan.
@@ -2206,6 +2355,9 @@ typedef struct AggState
 	int			current_set;	/* The current grouping set being evaluated */
 	Bitmapset  *grouped_cols;	/* grouped cols in current projection */
 	List	   *all_grouped_cols;	/* list of all grouped cols in DESC order */
+	Bitmapset  *colnos_needed;	/* all columns needed from the outer plan */
+	int			max_colno_needed;	/* highest colno needed from outer plan */
+	bool		all_cols_needed;	/* are all cols from outer plan needed? */
 	/* These fields are for grouping set phase data */
 	int			maxsets;		/* The max number of sets in any phase */
 	AggStatePerPhase phases;	/* array of all phases */
@@ -2223,7 +2375,8 @@ typedef struct AggState
 	struct HashTapeInfo *hash_tapeinfo; /* metadata for spill tapes */
 	struct HashAggSpill *hash_spills;	/* HashAggSpill for each grouping set,
 										 * exists only during first pass */
-	TupleTableSlot *hash_spill_slot;	/* slot for reading from spill files */
+	TupleTableSlot *hash_spill_rslot;	/* for reading spill files */
+	TupleTableSlot *hash_spill_wslot;	/* for writing spill files */
 	List	   *hash_batches;	/* hash batches remaining to be processed */
 	bool		hash_ever_spilled;	/* ever spilled during this execution? */
 	bool		hash_spill_mode;	/* we hit a limit during the current batch
@@ -2244,10 +2397,11 @@ typedef struct AggState
 										 * per-group pointers */
 
 	/* support for evaluation of agg input expressions: */
-#define FIELDNO_AGGSTATE_ALL_PERGROUPS 49
+#define FIELDNO_AGGSTATE_ALL_PERGROUPS 53
 	AggStatePerGroup *all_pergroups;	/* array of first ->pergroups, than
 										 * ->hash_pergroup */
 	ProjectionInfo *combinedproj;	/* projection machinery */
+	SharedAggInfo *shared_info; /* one entry per worker */
 #ifdef ADB_EXT
 	struct BatchStoreData *batch_store;	/* for batch hash */
 	struct Barrier *batch_barrier;		/* for parallel batch */

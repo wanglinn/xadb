@@ -96,15 +96,57 @@
 
 #ifndef NO_STRUCT_AggClauseCosts
 BEGIN_STRUCT(AggClauseCosts)
-	NODE_SCALAR(int,numAggs)
-	NODE_SCALAR(int,numOrderedAggs)
-	NODE_SCALAR(bool,hasNonPartial)
-	NODE_SCALAR(bool,hasNonSerial)
 	NODE_STRUCT_MEB(QualCost,transCost)
 	NODE_STRUCT_MEB(QualCost,finalCost)
 	NODE_SCALAR(Size,transitionSpace)
 END_STRUCT(AggClauseCosts)
 #endif /* NO_STRUCT_AggClauseCosts */
+
+#ifndef NO_STRUCT_AggInfo
+BEGIN_STRUCT(AggInfo)
+	NODE_NODE(Aggref,representative_aggref)
+	NODE_SCALAR(int,transno)
+	NODE_SCALAR(bool,shareable)
+	NODE_SCALAR(Oid,finalfn_oid)
+END_STRUCT(AggInfo)
+#endif /* NO_STRUCT_AggInfo */
+
+#ifndef NO_STRUCT_AggTransInfo
+BEGIN_STRUCT(AggTransInfo)
+	NODE_NODE(List,args)
+	NODE_NODE(Expr,aggfilter)
+	NODE_SCALAR(Oid,transfn_oid)
+	NODE_SCALAR(Oid,serialfn_oid)
+	NODE_SCALAR(Oid,deserialfn_oid)
+	NODE_SCALAR(Oid,combinefn_oid)
+	NODE_SCALAR(Oid,aggtranstype)
+	NODE_SCALAR(int32,aggtranstypmod)
+	NODE_SCALAR(int,transtypeLen)
+	NODE_SCALAR(bool,transtypeByVal)
+	NODE_SCALAR(int32,aggtransspace)
+Datum initValue
+	NODE_SCALAR(bool,initValueIsNull)
+END_STRUCT(AggTransInfo)
+#endif /* NO_STRUCT_AggTransInfo */
+
+#ifndef NO_STRUCT_AggregateInstrumentation
+BEGIN_STRUCT(AggregateInstrumentation)
+	NODE_SCALAR(Size,hash_mem_peak)
+	NODE_SCALAR(uint64,hash_disk_used)
+	NODE_SCALAR(int,hash_batches_used)
+END_STRUCT(AggregateInstrumentation)
+#endif /* NO_STRUCT_AggregateInstrumentation */
+
+#ifndef NO_STRUCT_AsyncRequest
+BEGIN_STRUCT(AsyncRequest)
+	NODE_NODE(PlanState,requestor)
+	NODE_NODE(PlanState,requestee)
+	NODE_SCALAR(int,request_index)
+	NODE_SCALAR(bool,callback_pending)
+	NODE_SCALAR(bool,request_complete)
+	NODE_NODE(TupleTableSlot,result)
+END_STRUCT(AsyncRequest)
+#endif /* NO_STRUCT_AsyncRequest */
 
 #ifndef NO_STRUCT_AutoVacOpts
 BEGIN_STRUCT(AutoVacOpts)
@@ -243,10 +285,10 @@ END_STRUCT(HashInstrumentation)
 #ifndef NO_STRUCT_IncrementalSortGroupInfo
 BEGIN_STRUCT(IncrementalSortGroupInfo)
 int64 groupCount
-	NODE_SCALAR(long,maxDiskSpaceUsed)
-	NODE_SCALAR(long,totalDiskSpaceUsed)
-	NODE_SCALAR(long,maxMemorySpaceUsed)
-	NODE_SCALAR(long,totalMemorySpaceUsed)
+int64 maxDiskSpaceUsed
+int64 totalDiskSpaceUsed
+int64 maxMemorySpaceUsed
+int64 totalMemorySpaceUsed
 	NODE_SCALAR(bits32,sortMethods)
 END_STRUCT(IncrementalSortGroupInfo)
 #endif /* NO_STRUCT_IncrementalSortGroupInfo */
@@ -474,12 +516,29 @@ END_STRUCT(RelationLocInfo)
 #endif /* NO_STRUCT_RelationLocInfo */
 #endif
 
+#ifndef NO_STRUCT_ResultCacheInstrumentation
+BEGIN_STRUCT(ResultCacheInstrumentation)
+	NODE_SCALAR(uint64,cache_hits)
+	NODE_SCALAR(uint64,cache_misses)
+	NODE_SCALAR(uint64,cache_evictions)
+	NODE_SCALAR(uint64,cache_overflows)
+	NODE_SCALAR(uint64,mem_peak)
+END_STRUCT(ResultCacheInstrumentation)
+#endif /* NO_STRUCT_ResultCacheInstrumentation */
+
 #ifndef NO_STRUCT_SemiAntiJoinFactors
 BEGIN_STRUCT(SemiAntiJoinFactors)
 	NODE_SCALAR(Selectivity,outer_match_frac)
 	NODE_SCALAR(Selectivity,match_count)
 END_STRUCT(SemiAntiJoinFactors)
 #endif /* NO_STRUCT_SemiAntiJoinFactors */
+
+#ifndef NO_STRUCT_SharedAggInfo
+BEGIN_STRUCT(SharedAggInfo)
+	NODE_SCALAR(int,num_workers)
+AggregateInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedAggInfo)
+#endif /* NO_STRUCT_SharedAggInfo */
 
 #ifndef NO_STRUCT_SharedHashInfo
 BEGIN_STRUCT(SharedHashInfo)
@@ -494,6 +553,13 @@ BEGIN_STRUCT(SharedIncrementalSortInfo)
 IncrementalSortInfo sinfo[FLEXIBLE_ARRAY_MEMBER]
 END_STRUCT(SharedIncrementalSortInfo)
 #endif /* NO_STRUCT_SharedIncrementalSortInfo */
+
+#ifndef NO_STRUCT_SharedResultCacheInfo
+BEGIN_STRUCT(SharedResultCacheInfo)
+	NODE_SCALAR(int,num_workers)
+ResultCacheInstrumentation sinstrument[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedResultCacheInfo)
+#endif /* NO_STRUCT_SharedResultCacheInfo */
 
 #ifndef NO_STRUCT_SharedSortInfo
 BEGIN_STRUCT(SharedSortInfo)

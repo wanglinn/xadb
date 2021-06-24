@@ -3,7 +3,7 @@
  * lmgr.c
  *	  POSTGRES lock manager code
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -23,6 +23,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/lmgr.h"
+#include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
 #include "utils/inval.h"
@@ -484,6 +485,21 @@ UnlockRelationForExtension(Relation relation, LOCKMODE lockmode)
 }
 
 /*
+ *		LockDatabaseFrozenIds
+ *
+ * This allows one backend per database to execute vac_update_datfrozenxid().
+ */
+void
+LockDatabaseFrozenIds(LOCKMODE lockmode)
+{
+	LOCKTAG		tag;
+
+	SET_LOCKTAG_DATABASE_FROZEN_IDS(tag, MyDatabaseId);
+
+	(void) LockAcquire(&tag, lockmode, false, false);
+}
+
+/*
  *		LockPage
  *
  * Obtain a page-level lock.  This is currently used by some index access
@@ -912,8 +928,7 @@ WaitForLockersMultiple(List *locktags, LOCKMODE lockmode, bool progress)
 
 	/*
 	 * Note: GetLockConflicts() never reports our own xid, hence we need not
-	 * check for that.  Also, prepared xacts are not reported, which is fine
-	 * since they certainly aren't going to do anything anymore.
+	 * check for that.  Also, prepared xacts are reported and awaited.
 	 */
 
 	/* Finally wait for each such transaction to complete */
@@ -1119,6 +1134,11 @@ DescribeLockTag(StringInfo buf, const LOCKTAG *tag)
 			appendStringInfo(buf,
 							 _("extension of relation %u of database %u"),
 							 tag->locktag_field2,
+							 tag->locktag_field1);
+			break;
+		case LOCKTAG_DATABASE_FROZEN_IDS:
+			appendStringInfo(buf,
+							 _("pg_database.datfrozenxid of database %u"),
 							 tag->locktag_field1);
 			break;
 		case LOCKTAG_PAGE:

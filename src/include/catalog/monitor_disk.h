@@ -46,4 +46,7 @@ CATALOG(monitor_disk,9789,MonitorDiskRelationId)
  */
 typedef FormData_monitor_disk *Form_monitor_disk;
 
+DECLARE_UNIQUE_INDEX(monitor_disk_oid_index, 9770, on monitor_disk using btree(oid oid_ops));
+#define MonitorDiskOidIndexId 9770
+
 #endif /* MONITOR_DISK_H */

@@ -2,7 +2,7 @@
 #
 # Makefile for the postgres backend
 #
-# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/backend/Makefile
@@ -223,7 +223,6 @@ endif
 	$(MAKE) -C utils	distprep
 	$(MAKE) -C utils/adt	jsonpath_gram.c jsonpath_scan.c
 	$(MAKE) -C utils/misc	guc-file.c
-	$(MAKE) -C utils/sort	qsort_tuple.c
 
 
 ##########################################################################
@@ -355,8 +354,7 @@ maintainer-clean: distclean
 	      storage/lmgr/lwlocknames.h \
 	      utils/adt/jsonpath_gram.c \
 	      utils/adt/jsonpath_scan.c \
-	      utils/misc/guc-file.c \
-	      utils/sort/qsort_tuple.c
+	      utils/misc/guc-file.c
 ifeq ($(enable_grammar_oracle),yes)
 	rm -f oraschema/oracle_schema.sql
 endif

@@ -26,7 +26,7 @@
  *	before ExecutorEnd.  This can be omitted only in case of EXPLAIN,
  *	which should also omit ExecutorRun.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -58,6 +58,7 @@
 #include "storage/lmgr.h"
 #include "tcop/utility.h"
 #include "utils/acl.h"
+#include "utils/backend_status.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/partcache.h"
@@ -103,20 +104,6 @@ static char *ExecBuildSlotValueDescription(Oid reloid,
 										   int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, Plan *planTree);
 
-/*
- * Note that GetAllUpdatedColumns() also exists in commands/trigger.c.  There does
- * not appear to be any good header to put it into, given the structures that
- * it uses, so we let them be duplicated.  Be sure to update both if one needs
- * to be changed, however.
- */
-#define GetInsertedColumns(relinfo, estate) \
-	(exec_rt_fetch((relinfo)->ri_RangeTableIndex, estate)->insertedCols)
-#define GetUpdatedColumns(relinfo, estate) \
-	(exec_rt_fetch((relinfo)->ri_RangeTableIndex, estate)->updatedCols)
-#define GetAllUpdatedColumns(relinfo, estate) \
-	(bms_union(exec_rt_fetch((relinfo)->ri_RangeTableIndex, estate)->updatedCols, \
-			   exec_rt_fetch((relinfo)->ri_RangeTableIndex, estate)->extraUpdatedCols))
-
 /* end of local decls */
 
 
@@ -145,6 +132,14 @@ static void EvalPlanQualStart(EPQState *epqstate, Plan *planTree);
 void
 ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
+	/*
+	 * In some cases (e.g. an EXECUTE statement) a query execution will skip
+	 * parse analysis, which means that the query_id won't be reported.  Note
+	 * that it's harmless to report the query_id multiple time, as the call
+	 * will be ignored if the top level query_id has already been reported.
+	 */
+	pgstat_report_query_id(queryDesc->plannedstmt->queryId, false);
+
 	if (ExecutorStart_hook)
 		(*ExecutorStart_hook) (queryDesc, eflags);
 	else
@@ -166,7 +161,7 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	 * planned to non-temporary tables.  EXPLAIN is considered read-only.
 	 *
 	 * Don't allow writes in parallel mode.  Supporting UPDATE and DELETE
-	 * would require (a) storing the combocid hash in shared memory, rather
+	 * would require (a) storing the combo CID hash in shared memory, rather
 	 * than synchronizing it just once at the start of parallelism, and (b) an
 	 * alternative to heap_update()'s reliance on xmax for mutual exclusion.
 	 * INSERT may have no such troubles, but we forbid it to simplify the
@@ -203,6 +198,8 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			palloc0(nParamExec * sizeof(ParamExecData));
 	}
 
+	/* We now require all callers to provide sourceText */
+	Assert(queryDesc->sourceText != NULL);
 	estate->es_sourceText = queryDesc->sourceText;
 
 	/*
@@ -592,7 +589,7 @@ ExecutorRewind(QueryDesc *queryDesc)
  * Returns true if permissions are adequate.  Otherwise, throws an appropriate
  * error if ereport_on_violation is true, or simply returns false otherwise.
  *
- * Note that this does NOT address row level security policies (aka: RLS).  If
+ * Note that this does NOT address row-level security policies (aka: RLS).  If
  * rows will be returned to the user as a result of this permission check
  * passing, then RLS also needs to be consulted (and check_enable_rls()).
  *
@@ -862,106 +859,6 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	ExecInitRangeTable(estate, rangeTable);
 
 	estate->es_plannedstmt = plannedstmt;
-
-	/*
-	 * Initialize ResultRelInfo data structures, and open the result rels.
-	 */
-	if (plannedstmt->resultRelations)
-	{
-		List	   *resultRelations = plannedstmt->resultRelations;
-		int			numResultRelations = list_length(resultRelations);
-		ResultRelInfo *resultRelInfos;
-		ResultRelInfo *resultRelInfo;
-
-		resultRelInfos = (ResultRelInfo *)
-			palloc(numResultRelations * sizeof(ResultRelInfo));
-		resultRelInfo = resultRelInfos;
-		foreach(l, resultRelations)
-		{
-			Index		resultRelationIndex = lfirst_int(l);
-			Relation	resultRelation;
-
-#ifdef ADB
-			if (IsConnFromCoord() &&
-				rt_fetch(resultRelationIndex, rangeTable)->relid == InvalidOid)
-			{
-				/* same time ModifyTable target in coordinator only */
-				MemSet(resultRelInfo, 0, sizeof(*resultRelInfo));
-				/* resultRelInfo->type = T_Invalid; */
-			}else
-			{
-#endif /* ADB */
-			resultRelation = ExecGetRangeTableRelation(estate,
-													   resultRelationIndex);
-			InitResultRelInfo(resultRelInfo,
-							  resultRelation,
-							  resultRelationIndex,
-							  NULL,
-							  estate->es_instrument);
-#ifdef ADB
-			}
-#endif /* ADB */
-			resultRelInfo++;
-		}
-		estate->es_result_relations = resultRelInfos;
-		estate->es_num_result_relations = numResultRelations;
-
-		/* es_result_relation_info is NULL except when within ModifyTable */
-		estate->es_result_relation_info = NULL;
-#ifdef ADB
-		estate->es_result_remoterel = NULL;
-#endif
-
-		/*
-		 * In the partitioned result relation case, also build ResultRelInfos
-		 * for all the partitioned table roots, because we will need them to
-		 * fire statement-level triggers, if any.
-		 */
-		if (plannedstmt->rootResultRelations)
-		{
-			int			num_roots = list_length(plannedstmt->rootResultRelations);
-
-			resultRelInfos = (ResultRelInfo *)
-				palloc(num_roots * sizeof(ResultRelInfo));
-			resultRelInfo = resultRelInfos;
-			foreach(l, plannedstmt->rootResultRelations)
-			{
-				Index		resultRelIndex = lfirst_int(l);
-				Relation	resultRelDesc;
-
-				resultRelDesc = ExecGetRangeTableRelation(estate,
-														  resultRelIndex);
-				InitResultRelInfo(resultRelInfo,
-								  resultRelDesc,
-								  resultRelIndex,
-								  NULL,
-								  estate->es_instrument);
-				resultRelInfo++;
-			}
-
-			estate->es_root_result_relations = resultRelInfos;
-			estate->es_num_root_result_relations = num_roots;
-		}
-		else
-		{
-			estate->es_root_result_relations = NULL;
-			estate->es_num_root_result_relations = 0;
-		}
-	}
-	else
-	{
-		/*
-		 * if no result relation, then set state appropriately
-		 */
-		estate->es_result_relations = NULL;
-		estate->es_num_result_relations = 0;
-		estate->es_result_relation_info = NULL;
-		estate->es_root_result_relations = NULL;
-		estate->es_num_root_result_relations = 0;
-#ifdef ADB
-		estate->es_result_remoterel = NULL;
-#endif
-	}
 
 	/*
 	 * Next, build the ExecRowMark array from the PlanRowMark(s), if any.
@@ -1333,11 +1230,9 @@ void
 InitResultRelInfo(ResultRelInfo *resultRelInfo,
 				  Relation resultRelationDesc,
 				  Index resultRelationIndex,
-				  Relation partition_root,
+				  ResultRelInfo *partition_root_rri,
 				  int instrument_options)
 {
-	List	   *partition_check = NIL;
-
 	MemSet(resultRelInfo, 0, sizeof(ResultRelInfo));
 	resultRelInfo->type = T_ResultRelInfo;
 	resultRelInfo->ri_RangeTableIndex = resultRelationIndex;
@@ -1356,7 +1251,7 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 		resultRelInfo->ri_TrigWhenExprs = (ExprState **)
 			palloc0(n * sizeof(ExprState *));
 		if (instrument_options)
-			resultRelInfo->ri_TrigInstrument = InstrAlloc(n, instrument_options);
+			resultRelInfo->ri_TrigInstrument = InstrAlloc(n, instrument_options, false);
 	}
 	else
 	{
@@ -1370,11 +1265,15 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 		resultRelInfo->ri_FdwRoutine = NULL;
 
 	/* The following fields are set later if needed */
+	resultRelInfo->ri_RowIdAttNo = 0;
+	resultRelInfo->ri_projectNew = NULL;
+	resultRelInfo->ri_newTupleSlot = NULL;
+	resultRelInfo->ri_oldTupleSlot = NULL;
+	resultRelInfo->ri_projectNewInfoValid = false;
 	resultRelInfo->ri_FdwState = NULL;
 	resultRelInfo->ri_usesFdwDirectModify = false;
 	resultRelInfo->ri_ConstraintExprs = NULL;
 	resultRelInfo->ri_GeneratedExprs = NULL;
-	resultRelInfo->ri_junkFilter = NULL;
 	resultRelInfo->ri_projectReturning = NULL;
 	resultRelInfo->ri_onConflictArbiterIndexes = NIL;
 	resultRelInfo->ri_onConflict = NULL;
@@ -1383,23 +1282,17 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 	resultRelInfo->ri_TrigNewSlot = NULL;
 
 	/*
-	 * Partition constraint, which also includes the partition constraint of
-	 * all the ancestors that are partitions.  Note that it will be checked
-	 * even in the case of tuple-routing where this table is the target leaf
-	 * partition, if there any BR triggers defined on the table.  Although
-	 * tuple-routing implicitly preserves the partition constraint of the
-	 * target partition for a given row, the BR triggers may change the row
-	 * such that the constraint is no longer satisfied, which we must fail for
-	 * by checking it explicitly.
-	 *
-	 * If this is a partitioned table, the partition constraint (if any) of a
-	 * given row will be checked just before performing tuple-routing.
+	 * Only ExecInitPartitionInfo() and ExecInitPartitionDispatchInfo() pass
+	 * non-NULL partition_root_rri.  For child relations that are part of the
+	 * initial query rather than being dynamically added by tuple routing,
+	 * this field is filled in ExecInitModifyTable().
 	 */
-	partition_check = RelationGetPartitionQual(resultRelationDesc);
-
-	resultRelInfo->ri_PartitionCheck = partition_check;
-	resultRelInfo->ri_PartitionRoot = partition_root;
-	resultRelInfo->ri_PartitionInfo = NULL; /* may be set later */
+	resultRelInfo->ri_RootResultRelInfo = partition_root_rri;
+	resultRelInfo->ri_RootToPartitionMap = NULL;	/* set by
+													 * ExecInitRoutingInfo */
+	resultRelInfo->ri_PartitionTupleSlot = NULL;	/* ditto */
+	resultRelInfo->ri_ChildToRootMap = NULL;
+	resultRelInfo->ri_ChildToRootMapValid = false;
 	resultRelInfo->ri_CopyMultiInsertBuffer = NULL;
 }
 
@@ -1409,8 +1302,7 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
  *
  * Most of the time, triggers are fired on one of the result relations of the
  * query, and so we can just return a member of the es_result_relations array,
- * or the es_root_result_relations array (if any), or the
- * es_tuple_routing_result_relations list (if any).  (Note: in self-join
+ * or the es_tuple_routing_result_relations list (if any). (Note: in self-join
  * situations there might be multiple members with the same OID; if so it
  * doesn't matter which one we pick.)
  *
@@ -1427,35 +1319,21 @@ ResultRelInfo *
 ExecGetTriggerResultRel(EState *estate, Oid relid)
 {
 	ResultRelInfo *rInfo;
-	int			nr;
 	ListCell   *l;
 	Relation	rel;
 	MemoryContext oldcontext;
 
-	/* First, search through the query result relations */
-	rInfo = estate->es_result_relations;
-	nr = estate->es_num_result_relations;
-	while (nr > 0)
+	/* Search through the query result relations */
+	foreach(l, estate->es_opened_result_relations)
 	{
+		rInfo = lfirst(l);
 		if (RelationGetRelid(rInfo->ri_RelationDesc) == relid)
 			return rInfo;
-		rInfo++;
-		nr--;
-	}
-	/* Second, search through the root result relations, if any */
-	rInfo = estate->es_root_result_relations;
-	nr = estate->es_num_root_result_relations;
-	while (nr > 0)
-	{
-		if (RelationGetRelid(rInfo->ri_RelationDesc) == relid)
-			return rInfo;
-		rInfo++;
-		nr--;
 	}
 
 	/*
-	 * Third, search through the result relations that were created during
-	 * tuple routing, if any.
+	 * Search through the result relations that were created during tuple
+	 * routing, if any.
 	 */
 	foreach(l, estate->es_tuple_routing_result_relations)
 	{
@@ -1501,35 +1379,6 @@ ExecGetTriggerResultRel(EState *estate, Oid relid)
 	 */
 
 	return rInfo;
-}
-
-/*
- * Close any relations that have been opened by ExecGetTriggerResultRel().
- */
-void
-ExecCleanUpTriggerState(EState *estate)
-{
-	ListCell   *l;
-
-	foreach(l, estate->es_trig_target_relations)
-	{
-		ResultRelInfo *resultRelInfo = (ResultRelInfo *) lfirst(l);
-
-		/*
-		 * Assert this is a "dummy" ResultRelInfo, see above.  Otherwise we
-		 * might be issuing a duplicate close against a Relation opened by
-		 * ExecGetRangeTableRelation.
-		 */
-		Assert(resultRelInfo->ri_RangeTableIndex == 0);
-
-		/*
-		 * Since ExecGetTriggerResultRel doesn't call ExecOpenIndices for
-		 * these rels, we needn't call ExecCloseIndices either.
-		 */
-		Assert(resultRelInfo->ri_NumIndices == 0);
-
-		table_close(resultRelInfo->ri_RelationDesc, NoLock);
-	}
 }
 
 /* ----------------------------------------------------------------
@@ -1587,9 +1436,6 @@ ExecPostprocessPlan(EState *estate)
 static void
 ExecEndPlan(PlanState *planstate, EState *estate)
 {
-	ResultRelInfo *resultRelInfo;
-	Index		num_relations;
-	Index		i;
 	ListCell   *l;
 
 	/*
@@ -1616,36 +1462,73 @@ ExecEndPlan(PlanState *planstate, EState *estate)
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
 	/*
-	 * close indexes of result relation(s) if any.  (Rels themselves get
-	 * closed next.)
+	 * Close any Relations that have been opened for range table entries or
+	 * result relations.
 	 */
-	resultRelInfo = estate->es_result_relations;
-	for (i = estate->es_num_result_relations; i > 0; i--)
-	{
-#ifdef ADB
-		if(nodeTag(resultRelInfo) == T_Invalid)
-		{
-			resultRelInfo++;
-			continue;
-		}
-#endif /* ADB */
-		ExecCloseIndices(resultRelInfo);
-		resultRelInfo++;
-	}
+	ExecCloseResultRelations(estate);
+	ExecCloseRangeTableRelations(estate);
+}
+
+/*
+ * Close any relations that have been opened for ResultRelInfos.
+ */
+void
+ExecCloseResultRelations(EState *estate)
+{
+	ListCell   *l;
 
 	/*
-	 * close whatever rangetable Relations have been opened.  We do not
-	 * release any locks we might hold on those rels.
+	 * close indexes of result relation(s) if any.  (Rels themselves are
+	 * closed in ExecCloseRangeTableRelations())
 	 */
-	num_relations = estate->es_range_table_size;
-	for (i = 0; i < num_relations; i++)
+	foreach(l, estate->es_opened_result_relations)
+	{
+		ResultRelInfo *resultRelInfo = lfirst(l);
+
+#ifdef ADB
+		if(nodeTag(resultRelInfo) == T_Invalid)
+			continue;
+#endif /* ADB */
+		ExecCloseIndices(resultRelInfo);
+	}
+
+	/* Close any relations that have been opened by ExecGetTriggerResultRel(). */
+	foreach(l, estate->es_trig_target_relations)
+	{
+		ResultRelInfo *resultRelInfo = (ResultRelInfo *) lfirst(l);
+
+		/*
+		 * Assert this is a "dummy" ResultRelInfo, see above.  Otherwise we
+		 * might be issuing a duplicate close against a Relation opened by
+		 * ExecGetRangeTableRelation.
+		 */
+		Assert(resultRelInfo->ri_RangeTableIndex == 0);
+
+		/*
+		 * Since ExecGetTriggerResultRel doesn't call ExecOpenIndices for
+		 * these rels, we needn't call ExecCloseIndices either.
+		 */
+		Assert(resultRelInfo->ri_NumIndices == 0);
+
+		table_close(resultRelInfo->ri_RelationDesc, NoLock);
+	}
+}
+
+/*
+ * Close all relations opened by ExecGetRangeTableRelation().
+ *
+ * We do not release any locks we might hold on those rels.
+ */
+void
+ExecCloseRangeTableRelations(EState *estate)
+{
+	int			i;
+
+	for (i = 0; i < estate->es_range_table_size; i++)
 	{
 		if (estate->es_relations[i])
 			table_close(estate->es_relations[i], NoLock);
 	}
-
-	/* likewise close any trigger target relations */
-	ExecCleanUpTriggerState(estate);
 }
 
 /* ----------------------------------------------------------------
@@ -1806,6 +1689,15 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
 	int			i;
 
 	/*
+	 * CheckConstraintFetch let this pass with only a warning, but now we
+	 * should fail rather than possibly failing to enforce an important
+	 * constraint.
+	 */
+	if (ncheck != rel->rd_rel->relchecks)
+		elog(ERROR, "%d pg_constraint record(s) missing for relation \"%s\"",
+			 rel->rd_rel->relchecks - ncheck, RelationGetRelationName(rel));
+
+	/*
 	 * If first time through for this result relation, build expression
 	 * nodetrees for rel's constraint expressions.  Keep them in the per-query
 	 * memory context so they'll survive throughout the query.
@@ -1857,7 +1749,7 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
  * ExecPartitionCheck --- check that tuple meets the partition constraint.
  *
  * Returns true if it meets the partition constraint.  If the constraint
- * fails and we're asked to emit to error, do so and don't return; otherwise
+ * fails and we're asked to emit an error, do so and don't return; otherwise
  * return false.
  */
 bool
@@ -1869,14 +1761,22 @@ ExecPartitionCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *slot,
 
 	/*
 	 * If first time through, build expression state tree for the partition
-	 * check expression.  Keep it in the per-query memory context so they'll
-	 * survive throughout the query.
+	 * check expression.  (In the corner case where the partition check
+	 * expression is empty, ie there's a default partition and nothing else,
+	 * we'll be fooled into executing this code each time through.  But it's
+	 * pretty darn cheap in that case, so we don't worry about it.)
 	 */
 	if (resultRelInfo->ri_PartitionCheckExpr == NULL)
 	{
-		List	   *qual = resultRelInfo->ri_PartitionCheck;
+		/*
+		 * Ensure that the qual tree and prepared expression are in the
+		 * query-lifespan context.
+		 */
+		MemoryContext oldcxt = MemoryContextSwitchTo(estate->es_query_cxt);
+		List	   *qual = RelationGetPartitionQual(resultRelInfo->ri_RelationDesc);
 
 		resultRelInfo->ri_PartitionCheckExpr = ExecPrepareCheck(qual, estate);
+		MemoryContextSwitchTo(oldcxt);
 	}
 
 	/*
@@ -1921,13 +1821,14 @@ ExecPartitionCheckEmitError(ResultRelInfo *resultRelInfo,
 	 * back to the root table's rowtype so that val_desc in the error message
 	 * matches the input tuple.
 	 */
-	if (resultRelInfo->ri_PartitionRoot)
+	if (resultRelInfo->ri_RootResultRelInfo)
 	{
+		ResultRelInfo *rootrel = resultRelInfo->ri_RootResultRelInfo;
 		TupleDesc	old_tupdesc;
 		AttrMap    *map;
 
-		root_relid = RelationGetRelid(resultRelInfo->ri_PartitionRoot);
-		tupdesc = RelationGetDescr(resultRelInfo->ri_PartitionRoot);
+		root_relid = RelationGetRelid(rootrel->ri_RelationDesc);
+		tupdesc = RelationGetDescr(rootrel->ri_RelationDesc);
 
 		old_tupdesc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
 		/* a reverse map */
@@ -1940,15 +1841,16 @@ ExecPartitionCheckEmitError(ResultRelInfo *resultRelInfo,
 		if (map != NULL)
 			slot = execute_attr_map_slot(map, slot,
 										 MakeTupleTableSlot(tupdesc, &TTSOpsVirtual));
+		modifiedCols = bms_union(ExecGetInsertedCols(rootrel, estate),
+								 ExecGetUpdatedCols(rootrel, estate));
 	}
 	else
 	{
 		root_relid = RelationGetRelid(resultRelInfo->ri_RelationDesc);
 		tupdesc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
+		modifiedCols = bms_union(ExecGetInsertedCols(resultRelInfo, estate),
+								 ExecGetUpdatedCols(resultRelInfo, estate));
 	}
-
-	modifiedCols = bms_union(GetInsertedColumns(resultRelInfo, estate),
-							 GetUpdatedColumns(resultRelInfo, estate));
 
 	val_desc = ExecBuildSlotValueDescription(root_relid,
 											 slot,
@@ -1982,12 +1884,10 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 	TupleDesc	tupdesc = RelationGetDescr(rel);
 	TupleConstr *constr = tupdesc->constr;
 	Bitmapset  *modifiedCols;
-	Bitmapset  *insertedCols;
-	Bitmapset  *updatedCols;
 
-	Assert(constr || resultRelInfo->ri_PartitionCheck);
+	Assert(constr);				/* we should not be called otherwise */
 
-	if (constr && constr->has_not_null)
+	if (constr->has_not_null)
 	{
 		int			natts = tupdesc->natts;
 		int			attrChk;
@@ -2009,12 +1909,12 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 				 * rowtype so that val_desc shown error message matches the
 				 * input tuple.
 				 */
-				if (resultRelInfo->ri_PartitionRoot)
+				if (resultRelInfo->ri_RootResultRelInfo)
 				{
+					ResultRelInfo *rootrel = resultRelInfo->ri_RootResultRelInfo;
 					AttrMap    *map;
 
-					rel = resultRelInfo->ri_PartitionRoot;
-					tupdesc = RelationGetDescr(rel);
+					tupdesc = RelationGetDescr(rootrel->ri_RelationDesc);
 					/* a reverse map */
 					map = build_attrmap_by_name_if_req(orig_tupdesc,
 													   tupdesc);
@@ -2026,11 +1926,13 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 					if (map != NULL)
 						slot = execute_attr_map_slot(map, slot,
 													 MakeTupleTableSlot(tupdesc, &TTSOpsVirtual));
+					modifiedCols = bms_union(ExecGetInsertedCols(rootrel, estate),
+											 ExecGetUpdatedCols(rootrel, estate));
+					rel = rootrel->ri_RelationDesc;
 				}
-
-				insertedCols = GetInsertedColumns(resultRelInfo, estate);
-				updatedCols = GetUpdatedColumns(resultRelInfo, estate);
-				modifiedCols = bms_union(insertedCols, updatedCols);
+				else
+					modifiedCols = bms_union(ExecGetInsertedCols(resultRelInfo, estate),
+											 ExecGetUpdatedCols(resultRelInfo, estate));
 				val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 														 slot,
 														 tupdesc,
@@ -2048,7 +1950,7 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 		}
 	}
 
-	if (constr && constr->num_check > 0)
+	if (rel->rd_rel->relchecks > 0)
 	{
 		const char *failed;
 
@@ -2058,13 +1960,13 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 			Relation	orig_rel = rel;
 
 			/* See the comment above. */
-			if (resultRelInfo->ri_PartitionRoot)
+			if (resultRelInfo->ri_RootResultRelInfo)
 			{
+				ResultRelInfo *rootrel = resultRelInfo->ri_RootResultRelInfo;
 				TupleDesc	old_tupdesc = RelationGetDescr(rel);
 				AttrMap    *map;
 
-				rel = resultRelInfo->ri_PartitionRoot;
-				tupdesc = RelationGetDescr(rel);
+				tupdesc = RelationGetDescr(rootrel->ri_RelationDesc);
 				/* a reverse map */
 				map = build_attrmap_by_name_if_req(old_tupdesc,
 												   tupdesc);
@@ -2076,11 +1978,13 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 				if (map != NULL)
 					slot = execute_attr_map_slot(map, slot,
 												 MakeTupleTableSlot(tupdesc, &TTSOpsVirtual));
+				modifiedCols = bms_union(ExecGetInsertedCols(rootrel, estate),
+										 ExecGetUpdatedCols(rootrel, estate));
+				rel = rootrel->ri_RelationDesc;
 			}
-
-			insertedCols = GetInsertedColumns(resultRelInfo, estate);
-			updatedCols = GetUpdatedColumns(resultRelInfo, estate);
-			modifiedCols = bms_union(insertedCols, updatedCols);
+			else
+				modifiedCols = bms_union(ExecGetInsertedCols(resultRelInfo, estate),
+										 ExecGetUpdatedCols(resultRelInfo, estate));
 			val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 													 slot,
 													 tupdesc,
@@ -2102,7 +2006,7 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
  *
  * Note that this needs to be called multiple times to ensure that all kinds of
  * WITH CHECK OPTIONs are handled (both those from views which have the WITH
- * CHECK OPTION set and from row level security policies).  See ExecInsert()
+ * CHECK OPTION set and from row-level security policies).  See ExecInsert()
  * and ExecUpdate().
  */
 void
@@ -2149,8 +2053,6 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 		{
 			char	   *val_desc;
 			Bitmapset  *modifiedCols;
-			Bitmapset  *insertedCols;
-			Bitmapset  *updatedCols;
 
 			switch (wco->kind)
 			{
@@ -2165,13 +2067,13 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 					 */
 				case WCO_VIEW_CHECK:
 					/* See the comment in ExecConstraints(). */
-					if (resultRelInfo->ri_PartitionRoot)
+					if (resultRelInfo->ri_RootResultRelInfo)
 					{
+						ResultRelInfo *rootrel = resultRelInfo->ri_RootResultRelInfo;
 						TupleDesc	old_tupdesc = RelationGetDescr(rel);
 						AttrMap    *map;
 
-						rel = resultRelInfo->ri_PartitionRoot;
-						tupdesc = RelationGetDescr(rel);
+						tupdesc = RelationGetDescr(rootrel->ri_RelationDesc);
 						/* a reverse map */
 						map = build_attrmap_by_name_if_req(old_tupdesc,
 														   tupdesc);
@@ -2183,11 +2085,14 @@ ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 						if (map != NULL)
 							slot = execute_attr_map_slot(map, slot,
 														 MakeTupleTableSlot(tupdesc, &TTSOpsVirtual));
-					}
 
-					insertedCols = GetInsertedColumns(resultRelInfo, estate);
-					updatedCols = GetUpdatedColumns(resultRelInfo, estate);
-					modifiedCols = bms_union(insertedCols, updatedCols);
+						modifiedCols = bms_union(ExecGetInsertedCols(rootrel, estate),
+												 ExecGetUpdatedCols(rootrel, estate));
+						rel = rootrel->ri_RelationDesc;
+					}
+					else
+						modifiedCols = bms_union(ExecGetInsertedCols(resultRelInfo, estate),
+												 ExecGetUpdatedCols(resultRelInfo, estate));
 					val_desc = ExecBuildSlotValueDescription(RelationGetRelid(rel),
 															 slot,
 															 tupdesc,
@@ -2401,7 +2306,7 @@ ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo)
 	 * been modified, then we can use a weaker lock, allowing for better
 	 * concurrency.
 	 */
-	updatedCols = GetAllUpdatedColumns(relinfo, estate);
+	updatedCols = ExecGetAllUpdatedCols(relinfo, estate);
 	keyCols = RelationGetIndexAttrBitmap(relinfo->ri_RelationDesc,
 										 INDEX_ATTR_BITMAP_KEY);
 
@@ -2600,7 +2505,8 @@ EvalPlanQualInit(EPQState *epqstate, EState *parentestate,
 /*
  * EvalPlanQualSetPlan -- set or change subplan of an EPQState.
  *
- * We need this so that ModifyTable can deal with multiple subplans.
+ * We used to need this so that ModifyTable could deal with multiple subplans.
+ * It could now be refactored out of existence.
  */
 void
 EvalPlanQualSetPlan(EPQState *epqstate, Plan *subplan, List *auxrowmarks)
@@ -2853,17 +2759,9 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
 
 	/*
 	 * Child EPQ EStates share the parent's copy of unchanging state such as
-	 * the snapshot, rangetable, result-rel info, and external Param info.
-	 * They need their own copies of local state, including a tuple table,
-	 * es_param_exec_vals, etc.
-	 *
-	 * The ResultRelInfo array management is trickier than it looks.  We
-	 * create fresh arrays for the child but copy all the content from the
-	 * parent.  This is because it's okay for the child to share any
-	 * per-relation state the parent has already created --- but if the child
-	 * sets up any ResultRelInfo fields, such as its own junkfilter, that
-	 * state must *not* propagate back to the parent.  (For one thing, the
-	 * pointed-to data is in a memory context that won't last long enough.)
+	 * the snapshot, rangetable, and external Param info.  They need their own
+	 * copies of local state, including a tuple table, es_param_exec_vals,
+	 * result-rel info, etc.
 	 */
 	rcestate->es_direction = ForwardScanDirection;
 	rcestate->es_snapshot = parentestate->es_snapshot;
@@ -2876,34 +2774,16 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
 	rcestate->es_plannedstmt = parentestate->es_plannedstmt;
 	rcestate->es_junkFilter = parentestate->es_junkFilter;
 	rcestate->es_output_cid = parentestate->es_output_cid;
-	if (parentestate->es_num_result_relations > 0)
-	{
-		int			numResultRelations = parentestate->es_num_result_relations;
-		int			numRootResultRels = parentestate->es_num_root_result_relations;
-		ResultRelInfo *resultRelInfos;
 
-		resultRelInfos = (ResultRelInfo *)
-			palloc(numResultRelations * sizeof(ResultRelInfo));
-		memcpy(resultRelInfos, parentestate->es_result_relations,
-			   numResultRelations * sizeof(ResultRelInfo));
-		rcestate->es_result_relations = resultRelInfos;
-		rcestate->es_num_result_relations = numResultRelations;
-
-		/* Also transfer partitioned root result relations. */
-		if (numRootResultRels > 0)
-		{
-			resultRelInfos = (ResultRelInfo *)
-				palloc(numRootResultRels * sizeof(ResultRelInfo));
-			memcpy(resultRelInfos, parentestate->es_root_result_relations,
-				   numRootResultRels * sizeof(ResultRelInfo));
-			rcestate->es_root_result_relations = resultRelInfos;
-			rcestate->es_num_root_result_relations = numRootResultRels;
-		}
-	}
 #ifdef ADB
 	/* XXX Check if this is OK */
 	rcestate->es_result_remoterel = parentestate->es_result_remoterel;
 #endif	/* es_result_relation_info must NOT be copied */
+	/*
+	 * ResultRelInfos needed by subplans are initialized from scratch when the
+	 * subplans themselves are initialized.
+	 */
+	rcestate->es_result_relations = NULL;
 	/* es_trig_target_relations must NOT be copied */
 	rcestate->es_top_eflags = parentestate->es_top_eflags ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ);
 	rcestate->es_instrument = parentestate->es_instrument;
@@ -3013,8 +2893,9 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
  * This is a cut-down version of ExecutorEnd(); basically we want to do most
  * of the normal cleanup, but *not* close result relations (which we are
  * just sharing from the outer query).  We do, however, have to close any
- * trigger target relations that got opened, since those are not shared.
- * (There probably shouldn't be any of the latter, but just in case...)
+ * result and trigger target relations that got opened, since those are not
+ * shared.  (There probably shouldn't be any of the latter, but just in
+ * case...)
  */
 void
 EvalPlanQualEnd(EPQState *epqstate)
@@ -3056,8 +2937,8 @@ EvalPlanQualEnd(EPQState *epqstate)
 	/* throw away the per-estate tuple table, some node may have used it */
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
-	/* close any trigger target relations attached to this EState */
-	ExecCleanUpTriggerState(estate);
+	/* Close any result and trigger target relations attached to this EState */
+	ExecCloseResultRelations(estate);
 
 	MemoryContextSwitchTo(oldcontext);
 

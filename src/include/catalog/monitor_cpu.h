@@ -37,4 +37,7 @@ CATALOG(monitor_cpu,9786,MonitorCpuRelationId)
  */
 typedef FormData_monitor_cpu *Form_monitor_cpu;
 
+DECLARE_UNIQUE_INDEX(monitor_cpu_oid_index, 9768, on monitor_cpu using btree(oid oid_ops));
+#define MonitorCpuOidIndexId 9768
+
 #endif /* MONITOR_CPU_H */

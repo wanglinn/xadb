@@ -12,7 +12,7 @@
  * example.  For the most part, however, code outside the core planner
  * should not need to include any optimizer/ header except this one.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/optimizer.h
@@ -23,6 +23,11 @@
 #define OPTIMIZER_H
 
 #include "nodes/parsenodes.h"
+
+/* Test if an expression node represents a SRF call.  Beware multiple eval! */
+#define IS_SRF_CALL(node) \
+	((IsA(node, FuncExpr) && ((FuncExpr *) (node))->funcretset) || \
+	 (IsA(node, OpExpr) && ((OpExpr *) (node))->opretset))
 
 /*
  * We don't want to include nodes/pathnodes.h here, because non-planner
@@ -58,17 +63,23 @@ extern Selectivity clause_selectivity(PlannerInfo *root,
 									  int varRelid,
 									  JoinType jointype,
 									  SpecialJoinInfo *sjinfo);
-extern Selectivity clauselist_selectivity_simple(PlannerInfo *root,
-												 List *clauses,
-												 int varRelid,
-												 JoinType jointype,
-												 SpecialJoinInfo *sjinfo,
-												 Bitmapset *estimatedclauses);
+extern Selectivity clause_selectivity_ext(PlannerInfo *root,
+										  Node *clause,
+										  int varRelid,
+										  JoinType jointype,
+										  SpecialJoinInfo *sjinfo,
+										  bool use_extended_stats);
 extern Selectivity clauselist_selectivity(PlannerInfo *root,
 										  List *clauses,
 										  int varRelid,
 										  JoinType jointype,
 										  SpecialJoinInfo *sjinfo);
+extern Selectivity clauselist_selectivity_ext(PlannerInfo *root,
+											  List *clauses,
+											  int varRelid,
+											  JoinType jointype,
+											  SpecialJoinInfo *sjinfo,
+											  bool use_extended_stats);
 
 /* in path/costsize.c: */
 
@@ -93,7 +104,8 @@ extern double clamp_row_est(double nrows);
 
 /* in path/indxpath.c: */
 
-extern bool is_pseudo_constant_for_index(Node *expr, IndexOptInfo *index);
+extern bool is_pseudo_constant_for_index(PlannerInfo *root, Node *expr,
+										 IndexOptInfo *index);
 
 /* in plan/planner.c: */
 
@@ -140,6 +152,8 @@ extern bool contain_volatile_functions(Node *clause);
 extern bool contain_volatile_functions_not_nextval(Node *clause);
 
 extern Node *eval_const_expressions(PlannerInfo *root, Node *node);
+
+extern void convert_saop_to_hashed_saop(Node *node);
 
 extern Node *estimate_expression_value(PlannerInfo *root, Node *node);
 
@@ -191,8 +205,8 @@ extern SortGroupClause *get_sortgroupref_clause_noerr(Index sortref,
 #define PVC_INCLUDE_CONNECT_BY_EXPRS	0x0040
 #endif /* ADB_GRAM_ORA */
 
-extern Bitmapset *pull_varnos(Node *node);
-extern Bitmapset *pull_varnos_of_level(Node *node, int levelsup);
+extern Bitmapset *pull_varnos(PlannerInfo *root, Node *node);
+extern Bitmapset *pull_varnos_of_level(PlannerInfo *root, Node *node, int levelsup);
 extern void pull_varattnos(Node *node, Index varno, Bitmapset **varattnos);
 extern List *pull_vars_of_level(Node *node, int levelsup);
 extern bool contain_var_clause(Node *node);
@@ -204,7 +218,7 @@ extern Node *flatten_join_alias_vars(Query *query, Node *node);
 extern Var *find_var(Node *node, int attno, Index relid);
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
-extern Bitmapset *pull_varnos_no_prior(Node *node);
+extern Bitmapset *pull_varnos_no_prior(PlannerInfo *root, Node *node);
 extern bool have_level_expr(Node *node);
 #endif /* ADB_GRAM_ORA */
 

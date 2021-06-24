@@ -73,7 +73,7 @@
  * (two prefix colors plus a state number from the original NFA) an
  * "enter key".
  *
- * Each arc of the expanded graph is labelled with a trigram that must be
+ * Each arc of the expanded graph is labeled with a trigram that must be
  * present in the string to match.  We can construct this from an out-arc of
  * the underlying NFA state by combining the expanded state's prefix with the
  * color label of the underlying out-arc, if neither prefix position is
@@ -123,7 +123,7 @@
  * false positives that we would have to traverse a large fraction of the
  * index, the graph is simplified further in a lossy fashion by removing
  * color trigrams. When a color trigram is removed, the states connected by
- * any arcs labelled with that trigram are merged.
+ * any arcs labeled with that trigram are merged.
  *
  * Trigrams do not all have equivalent value for searching: some of them are
  * more frequent and some of them are less frequent. Ideally, we would like
@@ -181,7 +181,7 @@
  * 7) Mark state 3 final because state 5 of source NFA is marked as final.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -282,8 +282,8 @@ typedef struct
 typedef int TrgmColor;
 
 /* We assume that colors returned by the regexp engine cannot be these: */
-#define COLOR_UNKNOWN	(-1)
-#define COLOR_BLANK		(-2)
+#define COLOR_UNKNOWN	(-3)
+#define COLOR_BLANK		(-4)
 
 typedef struct
 {
@@ -780,7 +780,8 @@ getColorInfo(regex_t *regex, TrgmNFA *trgmNFA)
 		palloc0(colorsCount * sizeof(TrgmColorInfo));
 
 	/*
-	 * Loop over colors, filling TrgmColorInfo about each.
+	 * Loop over colors, filling TrgmColorInfo about each.  Note we include
+	 * WHITE (0) even though we know it'll be reported as non-expandable.
 	 */
 	for (i = 0; i < colorsCount; i++)
 	{
@@ -1098,9 +1099,9 @@ addKey(TrgmNFA *trgmNFA, TrgmState *state, TrgmStateKey *key)
 			/* Add enter key to this state */
 			addKeyToQueue(trgmNFA, &destKey);
 		}
-		else
+		else if (arc->co >= 0)
 		{
-			/* Regular color */
+			/* Regular color (including WHITE) */
 			TrgmColorInfo *colorInfo = &trgmNFA->colorInfo[arc->co];
 
 			if (colorInfo->expandable)
@@ -1155,6 +1156,14 @@ addKey(TrgmNFA *trgmNFA, TrgmState *state, TrgmStateKey *key)
 				destKey.nstate = arc->to;
 				addKeyToQueue(trgmNFA, &destKey);
 			}
+		}
+		else
+		{
+			/* RAINBOW: treat as unexpandable color */
+			destKey.prefix.colors[0] = COLOR_UNKNOWN;
+			destKey.prefix.colors[1] = COLOR_UNKNOWN;
+			destKey.nstate = arc->to;
+			addKeyToQueue(trgmNFA, &destKey);
 		}
 	}
 
@@ -1211,16 +1220,22 @@ addArcs(TrgmNFA *trgmNFA, TrgmState *state)
 		for (i = 0; i < arcsCount; i++)
 		{
 			regex_arc_t *arc = &arcs[i];
-			TrgmColorInfo *colorInfo = &trgmNFA->colorInfo[arc->co];
+			TrgmColorInfo *colorInfo;
 
 			/*
 			 * Ignore non-expandable colors; addKey already handled the case.
 			 *
-			 * We need no special check for begin/end pseudocolors here.  We
-			 * don't need to do any processing for them, and they will be
-			 * marked non-expandable since the regex engine will have reported
-			 * them that way.
+			 * We need no special check for WHITE or begin/end pseudocolors
+			 * here.  We don't need to do any processing for them, and they
+			 * will be marked non-expandable since the regex engine will have
+			 * reported them that way.  We do have to watch out for RAINBOW,
+			 * which has a negative color number.
 			 */
+			if (arc->co < 0)
+				continue;
+			Assert(arc->co < trgmNFA->ncolors);
+
+			colorInfo = &trgmNFA->colorInfo[arc->co];
 			if (!colorInfo->expandable)
 				continue;
 

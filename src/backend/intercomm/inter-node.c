@@ -252,7 +252,7 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 										(void *) &node_id,
 										HASH_ENTER, &found);
 	/* Should I change this value to pgxc_node_name if I am a gtmcoord slave node? */
-	namecpy(&(handle->node_name), node_name);
+	handle->node_name = *node_name;
 	handle->node_type = node_type;
 	handle->node_primary = node_primary;
 	handle->node_preferred = node_preferred;
@@ -572,7 +572,7 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list, bool is_report_erro
 							errmsg("Fail to get connection with \"%s\"",
 								NameStr(handle->node_name)),
 							errhint("%s", PQerrorMessage(conn))));
-				list_delete(handle_list, lfirst(lc_handle));
+				handle_list = list_delete(handle_list, lfirst(lc_handle));
 			}
 			
 			if (PQstatus(conn) == CONNECTION_OK)

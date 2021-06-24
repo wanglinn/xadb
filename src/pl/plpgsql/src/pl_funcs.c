@@ -3,7 +3,7 @@
  * pl_funcs.c		- Misc functions for the PL/pgSQL
  *			  procedural language
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -827,9 +827,6 @@ plpgsql_free_function_memory(PLpgSQL_function *func)
 				}
 				break;
 			case PLPGSQL_DTYPE_RECFIELD:
-				break;
-			case PLPGSQL_DTYPE_ARRAYELEM:
-				free_expr(((PLpgSQL_arrayelem *) d)->subscript);
 				break;
 #ifdef ADB_GRAM_ORA
 			case PLPGSQL_DTYPE_TYPE:
@@ -1767,12 +1764,6 @@ plpgsql_dumptree(PLpgSQL_function *func)
 				printf("RECFIELD %-16s of REC %d\n",
 					   ((PLpgSQL_recfield *) d)->fieldname,
 					   ((PLpgSQL_recfield *) d)->recparentno);
-				break;
-			case PLPGSQL_DTYPE_ARRAYELEM:
-				printf("ARRAYELEM of VAR %d subscript ",
-					   ((PLpgSQL_arrayelem *) d)->arrayparentno);
-				dump_expr(((PLpgSQL_arrayelem *) d)->subscript);
-				printf("\n");
 				break;
 			default:
 				printf("??? unknown data type %d\n", d->dtype);

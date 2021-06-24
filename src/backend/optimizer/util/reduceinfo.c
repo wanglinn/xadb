@@ -85,7 +85,7 @@ static inline void SetReduceKeyDefaultInfo(ReduceKeyInfo *key, const Expr *expr,
 	key->opfamily = get_opclass_family(key->opclass);
 }
 
-ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key)
+ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key, PlannerInfo *root)
 {
 	ReduceInfo *rinfo;
 	AssertArg(storage && IsA(storage, OidList) && key);
@@ -95,13 +95,13 @@ ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const E
 	SetReduceKeyDefaultInfo(&rinfo->keys[0], key, HASH_AM_OID, "hash");
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->relids = pull_varnos((Node*)key);
+	rinfo->relids = pull_varnos(root, (Node*)key);
 	rinfo->type = REDUCE_TYPE_HASH;
 
 	return rinfo;
 }
 
-ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *key)
+ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *key, PlannerInfo *root)
 {
 	ReduceInfo *rinfo;
 	AssertArg(storage != NIL && IsA(storage, OidList) && key);
@@ -111,7 +111,7 @@ ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const
 	SetReduceKeyDefaultInfo(&rinfo->keys[0], key, BTREE_AM_OID, "btree");
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->relids = pull_varnos((Node*)key);
+	rinfo->relids = pull_varnos(root, (Node*)key);
 	rinfo->type = REDUCE_TYPE_MODULO;
 
 	return rinfo;
@@ -226,7 +226,7 @@ static Node* replace_reduce_var(Var *var, List *exprs)
 	return expression_tree_mutator((Node*)var, replace_reduce_var, exprs);
 }
 
-ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const List *exclude, PathTarget *target)
+ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const List *exclude, PathTarget *target, PlannerInfo *root)
 {
 	ReduceInfo *rinfo;
 	List *rnodes = loc_info->nodeids;
@@ -260,7 +260,7 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 			{
 				rinfo->keys[i].key = (Expr*)replace_reduce_var((Var*)key->key, target->exprs);
 			}
-			relids = pull_varnos((Node*)rinfo->keys[i].key);
+			relids = pull_varnos(root, (Node*)rinfo->keys[i].key);
 			rinfo->relids = bms_add_members(rinfo->relids, relids);
 			bms_free(relids);
 			rinfo->keys[i].opclass = key->opclass;
@@ -444,7 +444,7 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 			if (!IsTypeDistributable(exprType(lfirst(lc))) ||
 				expression_have_subplan(lfirst(lc)))
 				continue;
-			reduce = MakeHashReduceInfo(storage, exclude, lfirst(lc));
+			reduce = MakeHashReduceInfo(storage, exclude, lfirst(lc), root);
 			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 			if(result < 0)
 				break;
@@ -452,7 +452,7 @@ int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 	}else if(IsTypeDistributable(exprType((Node*)expr)) &&
 			 expression_have_subplan(expr) == false)
 	{
-		reduce = MakeHashReduceInfo(storage, exclude, expr);
+		reduce = MakeHashReduceInfo(storage, exclude, expr, root);
 		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 	}else
 	{
@@ -494,7 +494,7 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 			if (!CanModuloType(exprType(lfirst(lc)), true) ||
 				expression_have_subplan(lfirst(lc)))
 				continue;
-			reduce = MakeModuloReduceInfo(storage, exclude, lfirst(lc));
+			reduce = MakeModuloReduceInfo(storage, exclude, lfirst(lc), root);
 			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 			if(result < 0)
 				break;
@@ -502,7 +502,7 @@ int ModuloPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 	}else if(CanModuloType(exprType((Node*)expr), true) &&
 			 expression_have_subplan(expr) == false)
 	{
-		reduce = MakeModuloReduceInfo(storage, exclude, expr);
+		reduce = MakeModuloReduceInfo(storage, exclude, expr, root);
 		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
 	}else
 	{
@@ -2374,7 +2374,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			}else
 			{
 				/* result = random(list_length(store)) */
-				result = (Expr*)makeSimpleFuncExpr(F_INT4RANDOM_MAX,
+				result = (Expr*)makeSimpleFuncExpr(F_RANDOM_INT4,
 												   INT4OID,
 												   list_make1(MakeInt4Const(count)));
 				/* result = store[result] */
@@ -2477,7 +2477,7 @@ CreateReplicateUsingList(const List *oidlist)
 				  PointerGetDatum(vector),
 				  false,
 				  false);
-	func = makeSimpleFuncExpr(F_ARRAY_UNNEST,
+	func = makeSimpleFuncExpr(F_UNNEST_ANYARRAY,
 							  OIDOID,
 							  list_make1(c));
 	/* unnest(array) return set */
@@ -2739,7 +2739,7 @@ ReduceExprState* ExecInitReduceExpr(Expr *expr)
 	ReduceExprState *result = palloc(sizeof(ReduceExprState));
 
 	if (IsA(expr, FuncExpr) &&
-		((FuncExpr*)expr)->funcid == F_ARRAY_UNNEST)
+		((FuncExpr*)expr)->funcid == F_UNNEST_ANYARRAY)
 	{
 		ReduceSetExprState *set;
 		oidvector *ov;

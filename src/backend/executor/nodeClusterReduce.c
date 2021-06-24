@@ -427,7 +427,8 @@ static void ExecReduceFirstGetRemote(NormalReduceFirstState *state, DynamicReduc
 	MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
 	Assert(state->ready_remote == false);
 	state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
-										   DynamicReduceSharedFileName(name, info->u32));
+										   DynamicReduceSharedFileName(name, info->u32),
+										   O_RDONLY);
 	state->file_no = info->u32;
 	state->ready_remote = true;
 	MemoryContextSwitchTo(oldcontext);
@@ -588,7 +589,8 @@ static TupleTableSlot* ExecReduceFirstEPQLocal(PlanState *pstate)
 				char name[MAXPGPATH];
 				MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
 				state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
-													   DynamicReduceSharedFileName(name, origin_state->file_no));
+													   DynamicReduceSharedFileName(name, origin_state->file_no),
+													   O_RDONLY);
 				MemoryContextSwitchTo(oldcontext);
 			}
 			state->got_remote = true;
@@ -737,7 +739,8 @@ static void InitEPQReduceFirst(ClusterReduceState *crstate, ClusterReduceState *
 	}
 
 	state->file_local = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
-										  GetReduceFirstSFName(name, origin->ps.plan->plan_node_id));
+										  GetReduceFirstSFName(name, origin->ps.plan->plan_node_id),
+										  O_RDONLY);
 	initStringInfo(&state->recv_buf);
 	MemSet(state->recv_buf.data, 0, state->recv_buf.maxlen);
 	state->convert = create_type_convert(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor, false, true);
@@ -1105,7 +1108,8 @@ static void ExecAdvanceReduceOpenRemote(AdvanceReduceState *state, DynamicReduce
 		if (info->file == NULL)
 		{
 			info->file = BufFileOpenShared(&sfs->sfs,
-										   DynamicReduceSFSFileName(name, info->nodeoid));
+										   DynamicReduceSFSFileName(name, info->nodeoid),
+										   O_RDONLY);
 		}else
 		{
 			Assert(info->nodeoid == PGXCNodeOid);
@@ -1221,7 +1225,8 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate, dsm_segment *seg)
 												 DynamicReduceSFSFileName(name, info->nodeoid));
 			else
 				info->file = BufFileOpenShared(&sfs->sfs,
-											   DynamicReduceSFSFileName(name, info->nodeoid));
+											   DynamicReduceSFSFileName(name, info->nodeoid),
+											   O_RDONLY);
 			Assert(myinfo == NULL);
 			myinfo = info;
 		}
@@ -1611,7 +1616,8 @@ static void OpenMergeBufFiles(MergeReduceState *merge, DynamicReduceSFS sfs)
 		if (info->file == NULL)
 		{
 			info->file = BufFileOpenShared(&sfs->sfs,
-										   DynamicReduceSFSFileName(name, info->nodeoid));
+										   DynamicReduceSFSFileName(name, info->nodeoid),
+										   O_RDONLY);
 		}
 		if (BufFileSeek(info->file, 0, 0, SEEK_SET) != 0)
 		{
@@ -2810,10 +2816,6 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 	case T_ClusterReduceState:
 		Assert(flags != ACR_FLAG_INVALID);
 		AdvanceReduce((ClusterReduceState*)ps, pps, flags);
-		break;
-	case T_ModifyTableState:
-		WalkerMembers(ModifyTableState, mt_plans, mt_nplans,
-					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
 		break;
 	case T_AppendState:
 		WalkerMembers(AppendState, appendplans, as_nplans,

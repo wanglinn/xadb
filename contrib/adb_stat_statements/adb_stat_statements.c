@@ -17,6 +17,7 @@
 #include "pgstat.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
+#include "storage/lwlock.h"
 #include "storage/spin.h"
 #include "tcop/utility.h"
 #include "utils/acl.h"
@@ -123,7 +124,7 @@ void _PG_fini(void);
 
 static void adbss_shmem_startup(void);
 static void adbss_relcache_hook(Datum arg, Oid relid);
-static void adbss_post_parse_analyze(ParseState *pstate, Query *query);
+static void adbss_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate);
 static PlannedStmt *adbss_planner_hook(Query *parse,
 									   const char *query_string,
 									   int cursorOptions,
@@ -531,10 +532,10 @@ static void adbss_relcache_hook(Datum arg, Oid relid)
 }
 
 static void
-adbss_post_parse_analyze(ParseState *pstate, Query *query)
+adbss_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 {
 	if (prev_post_parse_analyze_hook)
-		prev_post_parse_analyze_hook(pstate, query);
+		prev_post_parse_analyze_hook(pstate, query, jstate);
 
 	if (query->commandType == CMD_UTILITY)
 	{
@@ -1742,7 +1743,7 @@ Datum
 	bool showtext = PG_GETARG_BOOL(0);
 	userid = GetUserId();
 	/* Superusers or members of pg_read_all_stats members are allowed */
-	is_allowed_role = is_member_of_role(userid, DEFAULT_ROLE_READ_ALL_STATS);
+	is_allowed_role = is_member_of_role(userid, ROLE_PG_READ_ALL_STATS);
 
 	/* hash table must exist already */
 	if (!adbssState || !adbssHtab)

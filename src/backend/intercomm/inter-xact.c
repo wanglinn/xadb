@@ -469,8 +469,10 @@ InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot)
 	int				i;
 	AssertArg(buf && snapshot);
 
+#warning removed RecentGlobalXmin
 	/* RecentGlobalXmin */
-	nval = htonl(RecentGlobalXmin);
+	// nval = htonl(RecentGlobalXmin);
+	nval = htonl(FirstNormalTransactionId);
 	appendBinaryStringInfo(buf, (const char *) &nval, sizeof(TransactionId));
 	/* xmin */
 	nval = htonl(snapshot->xmin);

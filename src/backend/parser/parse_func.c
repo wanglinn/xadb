@@ -3,7 +3,7 @@
  * parse_func.c
  *		handle function calls in parser
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -97,6 +97,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		is_column = (fn == NULL);
 	List	   *agg_order = (fn ? fn->agg_order : NIL);
 	Expr	   *agg_filter = NULL;
+	WindowDef  *over = (fn ? fn->over : NULL);
 #ifdef ADB_EXT
 	KeepClause *agg_keep = (fn ? fn->agg_keep : NULL);
 #endif /* ADB_EXT */
@@ -104,7 +105,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 	bool		agg_star = (fn ? fn->agg_star : false);
 	bool		agg_distinct = (fn ? fn->agg_distinct : false);
 	bool		func_variadic = (fn ? fn->func_variadic : false);
-	WindowDef  *over = (fn ? fn->over : NULL);
+	CoercionForm funcformat = (fn ? fn->funcformat : COERCE_EXPLICIT_CALL);
 	bool		could_be_projection;
 	Oid			rettype;
 	Oid			funcid;
@@ -233,6 +234,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 #endif /* ADB_EXT */
 						   !agg_star && !agg_distinct && over == NULL &&
 						   !func_variadic && argnames == NIL &&
+						   funcformat == COERCE_EXPLICIT_CALL &&
 						   list_length(funcname) == 1 &&
 						   (actual_arg_types[0] == RECORDOID ||
 							ISCOMPLEX(actual_arg_types[0])));
@@ -435,9 +437,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 									func_signature_string(funcname, nargs,
 														  argnames,
 														  actual_arg_types)),
-							 errhint("There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
-									 NameListToString(funcname),
-									 catDirectArgs, numDirectArgs),
+							 errhint_plural("There is an ordered-set aggregate %s, but it requires %d direct argument, not %d.",
+											"There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
+											catDirectArgs,
+											NameListToString(funcname),
+											catDirectArgs, numDirectArgs),
 							 parser_errposition(pstate, location)));
 			}
 			else
@@ -464,9 +468,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 										func_signature_string(funcname, nargs,
 															  argnames,
 															  actual_arg_types)),
-								 errhint("There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
-										 NameListToString(funcname),
-										 catDirectArgs, numDirectArgs),
+								 errhint_plural("There is an ordered-set aggregate %s, but it requires %d direct argument, not %d.",
+												"There is an ordered-set aggregate %s, but it requires %d direct arguments, not %d.",
+												catDirectArgs,
+												NameListToString(funcname),
+												catDirectArgs, numDirectArgs),
 								 parser_errposition(pstate, location)));
 				}
 				else
@@ -503,9 +509,11 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 											func_signature_string(funcname, nargs,
 																  argnames,
 																  actual_arg_types)),
-									 errhint("There is an ordered-set aggregate %s, but it requires at least %d direct arguments.",
-											 NameListToString(funcname),
-											 catDirectArgs),
+									 errhint_plural("There is an ordered-set aggregate %s, but it requires at least %d direct argument.",
+													"There is an ordered-set aggregate %s, but it requires at least %d direct arguments.",
+													catDirectArgs,
+													NameListToString(funcname),
+													catDirectArgs),
 									 parser_errposition(pstate, location)));
 					}
 				}
@@ -762,7 +770,7 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		funcexpr->funcresulttype = rettype;
 		funcexpr->funcretset = retset;
 		funcexpr->funcvariadic = func_variadic;
-		funcexpr->funcformat = COERCE_EXPLICIT_CALL;
+		funcexpr->funcformat = funcformat;
 		/* funccollid and inputcollid will be set by parse_collate.c */
 		funcexpr->args = fargs;
 		funcexpr->location = location;
@@ -787,6 +795,8 @@ ParseFuncOrColumn(ParseState *pstate, List *funcname, List *fargs,
 		aggref->aggkind = aggkind;
 		/* agglevelsup will be set by transformAggregateCall */
 		aggref->aggsplit = AGGSPLIT_SIMPLE; /* planner might change this */
+		aggref->aggno = -1;		/* planner will set aggno and aggtransno */
+		aggref->aggtransno = -1;
 		aggref->location = location;
 #ifdef ADB_EXT
 		if (agg_keep)
@@ -1826,6 +1836,7 @@ unify_hypothetical_args(ParseState *pstate,
 		ListCell   *harg = list_nth_cell(fargs, hargpos);
 		ListCell   *aarg = list_nth_cell(fargs, aargpos);
 		Oid			commontype;
+		int32		commontypmod;
 
 		/* A mismatch means AggregateCreate didn't check properly ... */
 		if (declared_arg_types[hargpos] != declared_arg_types[aargpos])
@@ -1844,6 +1855,9 @@ unify_hypothetical_args(ParseState *pstate,
 										list_make2(lfirst(aarg), lfirst(harg)),
 										"WITHIN GROUP",
 										NULL);
+		commontypmod = select_common_typmod(pstate,
+											list_make2(lfirst(aarg), lfirst(harg)),
+											commontype);
 
 		/*
 		 * Perform the coercions.  We don't need to worry about NamedArgExprs
@@ -1852,7 +1866,7 @@ unify_hypothetical_args(ParseState *pstate,
 		lfirst(harg) = coerce_type(pstate,
 								   (Node *) lfirst(harg),
 								   actual_arg_types[hargpos],
-								   commontype, -1,
+								   commontype, commontypmod,
 								   COERCION_IMPLICIT,
 								   COERCE_IMPLICIT_CAST,
 								   -1);
@@ -1860,7 +1874,7 @@ unify_hypothetical_args(ParseState *pstate,
 		lfirst(aarg) = coerce_type(pstate,
 								   (Node *) lfirst(aarg),
 								   actual_arg_types[aargpos],
-								   commontype, -1,
+								   commontype, commontypmod,
 								   COERCION_IMPLICIT,
 								   COERCE_IMPLICIT_CAST,
 								   -1);
@@ -2571,6 +2585,9 @@ check_srf_call_placement(ParseState *pstate, Node *last_srf, int location)
 		case EXPR_KIND_INDEX_PREDICATE:
 			err = _("set-returning functions are not allowed in index predicates");
 			break;
+		case EXPR_KIND_STATS_EXPRESSION:
+			err = _("set-returning functions are not allowed in statistics expressions");
+			break;
 		case EXPR_KIND_ALTER_COL_TRANSFORM:
 			err = _("set-returning functions are not allowed in transform expressions");
 			break;
@@ -2594,6 +2611,9 @@ check_srf_call_placement(ParseState *pstate, Node *last_srf, int location)
 			break;
 		case EXPR_KIND_GENERATED_COLUMN:
 			err = _("set-returning functions are not allowed in column generation expressions");
+			break;
+		case EXPR_KIND_CYCLE_MARK:
+			errkind = true;
 			break;
 #ifdef ADB_GRAM_ORA
 		case EXPR_KIND_START_WITH:

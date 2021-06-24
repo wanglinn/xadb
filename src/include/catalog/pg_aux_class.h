@@ -30,6 +30,11 @@ CATALOG(pg_aux_class,9229,AuxClassRelationId)
 
 typedef FormData_pg_aux_class *Form_pg_aux_class;
 
+DECLARE_UNIQUE_INDEX(pg_aux_class_ident_index, 9023, on pg_aux_class using btree(auxrelid oid_ops));
+#define AuxClassIdentIndexId  9023
+DECLARE_UNIQUE_INDEX(pg_aux_class_relid_attnum_index, 9024, on pg_aux_class using btree(relid oid_ops, attnum int2_ops));
+#define AuxClassRelidAttnumIndexId  9024
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define Natts_aux_table_class		3

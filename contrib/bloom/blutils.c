@@ -3,7 +3,7 @@
  * blutils.c
  *		Bloom index utilities.
  *
- * Portions Copyright (c) 2016-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2016-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1990-1993, Regents of the University of California
  *
  * IDENTIFICATION
@@ -139,6 +139,7 @@ blhandler(PG_FUNCTION_ARGS)
 	amroutine->amproperty = NULL;
 	amroutine->ambuildphasename = NULL;
 	amroutine->amvalidate = blvalidate;
+	amroutine->amadjustmembers = NULL;
 	amroutine->ambeginscan = blbeginscan;
 	amroutine->amrescan = blrescan;
 	amroutine->amgettuple = NULL;
@@ -410,7 +411,6 @@ BloomInitPage(Page page, uint16 flags)
 	PageInit(page, BLCKSZ, sizeof(BloomPageOpaqueData));
 
 	opaque = BloomPageGetOpaque(page);
-	memset(opaque, 0, sizeof(BloomPageOpaqueData));
 	opaque->flags = flags;
 	opaque->bloom_page_id = BLOOM_PAGE_ID;
 }

@@ -368,7 +368,7 @@ HandleSendBegin(NodeHandle *handle,
 		return 1;
 	}
 
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	if (!HandleSendGXID(handle, xid) ||
@@ -402,11 +402,11 @@ HandleSendCID(NodeHandle *handle, CommandId cid)
 	Assert(handle && handle->node_conn);
 	conn = handle->node_conn;
 
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	/* construct the global command id message */
-	if (pqPutMsgStart('M', true, conn) < 0 ||
+	if (pqPutMsgStart('M', conn) < 0 ||
 		pqPutInt((int) cid, sizeof(cid), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
@@ -436,11 +436,11 @@ HandleSendGXID(NodeHandle *handle, GlobalTransactionId xid)
 	Assert(handle && handle->node_conn);
 	conn = handle->node_conn;
 
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	/* construct the global transaction xid message */
-	if (pqPutMsgStart('g', true, conn) < 0 ||
+	if (pqPutMsgStart('g', conn) < 0 ||
 		pqPutInt((int) xid, sizeof(xid), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
@@ -472,7 +472,7 @@ HandleSendTimestamp(NodeHandle *handle, TimestampTz timestamp)
 	Assert(handle && handle->node_conn);
 	conn = handle->node_conn;
 
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	/* High order half first */
@@ -486,7 +486,7 @@ HandleSendTimestamp(NodeHandle *handle, TimestampTz timestamp)
 	lo = (uint32) i;
 
 	/* construct the global timestamp message */
-	if (pqPutMsgStart('t', true, conn) < 0 ||
+	if (pqPutMsgStart('t', conn) < 0 ||
 		pqPutInt((int) hi, sizeof(hi), conn) < 0 ||
 		pqPutInt((int) lo, sizeof(lo), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
@@ -517,14 +517,14 @@ HandleSendSnapshot(NodeHandle *handle, Snapshot snapshot)
 
 	Assert(handle);
 	conn = handle->node_conn;
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	initStringInfo(&buf);
 	InterXactSerializeSnapshot(&buf, snapshot);
 
 	/* construct the global snapshot message */
-	if (pqPutMsgStart('s', true, conn) < 0 ||
+	if (pqPutMsgStart('s', conn) < 0 ||
 		pqPutnchar(buf.data, buf.len, conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
@@ -664,11 +664,11 @@ HandleSendClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierI
 	Assert(handle && handle->node_conn);
 	conn = handle->node_conn;
 
-	if (!PQsendQueryStart(conn))
+	if (!PQsendQueryStart(conn, true))
 		return 0;
 
 	/* construct the global command id message */
-	if (pqPutMsgStart('b', true, conn) < 0 ||
+	if (pqPutMsgStart('b', conn) < 0 ||
 		pqPutc(cmd_type, conn) < 0 ||
 		pqPutnchar(barrierID, strlen(barrierID) + 1, conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
@@ -893,7 +893,7 @@ HandleCommandCompleteMsg(PGconn *conn)
 	result = (CommandResult *) (conn->custom);
 	result->command_ok = true;
 
-	StrNCpy(result->completionTag, conn->workBuffer.data, COMPLETION_TAG_BUFSIZE);
+	strlcpy(result->completionTag, conn->workBuffer.data, COMPLETION_TAG_BUFSIZE);
 
 	return 0;
 }

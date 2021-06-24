@@ -44,6 +44,9 @@ CATALOG(mgr_parm,9783,ParmRelationId)
  */
 typedef FormData_mgr_parm *Form_mgr_parm;
 
+DECLARE_UNIQUE_INDEX(mgr_parm_typename_index, 9765, on mgr_parm using btree(parmtype char_ops,parmname name_ops));
+#define ParmTypeNameIndexId 9765
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define PARM_TYPE_GTMCOOR 			'G'

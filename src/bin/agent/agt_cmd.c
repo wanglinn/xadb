@@ -225,6 +225,7 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_NODE_REWIND:
 		cmd_node_init(cmd_type, buf, "adb_rewind", ADB_REWIND_VERSION);
+		break;
 	case AGT_CMD_AGTM_REWIND:
 		cmd_node_init(cmd_type, buf, "pg_rewind", PG_REWIND_VERSION);
 		break;

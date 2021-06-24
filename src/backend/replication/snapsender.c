@@ -193,7 +193,6 @@ static void SnapSenderSigHupHandler(SIGNAL_ARGS);
 static TransactionId snapsenderGetSenderGlobalXmin(void);
 
 /* Signal handlers */
-static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
 static bool isSnapSenderAllCnDnConnOk(bool is_wait);
@@ -528,19 +527,19 @@ static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *client)
 		return;
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextXid);
 	if (NormalTransactionIdFollows(xid, nextXid))
 	{
-		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextXid);
 		if (unlikely(xid < nextXid))
 			++epoch;
-		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
-		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
+		ShmemVariableCache->nextXid = FullTransactionIdFromEpochAndXid(epoch, xid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextXid);
 
-		SNAP_SYNC_DEBUG_LOG((errmsg("xid  %d, ShmemVariableCache->nextFullXid %d\n",
-				xid, XidFromFullTransactionId(ShmemVariableCache->nextFullXid))));
-		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
-		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+		SNAP_SYNC_DEBUG_LOG((errmsg("xid  %d, ShmemVariableCache->nextXid %d\n",
+				xid, XidFromFullTransactionId(ShmemVariableCache->nextXid))));
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		FullTransactionIdRetreat(&ShmemVariableCache->latestCompletedXid);
 
 		snapsenderUpdateNextXidAllClient(xid, client);
 	}
@@ -565,7 +564,8 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
+#warning TODO get GetOldestXminExt
+	oldxmin = FirstNormalTransactionId;// GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 	if (!TransactionIdIsValid(global_xmin) || NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 	if (TransactionIdIsValid(global_xmin))
@@ -603,7 +603,8 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
+#warning TODO get GetOldestXminExt
+	oldxmin = FirstNormalTransactionId;// GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 	if (TransactionIdIsNormal(global_xmin) && NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 
@@ -970,7 +971,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGTERM, SIG_IGN);
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
-	pqsignal(SIGUSR1, SnapSenderSigUsr1Handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 
 	PG_SETMASK(&UnBlockSig);
@@ -989,7 +990,7 @@ void SnapSenderMain(void)
 	StartSnapSenderMainQueryDnNodeName();
 	SnapSenderCheckRxactAndTwoPhaseXids();
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	SnapSender->latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+	SnapSender->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->latestCompletedXid);
 	LWLockRelease(XidGenLock);
 
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
@@ -2298,16 +2299,6 @@ static void OnClientSendMsg(SnapClientData *client, pq_comm_node *node)
 	}
 }
 
-/* SIGUSR1: used by latch mechanism */
-static void SnapSenderSigUsr1Handler(SIGNAL_ARGS)
-{
-	int			save_errno = errno;
-
-	latch_sigusr1_handler();
-
-	errno = save_errno;
-}
-
 static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 {
 	if (proc_exit_inprogress)
@@ -2553,7 +2544,7 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 			xmin = xid;
 
 		/* We don't include our own XIDs (if any) in the snapshot */
-		if (xid == MyPgXact->xid)
+		if (xid == MyProc->xid)
 			continue;
 
 		/* Add XID to snapshot. */
@@ -2649,7 +2640,8 @@ re_lock_gxid_mutex:
 
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
 	appendStringInfo(buf, " local global xmin: %u\n", pg_atomic_read_u32(&SnapSender->global_xmin));
-	appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
+#warning TODO get GetOldestXminExt
+	//appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
 	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
 	appendStringInfo(buf, " nextid_upcount_cn: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount_cn));
 	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);

@@ -7,7 +7,7 @@
  *	 ExecProcNode, or ExecEndNode on its subnodes and do the appropriate
  *	 processing.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -102,6 +102,7 @@
 #include "executor/nodeProjectSet.h"
 #include "executor/nodeRecursiveunion.h"
 #include "executor/nodeResult.h"
+#include "executor/nodeResultCache.h"
 #include "executor/nodeSamplescan.h"
 #include "executor/nodeSeqscan.h"
 #include "executor/nodeSetOp.h"
@@ -109,6 +110,7 @@
 #include "executor/nodeSubplan.h"
 #include "executor/nodeSubqueryscan.h"
 #include "executor/nodeTableFuncscan.h"
+#include "executor/nodeTidrangescan.h"
 #include "executor/nodeTidscan.h"
 #include "executor/nodeUnique.h"
 #include "executor/nodeValuesscan.h"
@@ -253,6 +255,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												   estate, eflags);
 			break;
 
+		case T_TidRangeScan:
+			result = (PlanState *) ExecInitTidRangeScan((TidRangeScan *) node,
+														estate, eflags);
+			break;
+
 		case T_SubqueryScan:
 			result = (PlanState *) ExecInitSubqueryScan((SubqueryScan *) node,
 														estate, eflags);
@@ -332,6 +339,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_IncrementalSort:
 			result = (PlanState *) ExecInitIncrementalSort((IncrementalSort *) node,
 														   estate, eflags);
+			break;
+
+		case T_ResultCache:
+			result = (PlanState *) ExecInitResultCache((ResultCache *) node,
+													   estate, eflags);
 			break;
 
 		case T_Group:
@@ -456,7 +468,8 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 
 	/* Set up instrumentation for this node if requested */
 	if (estate->es_instrument)
-		result->instrument = InstrAlloc(1, estate->es_instrument);
+		result->instrument = InstrAlloc(1, estate->es_instrument,
+										result->async_capable);
 
 	return result;
 }
@@ -704,6 +717,10 @@ ExecEndNode(PlanState *node)
 			ExecEndTidScan((TidScanState *) node);
 			break;
 
+		case T_TidRangeScanState:
+			ExecEndTidRangeScan((TidRangeScanState *) node);
+			break;
+
 		case T_SubqueryScanState:
 			ExecEndSubqueryScan((SubqueryScanState *) node);
 			break;
@@ -768,6 +785,10 @@ ExecEndNode(PlanState *node)
 
 		case T_IncrementalSortState:
 			ExecEndIncrementalSort((IncrementalSortState *) node);
+			break;
+
+		case T_ResultCacheState:
+			ExecEndResultCache((ResultCacheState *) node);
 			break;
 
 		case T_GroupState:
@@ -861,8 +882,6 @@ ExecShutdownNode(PlanState *node)
 
 	check_stack_depth();
 
-	planstate_tree_walker(node, ExecShutdownNode, NULL);
-
 	/*
 	 * Treat the node as running while we shut it down, but only if it's run
 	 * at least once already.  We don't expect much CPU consumption during
@@ -875,6 +894,8 @@ ExecShutdownNode(PlanState *node)
 	 */
 	if (node->instrument && node->instrument->running)
 		InstrStartNode(node->instrument);
+
+	planstate_tree_walker(node, ExecShutdownNode, NULL);
 
 	switch (nodeTag(node))
 	{

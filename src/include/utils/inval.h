@@ -4,7 +4,7 @@
  *	  POSTGRES cache invalidation dispatcher definitions.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/inval.h
@@ -17,10 +17,8 @@
 #include "access/htup.h"
 #include "storage/relfilenode.h"
 #include "utils/relcache.h"
-#ifdef ADB
-#include "replication/snapcommon.h"
-#endif /*  */
 
+extern PGDLLIMPORT int debug_invalidate_system_caches_always;
 
 typedef void (*SyscacheCallbackFunction) (Datum arg, int cacheid, uint32 hashvalue);
 typedef void (*RelcacheCallbackFunction) (Datum arg, Oid relid);
@@ -65,14 +63,15 @@ extern void CallSyscacheCallbacks(int cacheid, uint32 hashvalue);
 
 extern void InvalidateSystemCaches(void);
 
+extern void LogLogicalInvalidations(void);
+
 #ifdef ADB
 extern void InvalidateRemoteNode(void);
 extern bool HasInvalidateMessage(void);
 extern void SnapCollectAllInvalidMsgs(void **param);
 #endif /* ADB */
 
-#endif							/* INVAL_H */
-
 #ifdef ADBMGRD
 extern bool readonlySqlSlaveInfoRefreshFlag;
 #endif /* ADBMGR */
+#endif							/* INVAL_H */

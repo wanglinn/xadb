@@ -257,7 +257,8 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 			Expr *expr = make_ctid_in_expr(rel->relid,
 										   exec_on->tids,
 										   exec_on->cur_tid_size);
-			RestrictInfo *ri = make_restrictinfo(expr,
+			RestrictInfo *ri = make_restrictinfo(root,
+												 expr,
 												 true,
 												 false,
 												 false,

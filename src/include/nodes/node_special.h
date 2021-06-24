@@ -651,6 +651,11 @@ NODE_SPECIAL_MEB(ModifyTable)
 	arbiterIndexes NODE_OID_LIST(class,arbiterIndexes)
 END_SPECIAL_MEB(ModifyTable)
 
+NODE_SPECIAL_MEB(ResultCache)
+	hashOperators NODE_SCALAR_POINT(Oid,hashOperators,NODE_ARG_->numKeys)
+	collations NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numKeys)
+END_SPECIAL_MEB(ResultCache)
+
 NODE_SPECIAL_MEB(NextValueExpr)
 	seqid NODE_OID(class,seqid)
 END_SPECIAL_MEB(NextValueExpr)

@@ -107,7 +107,7 @@ static void tarClose(ArchiveHandle *AH, TAR_MEMBER *TH);
 #ifdef __NOT_USED__
 static char *tarGets(char *buf, size_t len, TAR_MEMBER *th);
 #endif
-static int	tarPrintf(ArchiveHandle *AH, TAR_MEMBER *th, const char *fmt,...) pg_attribute_printf(3, 4);
+static int	tarPrintf(TAR_MEMBER *th, const char *fmt,...) pg_attribute_printf(2, 3);
 
 static void _tarAddFile(ArchiveHandle *AH, TAR_MEMBER *th);
 static TAR_MEMBER *_tarPositionTo(ArchiveHandle *AH, const char *filename);
@@ -227,12 +227,6 @@ InitArchiveFmt_Tar(ArchiveHandle *AH)
 		ctx->tarFHpos = 0;
 
 		ctx->hasSeek = checkSeek(ctx->tarFH);
-
-		/*
-		 * Forcibly unmark the header as read since we use the lookahead
-		 * buffer
-		 */
-		AH->readHeader = 0;
 
 		ctx->FH = (void *) tarOpen(AH, "toc.dat", 'r');
 		ReadHead(AH);
@@ -851,7 +845,7 @@ _CloseArchive(ArchiveHandle *AH)
 		 */
 		th = tarOpen(AH, "restore.sql", 'w');
 
-		tarPrintf(AH, th, "--\n"
+		tarPrintf(th, "--\n"
 				  "-- NOTE:\n"
 				  "--\n"
 				  "-- File paths need to be edited. Search for $$PATH$$ and\n"
@@ -893,7 +887,7 @@ _CloseArchive(ArchiveHandle *AH)
 		/*
 		 * EOF marker for tar files is two blocks of NULLs.
 		 */
-		for (i = 0; i < 512 * 2; i++)
+		for (i = 0; i < TAR_BLOCK_SIZE * 2; i++)
 		{
 			if (fputc(0, ctx->tarFH) == EOF)
 				WRITE_ERROR_EXIT;
@@ -964,7 +958,7 @@ _StartBlob(ArchiveHandle *AH, TocEntry *te, Oid oid)
 
 	sprintf(fname, "blob_%u.dat%s", oid, sfx);
 
-	tarPrintf(AH, ctx->blobToc, "%u %s\n", oid, fname);
+	tarPrintf(ctx->blobToc, "%u %s\n", oid, fname);
 
 	tctx->TH = tarOpen(AH, fname, 'w');
 }
@@ -1008,7 +1002,7 @@ _EndBlobs(ArchiveHandle *AH, TocEntry *te)
  */
 
 static int
-tarPrintf(ArchiveHandle *AH, TAR_MEMBER *th, const char *fmt,...)
+tarPrintf(TAR_MEMBER *th, const char *fmt,...)
 {
 	int			save_errno = errno;
 	char	   *p;
@@ -1082,11 +1076,13 @@ _tarAddFile(ArchiveHandle *AH, TAR_MEMBER *th)
 	/*
 	 * Find file len & go back to start.
 	 */
-	fseeko(tmp, 0, SEEK_END);
+	if (fseeko(tmp, 0, SEEK_END) != 0)
+		fatal("error during file seek: %m");
 	th->fileLen = ftello(tmp);
 	if (th->fileLen < 0)
 		fatal("could not determine seek position in archive file: %m");
-	fseeko(tmp, 0, SEEK_SET);
+	if (fseeko(tmp, 0, SEEK_SET) != 0)
+		fatal("error during file seek: %m");
 
 	_tarWriteHeader(th);
 
@@ -1113,7 +1109,7 @@ _tarAddFile(ArchiveHandle *AH, TAR_MEMBER *th)
 			  buf1, buf2);
 	}
 
-	pad = ((len + 511) & ~511) - len;
+	pad = tarPaddingBytesRequired(len);
 	for (i = 0; i < pad; i++)
 	{
 		if (fputc('\0', th->tarFH) == EOF)
@@ -1130,7 +1126,7 @@ _tarPositionTo(ArchiveHandle *AH, const char *filename)
 	lclContext *ctx = (lclContext *) AH->formatData;
 	TAR_MEMBER *th = pg_malloc0(sizeof(TAR_MEMBER));
 	char		c;
-	char		header[512];
+	char		header[TAR_BLOCK_SIZE];
 	size_t		i,
 				len,
 				blks;
@@ -1189,17 +1185,19 @@ _tarPositionTo(ArchiveHandle *AH, const char *filename)
 				  th->targetFile, filename);
 
 		/* Header doesn't match, so read to next header */
-		len = ((th->fileLen + 511) & ~511); /* Padded length */
-		blks = len >> 9;		/* # of 512 byte blocks */
+		len = th->fileLen;
+		len += tarPaddingBytesRequired(th->fileLen);
+		blks = len / TAR_BLOCK_SIZE;	/* # of tar blocks */
 
 		for (i = 0; i < blks; i++)
-			_tarReadRaw(AH, &header[0], 512, NULL, ctx->tarFH);
+			_tarReadRaw(AH, &header[0], TAR_BLOCK_SIZE, NULL, ctx->tarFH);
 
 		if (!_tarGetHeader(AH, th))
 			fatal("could not find header for file \"%s\" in tar archive", filename);
 	}
 
-	ctx->tarNextMember = ctx->tarFHpos + ((th->fileLen + 511) & ~511);
+	ctx->tarNextMember = ctx->tarFHpos + th->fileLen
+		+ tarPaddingBytesRequired(th->fileLen);
 	th->pos = 0;
 
 	return th;
@@ -1210,7 +1208,7 @@ static int
 _tarGetHeader(ArchiveHandle *AH, TAR_MEMBER *th)
 {
 	lclContext *ctx = (lclContext *) AH->formatData;
-	char		h[512];
+	char		h[TAR_BLOCK_SIZE];
 	char		tag[100 + 1];
 	int			sum,
 				chk;
@@ -1223,12 +1221,12 @@ _tarGetHeader(ArchiveHandle *AH, TAR_MEMBER *th)
 		/* Save the pos for reporting purposes */
 		hPos = ctx->tarFHpos;
 
-		/* Read a 512 byte block, return EOF, exit if short */
-		len = _tarReadRaw(AH, h, 512, NULL, ctx->tarFH);
+		/* Read the next tar block, return EOF, exit if short */
+		len = _tarReadRaw(AH, h, TAR_BLOCK_SIZE, NULL, ctx->tarFH);
 		if (len == 0)			/* EOF */
 			return 0;
 
-		if (len != 512)
+		if (len != TAR_BLOCK_SIZE)
 			fatal(ngettext("incomplete tar header found (%lu byte)",
 						   "incomplete tar header found (%lu bytes)",
 						   len),
@@ -1248,7 +1246,7 @@ _tarGetHeader(ArchiveHandle *AH, TAR_MEMBER *th)
 		{
 			int			i;
 
-			for (i = 0; i < 512; i++)
+			for (i = 0; i < TAR_BLOCK_SIZE; i++)
 			{
 				if (h[i] != 0)
 				{
@@ -1294,12 +1292,12 @@ _tarGetHeader(ArchiveHandle *AH, TAR_MEMBER *th)
 static void
 _tarWriteHeader(TAR_MEMBER *th)
 {
-	char		h[512];
+	char		h[TAR_BLOCK_SIZE];
 
 	tarCreateHeader(h, th->targetFile, NULL, th->fileLen,
 					0600, 04000, 02000, time(NULL));
 
 	/* Now write the completed header. */
-	if (fwrite(h, 1, 512, th->tarFH) != 512)
+	if (fwrite(h, 1, TAR_BLOCK_SIZE, th->tarFH) != TAR_BLOCK_SIZE)
 		WRITE_ERROR_EXIT;
 }

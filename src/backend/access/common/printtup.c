@@ -5,7 +5,7 @@
  *	  clients and standalone backends are supported here).
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -30,21 +30,12 @@
 static void printtup_startup(DestReceiver *self, int operation,
 							 TupleDesc typeinfo);
 static bool printtup(TupleTableSlot *slot, DestReceiver *self);
-static bool printtup_20(TupleTableSlot *slot, DestReceiver *self);
-static bool printtup_internal_20(TupleTableSlot *slot, DestReceiver *self);
 static void printtup_shutdown(DestReceiver *self);
 static void printtup_destroy(DestReceiver *self);
 
-static void SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo,
-									 List *targetlist, int16 *formats
-									 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target));
-static void SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo,
-									 List *targetlist, int16 *formats
-									 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target));
 #ifdef ADB_GRAM_ORA
 bool upper_out_oracle_target = true;
 #endif /* ADB_GRAM_ORA */
-
 /* ----------------------------------------------------------------
  *		printtup / debugtup support
  * ----------------------------------------------------------------
@@ -120,19 +111,6 @@ SetRemoteDestReceiverParams(DestReceiver *self, Portal portal)
 		   myState->pub.mydest == DestRemoteExecute);
 
 	myState->portal = portal;
-
-	if (PG_PROTOCOL_MAJOR(FrontendProtocol) < 3)
-	{
-		/*
-		 * In protocol 2.0 the Bind message does not exist, so there is no way
-		 * for the columns to have different print formats; it's sufficient to
-		 * look at the first one.
-		 */
-		if (portal->formats && portal->formats[0] != 0)
-			myState->pub.receiveSlot = printtup_internal_20;
-		else
-			myState->pub.receiveSlot = printtup_20;
-	}
 }
 
 static void
@@ -156,21 +134,6 @@ printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	myState->tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
 												"printtup",
 												ALLOCSET_DEFAULT_SIZES);
-
-	if (PG_PROTOCOL_MAJOR(FrontendProtocol) < 3)
-	{
-		/*
-		 * Send portal name to frontend (obsolete cruft, gone in proto 3.0)
-		 *
-		 * If portal name not specified, use "blank" portal.
-		 */
-		const char *portalName = portal->name;
-
-		if (portalName == NULL || portalName[0] == '\0')
-			portalName = "blank";
-
-		pq_puttextmessage('P', portalName);
-	}
 
 	/*
 	 * If we are supposed to emit row descriptions, then send the tuple
@@ -207,45 +170,6 @@ printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 *	  the current executor).
 	 * ----------------
 	 */
-}
-
-/*
- * SendRowDescriptionMessage --- send a RowDescription message to the frontend
- *
- * Notes: the TupleDesc has typically been manufactured by ExecTypeFromTL()
- * or some similar function; it does not contain a full set of fields.
- * The targetlist will be NIL when executing a utility function that does
- * not have a plan.  If the targetlist isn't NIL then it is a Query node's
- * targetlist; it is up to us to ignore resjunk columns in it.  The formats[]
- * array pointer might be NULL (if we are doing Describe on a prepared stmt);
- * send zeroes for the format codes in that case.
- */
-void
-SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
-						  List *targetlist, int16 *formats)
-{
-#ifdef ADB_GRAM_ORA
-	return SendRowDescriptionMessageUpperAttributeName(buf, typeinfo, targetlist, formats, NULL, false);
-}
-void SendRowDescriptionMessageUpperAttributeName(StringInfo buf, TupleDesc typeinfo,
-											List *targetlist, int16 *formats,
-											const char *source_cmd, bool upper_target)
-{
-#endif /* ADB_GRAM_ORA */
-	int			natts = typeinfo->natts;
-	int			proto = PG_PROTOCOL_MAJOR(FrontendProtocol);
-
-	/* tuple descriptor message type */
-	pq_beginmessage_reuse(buf, 'T');
-	/* # of attrs in tuples */
-	pq_sendint16(buf, natts);
-
-	if (proto >= 3)
-		SendRowDescriptionCols_3(buf, typeinfo, targetlist, formats ADB_GRAM_ORA_COMMA_ARG2(source_cmd, upper_target));
-	else
-		SendRowDescriptionCols_2(buf, typeinfo, targetlist, formats ADB_GRAM_ORA_COMMA_ARG2(source_cmd, upper_target));
-
-	pq_endmessage_reuse(buf);
 }
 
 #ifdef ADB_GRAM_ORA
@@ -334,15 +258,36 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 #endif /* ADB_GRAM_ORA */
 
 /*
- * Send description for each column when using v3+ protocol
+ * SendRowDescriptionMessage --- send a RowDescription message to the frontend
+ *
+ * Notes: the TupleDesc has typically been manufactured by ExecTypeFromTL()
+ * or some similar function; it does not contain a full set of fields.
+ * The targetlist will be NIL when executing a utility function that does
+ * not have a plan.  If the targetlist isn't NIL then it is a Query node's
+ * targetlist; it is up to us to ignore resjunk columns in it.  The formats[]
+ * array pointer might be NULL (if we are doing Describe on a prepared stmt);
+ * send zeroes for the format codes in that case.
  */
-static void
-SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats
-						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target))
+void
+SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
+						  List *targetlist, int16 *formats)
 {
+#ifdef ADB_GRAM_ORA
+	return SendRowDescriptionMessageUpperAttributeName(buf, typeinfo, targetlist, formats, NULL, false);
+}
+void SendRowDescriptionMessageUpperAttributeName(StringInfo buf, TupleDesc typeinfo,
+											List *targetlist, int16 *formats,
+											const char *source_cmd, bool upper_target)
+{
+#endif /* ADB_GRAM_ORA */
 	int			natts = typeinfo->natts;
 	int			i;
 	ListCell   *tlist_item = list_head(targetlist);
+
+	/* tuple descriptor message type */
+	pq_beginmessage_reuse(buf, 'T');
+	/* # of attrs in tuples */
+	pq_sendint16(buf, natts);
 
 	/*
 	 * Preallocate memory for the entire message to be sent. That allows to
@@ -416,57 +361,8 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 		pq_writeint32(buf, atttypmod);
 		pq_writeint16(buf, format);
 	}
-}
 
-/*
- * Send description for each column when using v2 protocol
- */
-static void
-SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats
-						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target))
-{
-	int			natts = typeinfo->natts;
-	int			i;
-#ifdef ADB_GRAM_ORA
-	ListCell   *lc_loc = list_head(targetlist);
-	TargetEntry *tle;
-#endif /* ADB_GRAM_ORA */
-
-	for (i = 0; i < natts; ++i)
-	{
-		Form_pg_attribute att = TupleDescAttr(typeinfo, i);
-		Oid			atttypid = att->atttypid;
-		int32		atttypmod = att->atttypmod;
-
-		/* If column is a domain, send the base type and typmod instead */
-		atttypid = getBaseTypeAndTypmod(atttypid, &atttypmod);
-
-#ifdef ADB_GRAM_ORA
-		if (lc_loc)
-		{
-			tle = lfirst_node(TargetEntry, lc_loc);
-			lc_loc = lnext(targetlist, lc_loc);
-		}else
-		{
-			tle = NULL;
-		}
-		if (upper_target && tle &&
-			(tle->as_location <= 0 ||	/* 0 is valid location, but not "AS" valid location */
-			 source_cmd[pg_mbstrlen_with_len(source_cmd, tle->as_location)] != '"'))
-		{
-			int i = buf->len;
-			pq_sendstring(buf, NameStr(att->attname));
-			for(;i<buf->len;++i)
-				buf->data[i] = pg_toupper(buf->data[i]);
-		}else
-#endif /* ADB_GRAM_ORA */
-		pq_sendstring(buf, NameStr(att->attname));
-		/* column ID only info appears in protocol 3.0 and up */
-		pq_sendint32(buf, atttypid);
-		pq_sendint16(buf, att->attlen);
-		pq_sendint32(buf, atttypmod);
-		/* format info only appears in protocol 3.0 and up */
-	}
+	pq_endmessage_reuse(buf);
 }
 
 #ifdef ADB
@@ -548,7 +444,7 @@ printtup_prepare_info_ext(DR_printtup *myState, TupleDesc typeinfo, int numAttrs
 }
 
 /* ----------------
- *		printtup --- print a tuple in protocol 3.0
+ *		printtup --- send a tuple to the client
  * ----------------
  */
 static bool
@@ -621,84 +517,6 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 			pq_sendbytes(buf, VARDATA(outputbytes),
 						 VARSIZE(outputbytes) - VARHDRSZ);
 		}
-	}
-
-	pq_endmessage_reuse(buf);
-
-	/* Return to caller's context, and flush row's temporary memory */
-	MemoryContextSwitchTo(oldcontext);
-	MemoryContextReset(myState->tmpcontext);
-
-	return true;
-}
-
-/* ----------------
- *		printtup_20 --- print a tuple in protocol 2.0
- * ----------------
- */
-static bool
-printtup_20(TupleTableSlot *slot, DestReceiver *self)
-{
-	TupleDesc	typeinfo = slot->tts_tupleDescriptor;
-	DR_printtup *myState = (DR_printtup *) self;
-	MemoryContext oldcontext;
-	StringInfo	buf = &myState->buf;
-	int			natts = typeinfo->natts;
-	int			i,
-				j,
-				k;
-
-	/* Set or update my derived attribute info, if needed */
-	if (myState->attrinfo != typeinfo || myState->nattrs != natts)
-		printtup_prepare_info(myState, typeinfo, natts);
-
-	/* Make sure the tuple is fully deconstructed */
-	slot_getallattrs(slot);
-
-	/* Switch into per-row context so we can recover memory below */
-	oldcontext = MemoryContextSwitchTo(myState->tmpcontext);
-
-	/*
-	 * tell the frontend to expect new tuple data (in ASCII style)
-	 */
-	pq_beginmessage_reuse(buf, 'D');
-
-	/*
-	 * send a bitmap of which attributes are not null
-	 */
-	j = 0;
-	k = 1 << 7;
-	for (i = 0; i < natts; ++i)
-	{
-		if (!slot->tts_isnull[i])
-			j |= k;				/* set bit if not null */
-		k >>= 1;
-		if (k == 0)				/* end of byte? */
-		{
-			pq_sendint8(buf, j);
-			j = 0;
-			k = 1 << 7;
-		}
-	}
-	if (k != (1 << 7))			/* flush last partial byte */
-		pq_sendint8(buf, j);
-
-	/*
-	 * send the attributes of this tuple
-	 */
-	for (i = 0; i < natts; ++i)
-	{
-		PrinttupAttrInfo *thisState = myState->myinfo + i;
-		Datum		attr = slot->tts_values[i];
-		char	   *outputstr;
-
-		if (slot->tts_isnull[i])
-			continue;
-
-		Assert(thisState->format == 0);
-
-		outputstr = OutputFunctionCall(&thisState->finfo, attr);
-		pq_sendcountedtext(buf, outputstr, strlen(outputstr), true);
 	}
 
 	pq_endmessage_reuse(buf);
@@ -812,91 +630,6 @@ debugtup(TupleTableSlot *slot, DestReceiver *self)
 		printatt((unsigned) i + 1, TupleDescAttr(typeinfo, i), value);
 	}
 	printf("\t----\n");
-
-	return true;
-}
-
-/* ----------------
- *		printtup_internal_20 --- print a binary tuple in protocol 2.0
- *
- * We use a different message type, i.e. 'B' instead of 'D' to
- * indicate a tuple in internal (binary) form.
- *
- * This is largely same as printtup_20, except we use binary formatting.
- * ----------------
- */
-static bool
-printtup_internal_20(TupleTableSlot *slot, DestReceiver *self)
-{
-	TupleDesc	typeinfo = slot->tts_tupleDescriptor;
-	DR_printtup *myState = (DR_printtup *) self;
-	MemoryContext oldcontext;
-	StringInfo	buf = &myState->buf;
-	int			natts = typeinfo->natts;
-	int			i,
-				j,
-				k;
-
-	/* Set or update my derived attribute info, if needed */
-	if (myState->attrinfo != typeinfo || myState->nattrs != natts)
-		printtup_prepare_info(myState, typeinfo, natts);
-
-	/* Make sure the tuple is fully deconstructed */
-	slot_getallattrs(slot);
-
-	/* Switch into per-row context so we can recover memory below */
-	oldcontext = MemoryContextSwitchTo(myState->tmpcontext);
-
-	/*
-	 * tell the frontend to expect new tuple data (in binary style)
-	 */
-	pq_beginmessage_reuse(buf, 'B');
-
-	/*
-	 * send a bitmap of which attributes are not null
-	 */
-	j = 0;
-	k = 1 << 7;
-	for (i = 0; i < natts; ++i)
-	{
-		if (!slot->tts_isnull[i])
-			j |= k;				/* set bit if not null */
-		k >>= 1;
-		if (k == 0)				/* end of byte? */
-		{
-			pq_sendint8(buf, j);
-			j = 0;
-			k = 1 << 7;
-		}
-	}
-	if (k != (1 << 7))			/* flush last partial byte */
-		pq_sendint8(buf, j);
-
-	/*
-	 * send the attributes of this tuple
-	 */
-	for (i = 0; i < natts; ++i)
-	{
-		PrinttupAttrInfo *thisState = myState->myinfo + i;
-		Datum		attr = slot->tts_values[i];
-		bytea	   *outputbytes;
-
-		if (slot->tts_isnull[i])
-			continue;
-
-		Assert(thisState->format == 1);
-
-		outputbytes = SendFunctionCall(&thisState->finfo, attr);
-		pq_sendint32(buf, VARSIZE(outputbytes) - VARHDRSZ);
-		pq_sendbytes(buf, VARDATA(outputbytes),
-					 VARSIZE(outputbytes) - VARHDRSZ);
-	}
-
-	pq_endmessage_reuse(buf);
-
-	/* Return to caller's context, and flush row's temporary memory */
-	MemoryContextSwitchTo(oldcontext);
-	MemoryContextReset(myState->tmpcontext);
 
 	return true;
 }

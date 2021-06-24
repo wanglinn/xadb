@@ -4,7 +4,7 @@
 #    Perl module that extracts info from catalog files into Perl
 #    data structures
 #
-# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/backend/catalog/Catalog.pm
@@ -94,14 +94,29 @@ sub ParseHeader
 			push @{ $catalog{toasting} },
 			  { parent_table => $1, toast_oid => $2, toast_index_oid => $3 };
 		}
-		elsif (/^DECLARE_(UNIQUE_)?INDEX\(\s*(\w+),\s*(\d+),\s*(.+)\)/)
+		elsif (
+			/^DECLARE_(UNIQUE_)?INDEX(_PKEY)?\(\s*(\w+),\s*(\d+),\s*(.+)\)/)
 		{
 			push @{ $catalog{indexing} },
 			  {
 				is_unique => $1 ? 1 : 0,
-				index_name => $2,
-				index_oid  => $3,
-				index_decl => $4
+				is_pkey   => $2 ? 1 : 0,
+				index_name => $3,
+				index_oid  => $4,
+				index_decl => $5
+			  };
+		}
+		elsif (
+			/^DECLARE_(ARRAY_)?FOREIGN_KEY(_OPT)?\(\s*\(([^)]+)\),\s*(\w+),\s*\(([^)]+)\)\)/
+		  )
+		{
+			push @{ $catalog{foreign_keys} },
+			  {
+				is_array => $1 ? 1 : 0,
+				is_opt   => $2 ? 1 : 0,
+				fk_cols  => $3,
+				pk_table => $4,
+				pk_cols  => $5
 			  };
 		}
 		elsif (/^CATALOG\((\w+),(\d+),(\w+)\)/)
@@ -196,9 +211,22 @@ sub ParseHeader
 					{
 						$column{array_default} = $1;
 					}
-					elsif ($attopt =~ /BKI_LOOKUP\((\w+)\)/)
+					elsif ($attopt =~ /BKI_LOOKUP(_OPT)?\((\w+)\)/)
 					{
-						$column{lookup} = $1;
+						$column{lookup} = $2;
+						$column{lookup_opt} = $1 ? 1 : 0;
+						# BKI_LOOKUP implicitly makes an FK reference
+						push @{ $catalog{foreign_keys} },
+						  {
+							is_array =>
+							  ($atttype eq 'oidvector' || $atttype eq '_oid')
+							? 1
+							: 0,
+							is_opt   => $column{lookup_opt},
+							fk_cols  => $attname,
+							pk_table => $column{lookup},
+							pk_cols  => 'oid'
+						  };
 					}
 					else
 					{
@@ -390,7 +418,7 @@ sub GenerateArrayTypes
 		$array_type{typelem} = $elem_type->{typname};
 		$array_type{typnamespace} = $elem_type->{typnamespace};
 		$array_type{typelem} = 'oracle.' . $array_type{typelem}
-			if ($elem_type->{typnamespace} eq 'ORANSP');
+			if ($elem_type->{typnamespace} eq 'oracle');
 		$array_type{row_macros} = $elem_type->{row_macros}
 			if defined($elem_type->{row_macros});
 
@@ -421,7 +449,7 @@ sub GenerateArrayTypes
 		# Lastly, cross-link the array to the element type.
 		$elem_type->{typarray} = $array_type{typname};
 		$elem_type->{typarray} = 'oracle.' . $elem_type->{typarray}
-			if ($elem_type->{typnamespace} eq 'ORANSP');
+			if ($elem_type->{typnamespace} eq 'oracle');
 
 		push @array_types, \%array_type;
 	}

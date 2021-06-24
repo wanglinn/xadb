@@ -603,7 +603,7 @@ CreateAsStmt:
 					ctas->grammar = PARSE_GRAM_ORACLE;
 					ctas->query = $6;
 					ctas->into = $4;
-					ctas->relkind = OBJECT_TABLE;
+					ctas->objtype = OBJECT_TABLE;
 					ctas->is_select_into = false;
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
@@ -616,7 +616,7 @@ CreateAsStmt:
 					ctas->grammar = PARSE_GRAM_ORACLE;
 					ctas->query = $9;
 					ctas->into = $7;
-					ctas->relkind = OBJECT_TABLE;
+					ctas->objtype = OBJECT_TABLE;
 					ctas->is_select_into = false;
 					ctas->if_not_exists = true;
 					/* cram additional flags into the IntoClause */
@@ -1587,7 +1587,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $3;
 					n->cmds = $4;
-					n->relkind = OBJECT_INDEX;
+					n->objtype = OBJECT_INDEX;
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
@@ -1597,7 +1597,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $5;
 					n->cmds = $6;
-					n->relkind = OBJECT_INDEX;
+					n->objtype = OBJECT_INDEX;
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
@@ -1607,7 +1607,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $3;
 					n->cmds = $4;
-					n->relkind = OBJECT_VIEW;
+					n->objtype = OBJECT_VIEW;
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
@@ -1617,7 +1617,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $5;
 					n->cmds = $6;
-					n->relkind = OBJECT_VIEW;
+					n->objtype = OBJECT_VIEW;
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
@@ -1629,7 +1629,7 @@ AlterTableStmt:
 #endif /* ADB */
 					n->relation = $4;
 					n->cmds = $5;
-					n->relkind = OBJECT_MATVIEW;
+					n->objtype = OBJECT_MATVIEW;
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
@@ -1641,7 +1641,7 @@ AlterTableStmt:
 #endif /* ADB */
 					n->relation = $6;
 					n->cmds = $7;
-					n->relkind = OBJECT_MATVIEW;
+					n->objtype = OBJECT_MATVIEW;
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
@@ -1673,7 +1673,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $3;
 					n->cmds = $4;
-					n->relkind = OBJECT_TABLE;
+					n->objtype = OBJECT_TABLE;
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
@@ -1683,7 +1683,7 @@ AlterTableStmt:
 					n->grammar = PARSE_GRAM_ORACLE;
 					n->relation = $5;
 					n->cmds = $6;
-					n->relkind = OBJECT_TABLE;
+					n->objtype = OBJECT_TABLE;
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
@@ -2661,7 +2661,7 @@ CreateMatViewStmt:
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
 					ctas->query = $7;
 					ctas->into = $5;
-					ctas->relkind = OBJECT_MATVIEW;
+					ctas->objtype = OBJECT_MATVIEW;
 					ctas->is_select_into = false;
 					ctas->if_not_exists = false;
 					/* cram additional flags into the IntoClause */
@@ -2674,7 +2674,7 @@ CreateMatViewStmt:
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
 					ctas->query = $10;
 					ctas->into = $8;
-					ctas->relkind = OBJECT_MATVIEW;
+					ctas->objtype = OBJECT_MATVIEW;
 					ctas->is_select_into = false;
 					ctas->if_not_exists = true;
 					/* cram additional flags into the IntoClause */
@@ -4994,7 +4994,7 @@ function_with_argtypes:
 				{
 					ObjectWithArgs *n = makeNode(ObjectWithArgs);
 					n->objname = $1;
-					n->objargs = extractArgTypes($2);
+					n->objargs = extractArgTypes(OBJECT_FUNCTION, $2);
 					$$ = n;
 				}
 			/*
@@ -7371,7 +7371,7 @@ simple_select:
 				
 				if(n->fromClause)
 				{
-					if(list_length(n->fromClause) == 1)
+					if(list_length(n->fromClause) == 1 && IsA(linitial(n->fromClause),RangeVar))
 					{
 						RangeVar *var = (RangeVar*) linitial(n->fromClause);
 						Alias *alias = var->alias;
@@ -8580,7 +8580,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					n->params = $8;
 					ctas->query = (Node *) n;
 					ctas->into = $4;
-					ctas->relkind = OBJECT_TABLE;
+					ctas->objtype = OBJECT_TABLE;
 					ctas->is_select_into = false;
 					ctas->if_not_exists = false;
 					/* cram additional flags into the IntoClause */
@@ -8602,7 +8602,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					n->params = $11;
 					ctas->query = (Node *) n;
 					ctas->into = $7;
-					ctas->relkind = OBJECT_TABLE;
+					ctas->objtype = OBJECT_TABLE;
 					ctas->is_select_into = false;
 					ctas->if_not_exists = true;
 					/* cram additional flags into the IntoClause */
@@ -10152,12 +10152,15 @@ const uint16 OraScanKeywordTokens[] = {
 #include "parser/ora_kwlist.h"
 };
 
-List* ora_raw_parser(const char *str)
+List* ora_raw_parser(const char *str, RawParseMode mode)
 {
 	core_yyscan_t yyscanner;
 	ora_yy_extra_type yyextra;
 	int yyresult;
-
+#warning TODO support RawParseMode
+	if (mode != RAW_PARSE_DEFAULT)
+		ereport(ERROR,
+				errmsg("ora_raw_parser only support RAW_PARSE_DEFAULT for now"));
 	/* initialize the flex scanner */
 	Assert(lengthof(OraScanKeywordTokens) == OraScanKeywords.num_keywords);
 	yyscanner = scanner_init(str, &yyextra.core_yy_extra,

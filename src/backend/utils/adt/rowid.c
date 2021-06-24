@@ -130,7 +130,7 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 	#else
 		uint64 result;
 
-		pg_base64_decode(str, ROWID_BASE64_LEN, (char*)&result);
+		pg_base64_decode(str, ROWID_BASE64_LEN, (char*)&result, sizeof(result));
 		PG_RETURN_INT64(result);
 	#endif /* ADB */
 #else /* USE_SEQ_ROWID */
@@ -139,9 +139,9 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 		StaticAssertStmt(offsetof(OraRowID, offset)+sizeof(OffsetNumber) == ROWID_DATA_SIZE, "please change pg_type");
 
 		rowid = palloc(sizeof(*rowid));
-		pg_base64_decode(str, 8, (char*)&(rowid->node_id));
-		pg_base64_decode(str+8, 8, (char*)&(rowid->block));
-		pg_base64_decode(str+16, 4, (char*)&(rowid->offset));
+		pg_base64_decode(str, 8, (char*)&(rowid->node_id), sizeof(rowid->node_id));
+		pg_base64_decode(str+8, 8, (char*)&(rowid->block), sizeof(rowid->block));
+		pg_base64_decode(str+16, 4, (char*)&(rowid->offset), sizeof(rowid->offset));
 
 		PG_RETURN_POINTER(rowid);
 	#else
@@ -149,9 +149,9 @@ Datum rowid_in(PG_FUNCTION_ARGS)
 		StaticAssertStmt(sizeof(*tid) == ROWID_DATA_SIZE, "please change ROWID_DATA_SIZE");
 
 		tid = palloc(sizeof(*tid));
-		pg_base64_decode(str, 4, (char*)&(tid->ip_blkid.bi_hi));
-		pg_base64_decode(str+4, 4, (char*)&(tid->ip_blkid.bi_lo));
-		pg_base64_decode(str+8, 4, (char*)&(tid->ip_posid));
+		pg_base64_decode(str, 4, (char*)&(tid->ip_blkid.bi_hi), sizeof(tid->ip_blkid.bi_hi));
+		pg_base64_decode(str+4, 4, (char*)&(tid->ip_blkid.bi_lo), sizeof(tid->ip_blkid.bi_lo));
+		pg_base64_decode(str+8, 4, (char*)&(tid->ip_posid), sizeof(tid->ip_posid));
 		PG_RETURN_POINTER(tid);
 	#endif
 #endif /* else USE_SEQ_ROWID */
@@ -167,20 +167,20 @@ Datum rowid_out(PG_FUNCTION_ARGS)
 		uint64 value = PG_GETARG_INT64(0);
 		uint32 len PG_USED_FOR_ASSERTS_ONLY;
 
-		len = pg_base64_encode((char*)&value, sizeof(value), output);
+		len = pg_base64_encode((char*)&value, sizeof(value), output, ROWID_BASE64_LEN);
 		Assert(len == ROWID_BASE64_LEN);
 	#endif
 #else /* USE_SEQ_ROWID */
 	#ifdef ADB
 		OraRowID *rowid = (OraRowID*)PG_GETARG_POINTER(0);
-		pg_base64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output);
-		pg_base64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8);
-		pg_base64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16);
+		pg_base64_encode((char*)&(rowid->node_id), sizeof(rowid->node_id), output, 8);
+		pg_base64_encode((char*)&(rowid->block), sizeof(rowid->block), output+8, 8);
+		pg_base64_encode((char*)&(rowid->offset), sizeof(rowid->offset), output+16, 4);
 	#else
 		ItemPointer tid = (ItemPointer)PG_GETARG_POINTER(0);
-		pg_base64_encode((char*)&(tid->ip_blkid.bi_hi), 2, output);
-		pg_base64_encode((char*)&(tid->ip_blkid.bi_lo), 2, output+4);
-		pg_base64_encode((char*)&(tid->ip_posid), 2, output+8);
+		pg_base64_encode((char*)&(tid->ip_blkid.bi_hi), 2, output, 4);
+		pg_base64_encode((char*)&(tid->ip_blkid.bi_lo), 2, output+4, 4);
+		pg_base64_encode((char*)&(tid->ip_posid), 2, output+8, 4);
 	#endif
 #endif /* USE_SEQ_ROWID */
 

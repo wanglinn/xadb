@@ -4,7 +4,7 @@
  *	  prototypes for restrictinfo.c.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/restrictinfo.h
@@ -18,10 +18,11 @@
 
 
 /* Convenience macro for the common case of a valid-everywhere qual */
-#define make_simple_restrictinfo(clause)  \
-	make_restrictinfo(clause, true, false, false, 0, NULL, NULL, NULL)
+#define make_simple_restrictinfo(root, clause)  \
+	make_restrictinfo(root, clause, true, false, false, 0, NULL, NULL, NULL)
 
-extern RestrictInfo *make_restrictinfo(Expr *clause,
+extern RestrictInfo *make_restrictinfo(PlannerInfo *root,
+									   Expr *clause,
 									   bool is_pushed_down,
 									   bool outerjoin_delayed,
 									   bool pseudoconstant,
@@ -45,7 +46,7 @@ extern bool join_clause_is_movable_into(RestrictInfo *rinfo,
 										Relids currentrelids,
 										Relids current_and_outer);
 #ifdef ADB_GRAM_ORA
-extern RestrictInfo* make_connect_by_restrictinfo(Expr *expr);
+extern RestrictInfo* make_connect_by_restrictinfo(PlannerInfo *root, Expr *expr);
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* RESTRICTINFO_H */

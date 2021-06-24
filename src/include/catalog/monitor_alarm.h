@@ -42,4 +42,7 @@ CATALOG(monitor_alarm,9785,MonitorAlarmRelationId)
 */
 typedef FormData_monitor_alarm *Form_monitor_alarm;
 
+DECLARE_UNIQUE_INDEX(monitor_alarm_oid_index, 9774, on monitor_alarm using btree(oid oid_ops));
+#define MonitorAlarmOidIndexId 9774
+
 #endif /* MONITOR_ALARM_H */

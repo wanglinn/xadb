@@ -34,7 +34,7 @@
  *		plan normally and pass back the results.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -103,9 +103,13 @@ ExecResult(PlanState *pstate)
 	 * called, OR that we failed the constant qual check. Either way, now we
 	 * are through.
 	 */
-	while (!node->rs_done)
+	if (!node->rs_done)
 	{
 		outerPlan = outerPlanState(node);
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+loop_:
+#endif /* ADB || ADB_GRAM_ORA */
 
 		if (outerPlan != NULL)
 		{
@@ -135,7 +139,7 @@ ExecResult(PlanState *pstate)
 #if defined(ADB) || defined(ADB_GRAM_ORA)
 		if (node->ps.qual &&
 			ExecQual(node->ps.qual, econtext) == false)
-			continue;
+			goto loop_;
 #endif /* ADB || ADB_GRAM_ORA */
 
 		/* form the result tuple using ExecProject(), and return it */

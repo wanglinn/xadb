@@ -3935,7 +3935,7 @@ static void storeNodeSyncToMgrNode(MgrNodeWrapper *masterNode,
 		if (is_equal_string(NameStr(mgrNode->form.nodesync), NameStr(newNodesync)))
 			continue;
 		if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
-			namecpy(&mgrNode->form.nodesync, &newNodesync);
+			mgrNode->form.nodesync = newNodesync;
 		else
 			ereport(ERROR,
 					(errmsg("%s try to change nodesync from '%s' to '%s' failed",
@@ -3971,7 +3971,7 @@ static void storeNodeSyncToMgrNode(MgrNodeWrapper *masterNode,
 			if (is_equal_string(NameStr(mgrNode->form.nodesync), NameStr(newNodesync)))
 				continue;
 			if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
-				namecpy(&mgrNode->form.nodesync, &newNodesync);
+				mgrNode->form.nodesync = newNodesync;
 			else
 				ereport(ERROR,
 						(errmsg("%s try to change nodesync from '%s' to '%s' failed",
@@ -4246,7 +4246,7 @@ List *getNodeSyncConfigInRepGroup(MgrNodeWrapper *mgrNode)
 				{
 					mgrNodeSyncConfig = palloc(sizeof(MgrNodeSyncConfig));
 					nodeSyncConfigInRepGroup = lappend(nodeSyncConfigInRepGroup, mgrNodeSyncConfig);
-					namecpy(&mgrNodeSyncConfig->nodezone, &temp_mgr_node->nodezone);
+					mgrNodeSyncConfig->nodezone = temp_mgr_node->nodezone;
 					mgrNodeSyncConfig->expectedSyncNodes = 1;
 					mgrNodeSyncConfig->actualSyncNodes = 0;
 				}

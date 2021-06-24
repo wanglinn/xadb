@@ -4,7 +4,7 @@
  * src/backend/utils/adt/formatting.c
  *
  *
- *	 Portions Copyright (c) 1999-2020, PostgreSQL Global Development Group
+ *	 Portions Copyright (c) 1999-2021, PostgreSQL Global Development Group
  *
  *
  *	 TO_CHAR(); TO_TIMESTAMP(); TO_DATE(); TO_NUMBER();
@@ -1511,10 +1511,12 @@ parse_format(FormatNode *node, const char *str, const KeyWord *kw,
 		{
 			int			chlen;
 
-			if (flags & STD_FLAG)
+			if ((flags & STD_FLAG) && *str != '"')
 			{
 				/*
-				 * Standard mode, allow only following separators: "-./,':; "
+				 * Standard mode, allow only following separators: "-./,':; ".
+				 * However, we support double quotes even in standard mode
+				 * (see below).  This is our extension of standard mode.
 				 */
 				if (strchr("-./,':; ", *str) == NULL)
 					ereport(ERROR,
@@ -1640,8 +1642,7 @@ static const char *
 get_th(char *num, int type)
 {
 	int			len = strlen(num),
-				last,
-				seclast;
+				last;
 
 	last = *(num + (len - 1));
 	if (!isdigit((unsigned char) last))
@@ -1653,7 +1654,7 @@ get_th(char *num, int type)
 	 * All "teens" (<x>1[0-9]) get 'TH/th', while <x>[02-9][123] still get
 	 * 'ST/st', 'ND/nd', 'RD/rd', respectively
 	 */
-	if ((len > 1) && ((seclast = num[len - 2]) == '1'))
+	if ((len > 1) && (num[len - 2] == '1'))
 		last = 0;
 
 	switch (last)
@@ -3439,18 +3440,61 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 				s += strlen(s);
 				break;
 			case DCH_RM:
-				if (!tm->tm_mon)
-					break;
-				sprintf(s, "%*s", S_FM(n->suffix) ? 0 : -4,
-						rm_months_upper[MONTHS_PER_YEAR - tm->tm_mon]);
-				s += strlen(s);
-				break;
+				/* FALLTHROUGH */
 			case DCH_rm:
-				if (!tm->tm_mon)
+
+				/*
+				 * For intervals, values like '12 month' will be reduced to 0
+				 * month and some years.  These should be processed.
+				 */
+				if (!tm->tm_mon && !tm->tm_year)
 					break;
-				sprintf(s, "%*s", S_FM(n->suffix) ? 0 : -4,
-						rm_months_lower[MONTHS_PER_YEAR - tm->tm_mon]);
-				s += strlen(s);
+				else
+				{
+					int			mon = 0;
+					const char *const *months;
+
+					if (n->key->id == DCH_RM)
+						months = rm_months_upper;
+					else
+						months = rm_months_lower;
+
+					/*
+					 * Compute the position in the roman-numeral array.  Note
+					 * that the contents of the array are reversed, December
+					 * being first and January last.
+					 */
+					if (tm->tm_mon == 0)
+					{
+						/*
+						 * This case is special, and tracks the case of full
+						 * interval years.
+						 */
+						mon = tm->tm_year >= 0 ? 0 : MONTHS_PER_YEAR - 1;
+					}
+					else if (tm->tm_mon < 0)
+					{
+						/*
+						 * Negative case.  In this case, the calculation is
+						 * reversed, where -1 means December, -2 November,
+						 * etc.
+						 */
+						mon = -1 * (tm->tm_mon + 1);
+					}
+					else
+					{
+						/*
+						 * Common case, with a strictly positive value.  The
+						 * position in the array matches with the value of
+						 * tm_mon.
+						 */
+						mon = MONTHS_PER_YEAR - tm->tm_mon;
+					}
+
+					sprintf(s, "%*s", S_FM(n->suffix) ? 0 : -4,
+							months[mon]);
+					s += strlen(s);
+				}
 				break;
 			case DCH_W:
 				sprintf(s, "%d", (tm->tm_mday - 1) / 7 + 1);
@@ -3590,7 +3634,19 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			}
 			else
 			{
-				s += pg_mblen(s);
+				int			chlen = pg_mblen(s);
+
+				/*
+				 * Standard mode requires strict match of format characters.
+				 */
+				if (std && n->type == NODE_TYPE_CHAR &&
+					strncmp(s, n->character, chlen) != 0)
+					RETURN_ERROR(ereport(ERROR,
+										 (errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+										  errmsg("unmatched format character \"%s\"",
+												 n->character))));
+
+				s += chlen;
 			}
 			continue;
 		}
@@ -4312,7 +4368,7 @@ DCH_cache_getnew(const char *str, bool std)
 		elog(DEBUG_elog_output, "OLD: '%s' AGE: %d", old->str, old->age);
 #endif
 		old->valid = false;
-		StrNCpy(old->str, str, DCH_CACHE_SIZE + 1);
+		strlcpy(old->str, str, DCH_CACHE_SIZE + 1);
 		old->age = (++DCHCounter);
 		/* caller is expected to fill format, then set valid */
 		return old;
@@ -4326,7 +4382,7 @@ DCH_cache_getnew(const char *str, bool std)
 		DCHCache[n_DCHCache] = ent = (DCHCacheEntry *)
 			MemoryContextAllocZero(TopMemoryContext, sizeof(DCHCacheEntry));
 		ent->valid = false;
-		StrNCpy(ent->str, str, DCH_CACHE_SIZE + 1);
+		strlcpy(ent->str, str, DCH_CACHE_SIZE + 1);
 		ent->std = std;
 		ent->age = (++DCHCounter);
 		/* caller is expected to fill format, then set valid */
@@ -4995,8 +5051,11 @@ do_to_timestamp(text *date_txt, text *fmt, Oid collid, bool std,
 		{
 			/* If a 4-digit year is provided, we use that and ignore CC. */
 			tm->tm_year = tmfc.year;
-			if (tmfc.bc && tm->tm_year > 0)
-				tm->tm_year = -(tm->tm_year - 1);
+			if (tmfc.bc)
+				tm->tm_year = -tm->tm_year;
+			/* correct for our representation of BC years */
+			if (tm->tm_year < 0)
+				tm->tm_year++;
 		}
 		fmask |= DTK_M(YEAR);
 	}
@@ -5238,7 +5297,7 @@ NUM_cache_getnew(const char *str)
 		elog(DEBUG_elog_output, "OLD: \"%s\" AGE: %d", old->str, old->age);
 #endif
 		old->valid = false;
-		StrNCpy(old->str, str, NUM_CACHE_SIZE + 1);
+		strlcpy(old->str, str, NUM_CACHE_SIZE + 1);
 		old->age = (++NUMCounter);
 		/* caller is expected to fill format and Num, then set valid */
 		return old;
@@ -5252,7 +5311,7 @@ NUM_cache_getnew(const char *str)
 		NUMCache[n_NUMCache] = ent = (NUMCacheEntry *)
 			MemoryContextAllocZero(TopMemoryContext, sizeof(NUMCacheEntry));
 		ent->valid = false;
-		StrNCpy(ent->str, str, NUM_CACHE_SIZE + 1);
+		strlcpy(ent->str, str, NUM_CACHE_SIZE + 1);
 		ent->age = (++NUMCounter);
 		/* caller is expected to fill format and Num, then set valid */
 		++n_NUMCache;
@@ -5371,9 +5430,9 @@ NUM_cache(int len, NUMDesc *Num, text *pars_str, bool *shouldFree)
 static char *
 int_to_roman(int number)
 {
-	int			len = 0,
-				num = 0;
-	char	   *p = NULL,
+	int			len,
+				num;
+	char	   *p,
 			   *result,
 				numstr[12];
 
@@ -5389,7 +5448,7 @@ int_to_roman(int number)
 
 	for (p = numstr; *p != '\0'; p++, --len)
 	{
-		num = *p - 49;			/* 48 ascii + 1 */
+		num = *p - ('0' + 1);
 		if (num < 0)
 			continue;
 
@@ -6542,10 +6601,8 @@ numeric_to_number(PG_FUNCTION_ARGS)
 	if (IS_MULTI(&Num))
 	{
 		Numeric		x;
-		Numeric		a = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
-															Int32GetDatum(10)));
-		Numeric		b = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
-															Int32GetDatum(-Num.multi)));
+		Numeric		a = int64_to_numeric(10);
+		Numeric		b = int64_to_numeric(-Num.multi);
 
 		x = DatumGetNumeric(DirectFunctionCall2(numeric_power,
 												NumericGetDatum(a),
@@ -6589,7 +6646,7 @@ numeric_to_char(PG_FUNCTION_ARGS)
 		x = DatumGetNumeric(DirectFunctionCall2(numeric_round,
 												NumericGetDatum(value),
 												Int32GetDatum(0)));
-		numstr = orgnum =
+		numstr =
 			int_to_roman(DatumGetInt32(DirectFunctionCall1(numeric_int4,
 														   NumericGetDatum(x))));
 	}
@@ -6600,9 +6657,12 @@ numeric_to_char(PG_FUNCTION_ARGS)
 		/*
 		 * numeric_out_sci() does not emit a sign for positive numbers.  We
 		 * need to add a space in this case so that positive and negative
-		 * numbers are aligned.  We also have to do the right thing for NaN.
+		 * numbers are aligned.  Also must check for NaN/infinity cases, which
+		 * we handle the same way as in float8_to_char.
 		 */
-		if (strcmp(orgnum, "NaN") == 0)
+		if (strcmp(orgnum, "NaN") == 0 ||
+			strcmp(orgnum, "Infinity") == 0 ||
+			strcmp(orgnum, "-Infinity") == 0)
 		{
 			/*
 			 * Allow 6 characters for the leading sign, the decimal point,
@@ -6631,10 +6691,8 @@ numeric_to_char(PG_FUNCTION_ARGS)
 
 		if (IS_MULTI(&Num))
 		{
-			Numeric		a = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
-																Int32GetDatum(10)));
-			Numeric		b = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
-																Int32GetDatum(Num.multi)));
+			Numeric		a = int64_to_numeric(10);
+			Numeric		b = int64_to_numeric(Num.multi);
 
 			x = DatumGetNumeric(DirectFunctionCall2(numeric_power,
 													NumericGetDatum(a),
@@ -6714,7 +6772,7 @@ int4_to_char(PG_FUNCTION_ARGS)
 	 * On DateType depend part (int32)
 	 */
 	if (IS_ROMAN(&Num))
-		numstr = orgnum = int_to_roman(value);
+		numstr = int_to_roman(value);
 	else if (IS_EEEE(&Num))
 	{
 		/* we can do it easily because float8 won't lose any precision */
@@ -6810,21 +6868,18 @@ int8_to_char(PG_FUNCTION_ARGS)
 	if (IS_ROMAN(&Num))
 	{
 		/* Currently don't support int8 conversion to roman... */
-		numstr = orgnum = int_to_roman(DatumGetInt32(DirectFunctionCall1(int84, Int64GetDatum(value))));
+		numstr = int_to_roman(DatumGetInt32(DirectFunctionCall1(int84, Int64GetDatum(value))));
 	}
 	else if (IS_EEEE(&Num))
 	{
 		/* to avoid loss of precision, must go via numeric not float8 */
-		Numeric		val;
-
-		val = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
-												  Int64GetDatum(value)));
-		orgnum = numeric_out_sci(val, Num.post);
+		orgnum = numeric_out_sci(int64_to_numeric(value),
+								 Num.post);
 
 		/*
 		 * numeric_out_sci() does not emit a sign for positive numbers.  We
 		 * need to add a space in this case so that positive and negative
-		 * numbers are aligned.  We don't have to worry about NaN here.
+		 * numbers are aligned.  We don't have to worry about NaN/inf here.
 		 */
 		if (*orgnum != '-')
 		{
@@ -6909,13 +6964,12 @@ float4_to_char(PG_FUNCTION_ARGS)
 	int			out_pre_spaces = 0,
 				sign = 0;
 	char	   *numstr,
-			   *orgnum,
 			   *p;
 
 	NUM_TOCHAR_prepare;
 
 	if (IS_ROMAN(&Num))
-		numstr = orgnum = int_to_roman((int) rint(value));
+		numstr = int_to_roman((int) rint(value));
 	else if (IS_EEEE(&Num))
 	{
 		if (isnan(value) || isinf(value))
@@ -6931,20 +6985,19 @@ float4_to_char(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			numstr = orgnum = psprintf("%+.*e", Num.post, value);
+			numstr = psprintf("%+.*e", Num.post, value);
 
 			/*
 			 * Swap a leading positive sign for a space.
 			 */
-			if (*orgnum == '+')
-				*orgnum = ' ';
-
-			numstr = orgnum;
+			if (*numstr == '+')
+				*numstr = ' ';
 		}
 	}
 	else
 	{
 		float4		val = value;
+		char	   *orgnum;
 		int			numstr_pre_len;
 
 		if (IS_MULTI(&Num))
@@ -6955,7 +7008,7 @@ float4_to_char(PG_FUNCTION_ARGS)
 			Num.pre += Num.multi;
 		}
 
-		orgnum = (char *) psprintf("%.0f", fabs(val));
+		orgnum = psprintf("%.0f", fabs(val));
 		numstr_pre_len = strlen(orgnum);
 
 		/* adjust post digits to fit max float digits */
@@ -7013,13 +7066,12 @@ float8_to_char(PG_FUNCTION_ARGS)
 	int			out_pre_spaces = 0,
 				sign = 0;
 	char	   *numstr,
-			   *orgnum,
 			   *p;
 
 	NUM_TOCHAR_prepare;
 
 	if (IS_ROMAN(&Num))
-		numstr = orgnum = int_to_roman((int) rint(value));
+		numstr = int_to_roman((int) rint(value));
 	else if (IS_EEEE(&Num))
 	{
 		if (isnan(value) || isinf(value))
@@ -7035,20 +7087,19 @@ float8_to_char(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			numstr = orgnum = (char *) psprintf("%+.*e", Num.post, value);
+			numstr = psprintf("%+.*e", Num.post, value);
 
 			/*
 			 * Swap a leading positive sign for a space.
 			 */
-			if (*orgnum == '+')
-				*orgnum = ' ';
-
-			numstr = orgnum;
+			if (*numstr == '+')
+				*numstr = ' ';
 		}
 	}
 	else
 	{
 		float8		val = value;
+		char	   *orgnum;
 		int			numstr_pre_len;
 
 		if (IS_MULTI(&Num))
@@ -7058,6 +7109,7 @@ float8_to_char(PG_FUNCTION_ARGS)
 			val = value * multi;
 			Num.pre += Num.multi;
 		}
+
 		orgnum = psprintf("%.0f", fabs(val));
 		numstr_pre_len = strlen(orgnum);
 

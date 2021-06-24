@@ -636,17 +636,7 @@ static void hashstore_save_page(BufFile *buffile, BlockNumber blockno, Page page
 				 errmsg("could not seek temporary file: %m")));
 	}
 
-	if (BufFileWrite(buffile, page, BLCKSZ) != BLCKSZ)
-	{
-		/*
-		 * the other errors in Read/WriteTempFileBlock shouldn't happen, but
-		 * an error at write can easily happen if you run out of disk space.
-		 */
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not write block %u of temporary file: %m",
-						blockno)));
-	}
+	BufFileWrite(buffile, page, BLCKSZ);
 }
 
 static void hashstore_load_page(BufFile *buffile, BlockNumber blockno, Page page)

@@ -2,7 +2,7 @@
 #
 # Makefile for src/bin/pg_rewind
 #
-# Portions Copyright (c) 2013-2020, PostgreSQL Global Development Group
+# Portions Copyright (c) 2013-2021, PostgreSQL Global Development Group
 #
 # src/bin/pg_rewind/Makefile
 #
@@ -19,12 +19,11 @@ override CPPFLAGS := -I$(libpq_srcdir) -DFRONTEND $(CPPFLAGS)
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport)
 
 BASE_OBJS = \
-	copy_fetch.o \
 	datapagemap.o \
-	fetch.o \
 	file_ops.o \
 	filemap.o \
-	libpq_fetch.o \
+	libpq_source.o \
+	local_source.o \
 	parsexlog.o \
 	pg_rewind.o \
 	timeline.o \

@@ -795,6 +795,10 @@ ExecProcNodeDMLInXC(EState *estate,
 					TupleTableSlot *sourceDataSlot,
 					TupleTableSlot *newDataSlot)
 {
+#warning TODO rewrite function ExecProcNodeDMLInXC
+	ereport(ERROR,
+			errmsg("not finish yet fro remote DML"));
+#if 0
 	ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
 	RemoteQueryState *resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 	ExprContext	*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
@@ -900,6 +904,7 @@ ExecProcNodeDMLInXC(EState *estate,
 	resultRemoteRel->query_Done = false;
 
 	return returningResultSlot;
+#endif
 }
 
 /*
@@ -964,6 +969,10 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 					   TupleTableSlot *sourceSlot, TupleTableSlot *dataSlot,
 					   RemoteQueryState *rq_state)
 {
+#warning TODO rewrite function SetDataRowForIntParams
+	ereport(ERROR,
+			errmsg("not finish yet fro remote DML"));
+#if 0
 	StringInfoData	buf;
 	uint16			numparams = 0;
 	RemoteQuery		*step = (RemoteQuery *) rq_state->ss.ps.plan;
@@ -1090,7 +1099,7 @@ SetDataRowForIntParams(JunkFilter *junkfilter,
 	/* Assign the newly allocated data row to paramval */
 	rq_state->paramval_data = buf.data;
 	rq_state->paramval_len = buf.len;
-
+#endif
 }
 
 
@@ -1178,6 +1187,10 @@ pgxc_rq_fire_bstriggers(RemoteQueryState *node)
 	if (!rq->rq_params_internal && estate->es_result_relations)
 	{
 		Assert(rq->remote_query);
+		#warning TODO fire trigger
+		ereport(ERROR,
+				errmsg("TODO fire trigger"));
+#if 0
 		switch (rq->remote_query->commandType)
 		{
 			case CMD_INSERT:
@@ -1192,6 +1205,7 @@ pgxc_rq_fire_bstriggers(RemoteQueryState *node)
 			default:
 				break;
 		}
+#endif
 	}
 }
 
@@ -1210,6 +1224,10 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 	if (!rq->rq_params_internal && estate->es_result_relations)
 	{
 		Assert(rq->remote_query);
+		#warning TODO fire trigger
+		ereport(ERROR,
+				errmsg("TODO fire trigger"));
+#if 0
 		switch (rq->remote_query->commandType)
 		{
 			case CMD_INSERT:
@@ -1224,5 +1242,6 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 			default:
 				break;
 		}
+#endif
 	}
 }

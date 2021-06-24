@@ -69,6 +69,13 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(9
 
 typedef FormData_pgxc_node *Form_pgxc_node;
 
+DECLARE_UNIQUE_INDEX(pgxc_node_oid_index, 9010, on pgxc_node using btree(oid oid_ops));
+#define PgxcNodeOidIndexId			9010
+DECLARE_UNIQUE_INDEX(pgxc_node_name_index, 9011, on pgxc_node using btree(node_name name_ops));
+#define PgxcNodeNodeNameIndexId		9011
+DECLARE_UNIQUE_INDEX(pgxc_node_id_index, 9022, on pgxc_node using btree(node_id int4_ops));
+#define PgxcNodeNodeIdIndexId		9022
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 /* Possible types of nodes */

@@ -2178,7 +2178,7 @@ static int namestrcpylocal(NameLocal name, const char *str)
 {
 	if (!name || !str)
 		return -1;
-	StrNCpy(name->data, str, NAMEDATALEN_LOCAL);
+	strlcpy(name->data, str, NAMEDATALEN_LOCAL);
 	return 0;
 }
 

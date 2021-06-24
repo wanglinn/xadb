@@ -51,6 +51,11 @@ CATALOG(ora_cast,9121,OraCastRelationId)
 
 typedef FormData_ora_cast *Form_ora_cast;
 
+DECLARE_UNIQUE_INDEX(ora_cast_id_index, 9016, on ora_cast using btree(castid oid_ops));
+#define OraCastIdIndexId	9016
+DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
+#define OraCastSourceTargetIndexId  9017
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 /*
  * Just like pg_cast.CoercionCodes, but it is more complex.

@@ -2,7 +2,7 @@
  * SQL Information Schema
  * as defined in ISO/IEC 9075-11:2016
  *
- * Copyright (c) 2003-2020, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2021, PostgreSQL Global Development Group
  *
  * src/backend/catalog/information_schema.sql
  *
@@ -44,7 +44,8 @@ CREATE FUNCTION _pg_expandarray(IN anyarray, OUT x anyelement, OUT n int)
     RETURNS SETOF RECORD
     LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
-    AS 'select $1[s], s - pg_catalog.array_lower($1,1) + 1
+    AS 'select $1[s],
+        s operator(pg_catalog.-) pg_catalog.array_lower($1,1) operator(pg_catalog.+) 1
         from pg_catalog.generate_series(pg_catalog.array_lower($1,1),
                                         pg_catalog.array_upper($1,1),
                                         1) as g(s)';
@@ -53,12 +54,12 @@ CREATE FUNCTION _pg_expandarray(IN anyarray, OUT x anyelement, OUT n int)
  * column's position in the index (NULL if not there) */
 CREATE FUNCTION _pg_index_position(oid, smallint) RETURNS int
     LANGUAGE sql STRICT STABLE
-    AS $$
+BEGIN ATOMIC
 SELECT (ss.a).n FROM
   (SELECT information_schema._pg_expandarray(indkey) AS a
    FROM pg_catalog.pg_index WHERE indexrelid = $1) ss
   WHERE (ss.a).x = $2;
-$$;
+END;
 
 CREATE FUNCTION _pg_truetypid(pg_attribute, pg_type) RETURNS oid
     LANGUAGE sql
@@ -66,8 +67,7 @@ CREATE FUNCTION _pg_truetypid(pg_attribute, pg_type) RETURNS oid
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT CASE WHEN $2.typtype = 'd' THEN $2.typbasetype ELSE $1.atttypid END$$;
+RETURN CASE WHEN $2.typtype = 'd' THEN $2.typbasetype ELSE $1.atttypid END;
 
 CREATE FUNCTION _pg_truetypmod(pg_attribute, pg_type) RETURNS int4
     LANGUAGE sql
@@ -75,8 +75,7 @@ CREATE FUNCTION _pg_truetypmod(pg_attribute, pg_type) RETURNS int4
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT CASE WHEN $2.typtype = 'd' THEN $2.typtypmod ELSE $1.atttypmod END$$;
+RETURN CASE WHEN $2.typtype = 'd' THEN $2.typtypmod ELSE $1.atttypmod END;
 
 -- these functions encapsulate knowledge about the encoding of typmod:
 
@@ -86,8 +85,7 @@ CREATE FUNCTION _pg_char_max_length(typid oid, typmod int4) RETURNS integer
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $2 = -1 /* default typmod */
        THEN null
        WHEN $1 IN (1042, 1043) /* char, varchar */
@@ -95,7 +93,7 @@ $$SELECT
        WHEN $1 IN (1560, 1562) /* bit, varbit */
        THEN $2
        ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_char_octet_length(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
@@ -103,8 +101,7 @@ CREATE FUNCTION _pg_char_octet_length(typid oid, typmod int4) RETURNS integer
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $1 IN (25, 1042, 1043) /* text, char, varchar */
        THEN CASE WHEN $2 = -1 /* default typmod */
                  THEN CAST(2^30 AS integer)
@@ -112,7 +109,7 @@ $$SELECT
                       pg_catalog.pg_encoding_max_length((SELECT encoding FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()))
             END
        ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_numeric_precision(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
@@ -120,8 +117,7 @@ CREATE FUNCTION _pg_numeric_precision(typid oid, typmod int4) RETURNS integer
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE $1
          WHEN 21 /*int2*/ THEN 16
          WHEN 23 /*int4*/ THEN 32
@@ -134,7 +130,7 @@ $$SELECT
          WHEN 700 /*float4*/ THEN 24 /*FLT_MANT_DIG*/
          WHEN 701 /*float8*/ THEN 53 /*DBL_MANT_DIG*/
          ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_numeric_precision_radix(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
@@ -142,12 +138,11 @@ CREATE FUNCTION _pg_numeric_precision_radix(typid oid, typmod int4) RETURNS inte
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $1 IN (21, 23, 20, 700, 701) THEN 2
        WHEN $1 IN (1700) THEN 10
        ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_numeric_scale(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
@@ -155,8 +150,7 @@ CREATE FUNCTION _pg_numeric_scale(typid oid, typmod int4) RETURNS integer
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $1 IN (21, 23, 20) THEN 0
        WHEN $1 IN (1700) THEN
             CASE WHEN $2 = -1
@@ -164,7 +158,7 @@ $$SELECT
                  ELSE ($2 - 4) & 65535
                  END
        ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_datetime_precision(typid oid, typmod int4) RETURNS integer
     LANGUAGE sql
@@ -172,8 +166,7 @@ CREATE FUNCTION _pg_datetime_precision(typid oid, typmod int4) RETURNS integer
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $1 IN (1082) /* date */
            THEN 0
        WHEN $1 IN (1083, 1114, 1184, 1266) /* time, timestamp, same + tz */
@@ -181,7 +174,7 @@ $$SELECT
        WHEN $1 IN (1186) /* interval */
            THEN CASE WHEN $2 < 0 OR $2 & 65535 = 65535 THEN 6 ELSE $2 & 65535 END
        ELSE null
-  END$$;
+  END;
 
 CREATE FUNCTION _pg_interval_type(typid oid, mod int4) RETURNS text
     LANGUAGE sql
@@ -189,12 +182,11 @@ CREATE FUNCTION _pg_interval_type(typid oid, mod int4) RETURNS text
     PARALLEL SAFE
     RETURNS NULL ON NULL INPUT
 --ADBONLY CLUSTER SAFE
-    AS
-$$SELECT
+RETURN
   CASE WHEN $1 IN (1186) /* interval */
-           THEN pg_catalog.upper(substring(pg_catalog.format_type($1, $2) from 'interval[()0-9]* #"%#"' for '#'))
+           THEN pg_catalog.upper(substring(pg_catalog.format_type($1, $2) similar 'interval[()0-9]* #"%#"' escape '#'))
        ELSE null
-  END$$;
+  END;
 
 
 -- 5.2 INFORMATION_SCHEMA_CATALOG_NAME view appears later.
@@ -265,7 +257,14 @@ CREATE VIEW applicable_roles AS
     SELECT CAST(a.rolname AS sql_identifier) AS grantee,
            CAST(b.rolname AS sql_identifier) AS role_name,
            CAST(CASE WHEN m.admin_option THEN 'YES' ELSE 'NO' END AS yes_or_no) AS is_grantable
-    FROM pg_auth_members m
+    FROM (SELECT member, roleid, admin_option FROM pg_auth_members
+          -- This UNION could be UNION ALL, but UNION works even if we start
+          -- to allow explicit pg_database_owner membership.
+          UNION
+          SELECT datdba, pg_authid.oid, false
+          FROM pg_database, pg_authid
+          WHERE datname = current_database() AND rolname = 'pg_database_owner'
+         )  m
          JOIN pg_authid a ON (m.member = a.oid)
          JOIN pg_authid b ON (m.roleid = b.oid)
     WHERE pg_has_role(a.oid, 'USAGE');
@@ -417,7 +416,8 @@ GRANT SELECT ON character_sets TO PUBLIC;
  */
 
 CREATE VIEW check_constraint_routine_usage AS
-    SELECT CAST(current_database() AS sql_identifier) AS constraint_catalog,
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS constraint_catalog,
            CAST(nc.nspname AS sql_identifier) AS constraint_schema,
            CAST(c.conname AS sql_identifier) AS constraint_name,
            CAST(current_database() AS sql_identifier) AS specific_catalog,
@@ -516,7 +516,8 @@ GRANT SELECT ON collation_character_set_applicability TO PUBLIC;
  */
 
 CREATE VIEW column_column_usage AS
-    SELECT CAST(current_database() AS sql_identifier) AS table_catalog,
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS table_catalog,
            CAST(n.nspname AS sql_identifier) AS table_schema,
            CAST(c.relname AS sql_identifier) AS table_name,
            CAST(ac.attname AS sql_identifier) AS column_name,
@@ -1335,7 +1336,34 @@ GRANT SELECT ON role_column_grants TO PUBLIC;
  * ROUTINE_COLUMN_USAGE view
  */
 
--- not tracked by PostgreSQL
+CREATE VIEW routine_column_usage AS
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS specific_catalog,
+           CAST(np.nspname AS sql_identifier) AS specific_schema,
+           CAST(nameconcatoid(p.proname, p.oid) AS sql_identifier) AS specific_name,
+           CAST(current_database() AS sql_identifier) AS routine_catalog,
+           CAST(np.nspname AS sql_identifier) AS routine_schema,
+           CAST(p.proname AS sql_identifier) AS routine_name,
+           CAST(current_database() AS sql_identifier) AS table_catalog,
+           CAST(nt.nspname AS sql_identifier) AS table_schema,
+           CAST(t.relname AS sql_identifier) AS table_name,
+           CAST(a.attname AS sql_identifier) AS column_name
+
+    FROM pg_namespace np, pg_proc p, pg_depend d,
+         pg_class t, pg_namespace nt, pg_attribute a
+
+    WHERE np.oid = p.pronamespace
+          AND p.oid = d.objid
+          AND d.classid = 'pg_catalog.pg_proc'::regclass
+          AND d.refobjid = t.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass
+          AND t.relnamespace = nt.oid
+          AND t.relkind IN ('r', 'v', 'f', 'p')
+          AND t.oid = a.attrelid
+          AND d.refobjsubid = a.attnum
+          AND pg_has_role(t.relowner, 'USAGE');
+
+GRANT SELECT ON routine_column_usage TO PUBLIC;
 
 
 /*
@@ -1418,7 +1446,28 @@ GRANT SELECT ON role_routine_grants TO PUBLIC;
  * ROUTINE_ROUTINE_USAGE view
  */
 
--- not tracked by PostgreSQL
+CREATE VIEW routine_routine_usage AS
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS specific_catalog,
+           CAST(np.nspname AS sql_identifier) AS specific_schema,
+           CAST(nameconcatoid(p.proname, p.oid) AS sql_identifier) AS specific_name,
+           CAST(current_database() AS sql_identifier) AS routine_catalog,
+           CAST(np1.nspname AS sql_identifier) AS routine_schema,
+           CAST(nameconcatoid(p1.proname, p1.oid) AS sql_identifier) AS routine_name
+
+    FROM pg_namespace np, pg_proc p, pg_depend d,
+         pg_proc p1, pg_namespace np1
+
+    WHERE np.oid = p.pronamespace
+          AND p.oid = d.objid
+          AND d.classid = 'pg_catalog.pg_proc'::regclass
+          AND d.refobjid = p1.oid
+          AND d.refclassid = 'pg_catalog.pg_proc'::regclass
+          AND p1.pronamespace = np1.oid
+          AND p.prokind IN ('f', 'p') AND p1.prokind IN ('f', 'p')
+          AND pg_has_role(p1.proowner, 'USAGE');
+
+GRANT SELECT ON routine_routine_usage TO PUBLIC;
 
 
 /*
@@ -1426,7 +1475,31 @@ GRANT SELECT ON role_routine_grants TO PUBLIC;
  * ROUTINE_SEQUENCE_USAGE view
  */
 
--- not tracked by PostgreSQL
+CREATE VIEW routine_sequence_usage AS
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS specific_catalog,
+           CAST(np.nspname AS sql_identifier) AS specific_schema,
+           CAST(nameconcatoid(p.proname, p.oid) AS sql_identifier) AS specific_name,
+           CAST(current_database() AS sql_identifier) AS routine_catalog,
+           CAST(np.nspname AS sql_identifier) AS routine_schema,
+           CAST(p.proname AS sql_identifier) AS routine_name,
+           CAST(current_database() AS sql_identifier) AS sequence_catalog,
+           CAST(ns.nspname AS sql_identifier) AS sequence_schema,
+           CAST(s.relname AS sql_identifier) AS sequence_name
+
+    FROM pg_namespace np, pg_proc p, pg_depend d,
+         pg_class s, pg_namespace ns
+
+    WHERE np.oid = p.pronamespace
+          AND p.oid = d.objid
+          AND d.classid = 'pg_catalog.pg_proc'::regclass
+          AND d.refobjid = s.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass
+          AND s.relnamespace = ns.oid
+          AND s.relkind = 'S'
+          AND pg_has_role(s.relowner, 'USAGE');
+
+GRANT SELECT ON routine_sequence_usage TO PUBLIC;
 
 
 /*
@@ -1434,7 +1507,31 @@ GRANT SELECT ON role_routine_grants TO PUBLIC;
  * ROUTINE_TABLE_USAGE view
  */
 
--- not tracked by PostgreSQL
+CREATE VIEW routine_table_usage AS
+    SELECT DISTINCT
+           CAST(current_database() AS sql_identifier) AS specific_catalog,
+           CAST(np.nspname AS sql_identifier) AS specific_schema,
+           CAST(nameconcatoid(p.proname, p.oid) AS sql_identifier) AS specific_name,
+           CAST(current_database() AS sql_identifier) AS routine_catalog,
+           CAST(np.nspname AS sql_identifier) AS routine_schema,
+           CAST(p.proname AS sql_identifier) AS routine_name,
+           CAST(current_database() AS sql_identifier) AS table_catalog,
+           CAST(nt.nspname AS sql_identifier) AS table_schema,
+           CAST(t.relname AS sql_identifier) AS table_name
+
+    FROM pg_namespace np, pg_proc p, pg_depend d,
+         pg_class t, pg_namespace nt
+
+    WHERE np.oid = p.pronamespace
+          AND p.oid = d.objid
+          AND d.classid = 'pg_catalog.pg_proc'::regclass
+          AND d.refobjid = t.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass
+          AND t.relnamespace = nt.oid
+          AND t.relkind IN ('r', 'v', 'f', 'p')
+          AND pg_has_role(t.relowner, 'USAGE');
+
+GRANT SELECT ON routine_table_usage TO PUBLIC;
 
 
 /*

@@ -37,4 +37,9 @@ CATALOG(pgxc_group,9014,PgxcGroupRelationId) BKI_SHARED_RELATION
 
 typedef FormData_pgxc_group *Form_pgxc_group;
 
+DECLARE_UNIQUE_INDEX(pgxc_group_name_index, 9012, on pgxc_group using btree(group_name name_ops));
+#define PgxcGroupGroupNameIndexId 	9012
+DECLARE_UNIQUE_INDEX(pgxc_group_oid, 9013, on pgxc_group using btree(oid oid_ops));
+#define PgxcGroupOidIndexId			9013
+
 #endif	/* PGXC_GROUP_H */

@@ -50,4 +50,7 @@ CATALOG(monitor_host,9790,MonitorHostRelationId)
  */
 typedef FormData_monitor_host *Form_monitor_host;
 
+DECLARE_UNIQUE_INDEX(monitor_host_oid_index, 9772, on monitor_host using btree(oid oid_ops));
+#define MonitorHostOidIndexId 9772
+
 #endif /* MONITOR_HOST_H */

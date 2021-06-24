@@ -5,7 +5,7 @@
  *
  * This is the external API for the raw lexing/parsing functions.
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/parser/parser.h
@@ -19,6 +19,33 @@
 #include "parser/scanner.h"
 
 
+/*
+ * RawParseMode determines the form of the string that raw_parser() accepts:
+ *
+ * RAW_PARSE_DEFAULT: parse a semicolon-separated list of SQL commands,
+ * and return a List of RawStmt nodes.
+ *
+ * RAW_PARSE_TYPE_NAME: parse a type name, and return a one-element List
+ * containing a TypeName node.
+ *
+ * RAW_PARSE_PLPGSQL_EXPR: parse a PL/pgSQL expression, and return
+ * a one-element List containing a RawStmt node.
+ *
+ * RAW_PARSE_PLPGSQL_ASSIGNn: parse a PL/pgSQL assignment statement,
+ * and return a one-element List containing a RawStmt node.  "n"
+ * gives the number of dotted names comprising the target ColumnRef.
+ */
+typedef enum
+{
+	RAW_PARSE_DEFAULT = 0,
+	RAW_PARSE_TYPE_NAME,
+	RAW_PARSE_PLPGSQL_EXPR,
+	RAW_PARSE_PLPGSQL_ASSIGN1,
+	RAW_PARSE_PLPGSQL_ASSIGN2,
+	RAW_PARSE_PLPGSQL_ASSIGN3
+} RawParseMode;
+
+/* Values for the backslash_quote GUC */
 typedef enum
 {
 	BACKSLASH_QUOTE_OFF,
@@ -33,13 +60,16 @@ extern PGDLLIMPORT bool standard_conforming_strings;
 
 
 /* Primary entry point for the raw parsing functions */
-extern List *raw_parser(const char *str);
+extern List *raw_parser(const char *str, RawParseMode mode);
 
+#ifdef ADB_MULTI_GRAM
+extern List *raw_parser_for_gram(const char *str, RawParseMode mode, ParseGrammar grammar);
+#endif
 #ifdef ADB_GRAM_ORA
-extern List *ora_raw_parser(const char *str);
+extern List *ora_raw_parser(const char *str, RawParseMode mode);
 #endif
 #ifdef ADB_GRAM_DB2
-extern List *db2_raw_parser(const char *str);
+extern List *db2_raw_parser(const char *str, RawParseMode mode);
 #endif /* ADB_GRAM_DB2 */
 
 /* Utility functions exported by gram.y (perhaps these should be elsewhere) */
@@ -74,7 +104,7 @@ extern RoleSpec *makeRoleSpec(RoleSpecType type, int location);
 extern void check_qualified_name(List *names, core_yyscan_t yyscanner);
 extern List *check_func_name(List *names, core_yyscan_t yyscanner);
 extern List *check_indirection(List *indirection, core_yyscan_t yyscanner);
-extern List *extractArgTypes(List *parameters);
+extern List *extractArgTypes(ObjectType objtype, List *parameters);
 extern List *extractAggrArgTypes(List *aggrargs);
 extern List *makeOrderedSetArgs(List *directargs, List *orderedargs,
 								core_yyscan_t yyscanner);

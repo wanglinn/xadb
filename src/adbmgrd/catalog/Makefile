@@ -77,24 +77,15 @@ CATALOG_HEADERS += $(MGR_CATALOG_HEADERS)
 
 MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN -DADBMGRD
 
-GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h
+GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h system_fk_info.h
 MGR_GENERATED_HEADERS := $(MGR_CATALOG_HEADERS:%.h=%_d.h)
 
-# In the list of headers used to assemble postgres.bki, indexing.h needs
-# be last, and toasting.h just before it.  This ensures we don't try to
-# create indexes or toast tables before their catalogs exist.
-toasting.h indexing.h: % : $(top_srcdir)/src/include/catalog/%
-	rm -f $@.c && $(LN_S) $< $@.c
-	$(CPP) -I$(top_srcdir)/src/include $(MYCPPFLAGS) -o $@ $@.c
-	rm -f $@.c
-
-POSTGRES_BKI_SRCS := $(addprefix $(top_srcdir)/src/include/catalog/,\
-	$(CATALOG_HEADERS)) toasting.h indexing.h
+POSTGRES_BKI_SRCS := $(addprefix $(top_srcdir)/src/include/catalog/, $(CATALOG_HEADERS))
 
 # The .dat files we need can just be listed alphabetically.
 POSTGRES_BKI_DATA = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_aggregate.dat pg_am.dat pg_amop.dat pg_amproc.dat pg_authid.dat \
-	pg_cast.dat pg_class.dat pg_collation.dat \
+	pg_cast.dat pg_class.dat pg_collation.dat pg_conversion.dat \
 	pg_database.dat pg_language.dat \
 	pg_namespace.dat pg_opclass.dat pg_operator.dat pg_opfamily.dat \
 	pg_proc.dat pg_range.dat pg_tablespace.dat \
@@ -121,7 +112,7 @@ generated-header-symlinks: $(top_builddir)/src/include/catalog/mgr-header-stamp
 # configure run, even in distribution tarballs.  So depending on configure.in
 # instead is cheating a bit, but it will achieve the goal of updating the
 # version number when it changes.
-bki-stamp: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(POSTGRES_BKI_DATA) $(top_srcdir)/configure.in
+bki-stamp: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(POSTGRES_BKI_DATA) $(top_srcdir)/configure.ac
 	$(PERL) $< --include-path=$(top_srcdir)/src/include/ \
 		--set-version=$(MAJORVERSION) "--defines=$(MYCPPFLAGS)" $(POSTGRES_BKI_SRCS)
 	mv postgres.bki adbmgrd.bki

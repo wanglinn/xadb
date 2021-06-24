@@ -7,7 +7,7 @@
  * accessed via the extended FE/BE query protocol.
  *
  *
- * Copyright (c) 2002-2020, PostgreSQL Global Development Group
+ * Copyright (c) 2002-2021, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/commands/prepare.c
@@ -252,9 +252,9 @@ ExecuteQuery(ParseState *pstate,
 
 	/* Replan if needed, and increment plan refcount for portal */
 #ifdef ADB
-	cplan = GetCachedPlanADB(entry->plansource, paramLI, false, NULL, cluster_safe);
+	cplan = GetCachedPlanADB(entry->plansource, paramLI, NULL, NULL, cluster_safe);
 #else
-	cplan = GetCachedPlan(entry->plansource, paramLI, false, NULL);
+	cplan = GetCachedPlan(entry->plansource, paramLI, NULL, NULL);
 #endif /* ADB */
 	plan_list = cplan->stmt_list;
 
@@ -431,27 +431,22 @@ InitQueryHashTable(void)
 {
 	HASHCTL		hash_ctl;
 
-	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
-
 	hash_ctl.keysize = NAMEDATALEN;
 	hash_ctl.entrysize = sizeof(PreparedStatement);
 
 	prepared_queries = hash_create("Prepared Queries",
 								   32,
 								   &hash_ctl,
-								   HASH_ELEM);
+								   HASH_ELEM | HASH_STRINGS);
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR)
 	{
-		MemSet(&hash_ctl, 0, sizeof(hash_ctl));
-
-		hash_ctl.keysize = NAMEDATALEN;
 		hash_ctl.entrysize = offsetof(DatanodeStatement, node_ids) + MaxDataNodes * sizeof(int);
 
 		datanode_queries = hash_create("Datanode Queries",
 									   64,
 									   &hash_ctl,
-									   HASH_ELEM);
+									   HASH_ELEM | HASH_STRINGS);
 	}
 #endif
 }
@@ -527,6 +522,8 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 		remotequery->rq_num_params = num_params;
 		remotequery->rq_param_types = param_types;
 	}
+#warning TODO review and test
+#if 0
 	else if (IsA(plan, ModifyTable))
 	{
 		ModifyTable	*mt_plan = (ModifyTable *)plan;
@@ -539,6 +536,7 @@ SetRemoteStatementName(Plan *plan, const char *stmt_name, int num_params,
 										param_types, n);
 		}
 	}
+#endif
 
 	if (innerPlan(plan))
 		n = SetRemoteStatementName(innerPlan(plan), stmt_name, num_params,
@@ -789,9 +787,11 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
 
 	/* Replan if needed, and acquire a transient refcount */
 #ifdef ADB
-	cplan = GetCachedPlanADB(entry->plansource, paramLI, true, queryEnv, cluster_safe);
+	cplan = GetCachedPlanADB(entry->plansource, paramLI,
+							 CurrentResourceOwner, queryEnv, cluster_safe);
 #else
-	cplan = GetCachedPlan(entry->plansource, paramLI, true, queryEnv);
+	cplan = GetCachedPlan(entry->plansource, paramLI,
+						  CurrentResourceOwner, queryEnv);
 #endif /* ADB */
 
 	INSTR_TIME_SET_CURRENT(planduration);
@@ -828,12 +828,13 @@ ExplainExecuteQuery(ExecuteStmt *execstmt, IntoClause *into, ExplainState *es,
 	if (estate)
 		FreeExecutorState(estate);
 
-	ReleaseCachedPlan(cplan, true);
+	ReleaseCachedPlan(cplan, CurrentResourceOwner);
 }
 
 /*
  * This set returning function reads all the prepared statements and
- * returns a set of (name, statement, prepare_time, param_types, from_sql).
+ * returns a set of (name, statement, prepare_time, param_types, from_sql,
+ * generic_plans, custom_plans).
  */
 Datum
 pg_prepared_statement(PG_FUNCTION_ARGS)
@@ -862,7 +863,7 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 	 * build tupdesc for result tuples. This must match the definition of the
 	 * pg_prepared_statements view in system_views.sql
 	 */
-	tupdesc = CreateTemplateTupleDesc(5);
+	tupdesc = CreateTemplateTupleDesc(7);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "name",
 					   TEXTOID, -1, 0);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "statement",
@@ -873,6 +874,10 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 					   REGTYPEARRAYOID, -1, 0);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 5, "from_sql",
 					   BOOLOID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 6, "generic_plans",
+					   INT8OID, -1, 0);
+	TupleDescInitEntry(tupdesc, (AttrNumber) 7, "custom_plans",
+					   INT8OID, -1, 0);
 
 	/*
 	 * We put all the tuples into a tuplestore in one scan of the hashtable.
@@ -894,8 +899,8 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 		hash_seq_init(&hash_seq, prepared_queries);
 		while ((prep_stmt = hash_seq_search(&hash_seq)) != NULL)
 		{
-			Datum		values[5];
-			bool		nulls[5];
+			Datum		values[7];
+			bool		nulls[7];
 
 			MemSet(nulls, 0, sizeof(nulls));
 
@@ -905,6 +910,8 @@ pg_prepared_statement(PG_FUNCTION_ARGS)
 			values[3] = build_regtype_array(prep_stmt->plansource->param_types,
 											prep_stmt->plansource->num_params);
 			values[4] = BoolGetDatum(prep_stmt->from_sql);
+			values[5] = Int64GetDatumFast(prep_stmt->plansource->num_generic_plans);
+			values[6] = Int64GetDatumFast(prep_stmt->plansource->num_custom_plans);
 
 			tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 		}

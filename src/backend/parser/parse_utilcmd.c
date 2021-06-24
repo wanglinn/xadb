@@ -16,7 +16,7 @@
  * a quick copyObject() call before manipulating the query tree.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/parser/parse_utilcmd.c
@@ -31,6 +31,7 @@
 #include "access/relation.h"
 #include "access/reloptions.h"
 #include "access/table.h"
+#include "access/toast_compression.h"
 #include "catalog/dependency.h"
 #include "catalog/heap.h"
 #include "catalog/index.h"
@@ -106,7 +107,7 @@ typedef struct
 	List	   *ckconstraints;	/* CHECK constraints */
 	List	   *fkconstraints;	/* FOREIGN KEY constraints */
 	List	   *ixconstraints;	/* index-creating constraints */
-	List	   *inh_indexes;	/* cloned indexes from INCLUDING INDEXES */
+	List	   *likeclauses;	/* LIKE clauses that need post-processing */
 	List	   *extstats;		/* cloned extended statistics */
 	List	   *blist;			/* "before list" of things to do before
 								 * creating the table */
@@ -360,6 +361,9 @@ addDefaultDistributeByOfInherit(CreateStmt *stmt)
  * Returns a List of utility commands to be done in sequence.  One of these
  * will be the transformed CreateStmt, but there may be additional actions
  * to be done before and after the actual DefineRelation() call.
+ * In addition to normal utility commands such as AlterTableStmt and
+ * IndexStmt, the result list may contain TableLikeClause(s), representing
+ * the need to perform additional parse analysis after DefineRelation().
  *
  * SQL allows constraints to be scattered all over, so thumb through
  * the columns and collect all constraints into one place.
@@ -378,7 +382,6 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	Oid			namespaceid;
 	Oid			existing_relid;
 	ParseCallbackState pcbstate;
-	bool		is_foreign_table = IsA(stmt, CreateForeignTableStmt);
 #ifdef ADB
 	bool		like_temp_found = false;
 	CreateStmt *orgstmt = stmt;
@@ -387,6 +390,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	ListCell   *cell = NULL;
 	bool		use_rowid = false;
 #endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 	/*
 	 * We must not scribble on the passed-in CreateStmt, so copy it.  (This is
 	 * overkill, but easy.)
@@ -463,7 +467,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	cxt.ckconstraints = NIL;
 	cxt.fkconstraints = NIL;
 	cxt.ixconstraints = NIL;
-	cxt.inh_indexes = NIL;
+	cxt.likeclauses = NIL;
 	cxt.extstats = NIL;
 	cxt.blist = NIL;
 	cxt.alist = NIL;
@@ -580,14 +584,31 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 #endif	/* ADB_MULTI_GRAM */
 
 	/*
+	 * Re-consideration of LIKE clauses should happen after creation of
+	 * indexes, but before creation of foreign keys.  This order is critical
+	 * because a LIKE clause may attempt to create a primary key.  If there's
+	 * also a pkey in the main CREATE TABLE list, creation of that will not
+	 * check for a duplicate at runtime (since index_check_primary_key()
+	 * expects that we rejected dups here).  Creation of the LIKE-generated
+	 * pkey behaves like ALTER TABLE ADD, so it will check, but obviously that
+	 * only works if it happens second.  On the other hand, we want to make
+	 * pkeys before foreign key constraints, in case the user tries to make a
+	 * self-referential FK.
+	 */
+	cxt.alist = list_concat(cxt.alist, cxt.likeclauses);
+
+	/*
 	 * Postprocess foreign-key constraints.
 	 */
 	transformFKConstraints(&cxt, true, false);
 
 	/*
 	 * Postprocess check constraints.
+	 *
+	 * For regular tables all constraints can be marked valid immediately,
+	 * because the table is new therefore empty. Not so for foreign tables.
 	 */
-	transformCheckConstraints(&cxt, !is_foreign_table ? true : false);
+	transformCheckConstraints(&cxt, !cxt.isforeign);
 
 	/*
 	 * Postprocess extended statistics.
@@ -737,6 +758,7 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 	CreateSeqStmt *seqstmt;
 	AlterSeqStmt *altseqstmt;
 	List	   *attnamelist;
+	int			nameEl_idx = -1;
 
 	/*
 	 * Determine namespace and name to use for the sequence.
@@ -763,6 +785,7 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						 errmsg("conflicting or redundant options")));
 			nameEl = defel;
+			nameEl_idx = foreach_current_index(option);
 		}
 	}
 
@@ -782,7 +805,7 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 		}
 		sname = rv->relname;
 		/* Remove the SEQUENCE NAME item from seqoptions */
-		seqoptions = list_delete_ptr(seqoptions, nameEl);
+		seqoptions = list_delete_nth_cell(seqoptions, nameEl_idx);
 	}
 	else
 	{
@@ -802,9 +825,9 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
 	}
 
 	ereport(DEBUG1,
-			(errmsg("%s will create implicit sequence \"%s\" for serial column \"%s.%s\"",
-					cxt->stmtType, sname,
-					cxt->relation->relname, column->colname)));
+			(errmsg_internal("%s will create implicit sequence \"%s\" for serial column \"%s.%s\"",
+							 cxt->stmtType, sname,
+							 cxt->relation->relname, column->colname)));
 
 	/*
 	 * Build a CREATE SEQUENCE command to create the sequence object, and add
@@ -993,6 +1016,7 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column ADB_ONLY_COM
 		castnode->location = -1;
 		funccallnode = makeFuncCall(SystemFuncName("nextval"),
 									list_make1(castnode),
+									COERCE_EXPLICIT_CALL,
 									-1);
 		constraint = makeNode(Constraint);
 		constraint->contype = CONSTR_DEFAULT;
@@ -1098,7 +1122,17 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column ADB_ONLY_COM
 
 					column->identity = constraint->generated_when;
 					saw_identity = true;
+
+					/* An identity column is implicitly NOT NULL */
+					if (saw_nullable && !column->is_not_null)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("conflicting NULL/NOT NULL declarations for column \"%s\" of table \"%s\"",
+										column->colname, cxt->relation->relname),
+								 parser_errposition(cxt->pstate,
+													constraint->location)));
 					column->is_not_null = true;
+					saw_nullable = true;
 					break;
 				}
 
@@ -1228,7 +1262,7 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column ADB_ONLY_COM
 		stmt = makeNode(AlterTableStmt);
 		stmt->relation = cxt->relation;
 		stmt->cmds = NIL;
-		stmt->relkind = OBJECT_FOREIGN_TABLE;
+		stmt->objtype = OBJECT_FOREIGN_TABLE;
 		stmt->cmds = lappend(stmt->cmds, cmd);
 
 		cxt->alist = lappend(cxt->alist, stmt);
@@ -1316,18 +1350,18 @@ transformTableConstraint(CreateStmtContext *cxt, Constraint *constraint)
  * transformTableLikeClause
  *
  * Change the LIKE <srctable> portion of a CREATE TABLE statement into
- * column definitions which recreate the user defined column portions of
- * <srctable>.
+ * column definitions that recreate the user defined column portions of
+ * <srctable>.  Also, if there are any LIKE options that we can't fully
+ * process at this point, add the TableLikeClause to cxt->likeclauses, which
+ * will cause utility.c to call expandTableLikeClause() after the new
+ * table has been created.
  */
 static void
 transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_clause ADB_ONLY_COMMA_ARG(bool *temp_found))
 {
 	AttrNumber	parent_attno;
-	AttrNumber	new_attno;
 	Relation	relation;
 	TupleDesc	tupleDesc;
-	TupleConstr *constr;
-	AttrMap    *attmap;
 	AclResult	aclresult;
 	char	   *comment;
 	ParseCallbackState pcbstate;
@@ -1341,6 +1375,7 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("LIKE is not supported for creating foreign tables")));
 
+	/* Open the relation referenced by the LIKE clause */
 	relation = relation_openrv(table_like_clause->relation, AccessShareLock);
 
 	if (relation->rd_rel->relkind != RELKIND_RELATION &&
@@ -1396,44 +1431,11 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	}
 
 	tupleDesc = RelationGetDescr(relation);
-	constr = tupleDesc->constr;
-
-	/*
-	 * Initialize column number map for map_variable_attnos().  We need this
-	 * since dropped columns in the source table aren't copied, so the new
-	 * table can have different column numbers.
-	 */
-	attmap = make_attrmap(tupleDesc->natts);
-
-	/*
-	 * We must fill the attmap now so that it can be used to process generated
-	 * column default expressions in the per-column loop below.
-	 */
-	new_attno = 1;
-#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-	if (IsOraRowidColumn(TupleDescAttr(tupleDesc, 0)))
-		--new_attno;
-#endif
-	for (parent_attno = 1; parent_attno <= tupleDesc->natts;
-		 parent_attno++)
-	{
-		Form_pg_attribute attribute = TupleDescAttr(tupleDesc,
-													parent_attno - 1);
-
-		/*
-		 * Ignore dropped columns in the parent.  attmap entry is left zero.
-		 */
-		if (attribute->attisdropped)
-			continue;
-
-		attmap->attnums[parent_attno - 1] = list_length(cxt->columns) + (new_attno++);
-	}
 
 	/*
 	 * Insert the copied attributes into the cxt for the new table definition.
-	 * "Fix CREATE TABLE LIKE INCLUDING GENERATED column order issue" in the future
-	 * need add "ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(attribute))"
-	 * after "attribute->attisdropped" code
+	 * We must do this now so that they appear in the table in the relative
+	 * position where the LIKE clause is, as required by SQL99.
 	 */
 	for (parent_attno = 1; parent_attno <= tupleDesc->natts;
 		 parent_attno++)
@@ -1446,6 +1448,9 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		/*
 		 * Ignore dropped columns in the parent.
 		 */
+#ifdef USE_SEQ_ROWID
+		#warning TODO test SEQ ROWID
+#endif
 		if (attribute->attisdropped ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(attribute)))
 			continue;
 
@@ -1477,52 +1482,12 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		cxt->columns = lappend(cxt->columns, def);
 
 		/*
-		 * Copy default, if present and it should be copied.  We have separate
-		 * options for plain default expressions and GENERATED defaults.
+		 * Although we don't transfer the column's default/generation
+		 * expression now, we need to mark it GENERATED if appropriate.
 		 */
-		if (attribute->atthasdef &&
-			(attribute->attgenerated ?
-			 (table_like_clause->options & CREATE_TABLE_LIKE_GENERATED) :
-			 (table_like_clause->options & CREATE_TABLE_LIKE_DEFAULTS)))
-		{
-			Node	   *this_default = NULL;
-			AttrDefault *attrdef;
-			int			i;
-			bool		found_whole_row;
-
-			/* Find default in constraint structure */
-			Assert(constr != NULL);
-			attrdef = constr->defval;
-			for (i = 0; i < constr->num_defval; i++)
-			{
-				if (attrdef[i].adnum == parent_attno)
-				{
-					this_default = stringToNode(attrdef[i].adbin);
-					break;
-				}
-			}
-			Assert(this_default != NULL);
-
-			def->cooked_default = map_variable_attnos(this_default,
-													  1, 0,
-													  attmap,
-													  InvalidOid, &found_whole_row);
-
-			/*
-			 * Prevent this for the same reason as for constraints below. Note
-			 * that defaults cannot contain any vars, so it's OK that the
-			 * error message refers to generated columns.
-			 */
-			if (found_whole_row)
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("cannot convert whole-row table reference"),
-						 errdetail("Generation expression for column \"%s\" contains a whole-row reference to table \"%s\".",
-								   attributeName,
-								   RelationGetRelationName(relation))));
-
+		if (attribute->atthasdef && attribute->attgenerated &&
+			(table_like_clause->options & CREATE_TABLE_LIKE_GENERATED))
 			def->generated = attribute->attgenerated;
-		}
 
 		/*
 		 * Copy identity if requested
@@ -1552,6 +1517,14 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		else
 			def->storage = 0;
 
+		/* Likewise, copy compression if requested */
+		if ((table_like_clause->options & CREATE_TABLE_LIKE_COMPRESSION) != 0
+			&& CompressionMethodIsValid(attribute->attcompression))
+			def->compression =
+				pstrdup(GetCompressionMethodName(attribute->attcompression));
+		else
+			def->compression = NULL;
+
 		/* Likewise, copy comment if requested */
 		if ((table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS) &&
 			(comment = GetComment(attribute->attrelid,
@@ -1571,117 +1544,26 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	}
 
 	/*
-	 * Copy CHECK constraints if requested, being careful to adjust attribute
-	 * numbers so they match the child.
+	 * We cannot yet deal with defaults, CHECK constraints, or indexes, since
+	 * we don't yet know what column numbers the copied columns will have in
+	 * the finished table.  If any of those options are specified, add the
+	 * LIKE clause to cxt->likeclauses so that expandTableLikeClause will be
+	 * called after we do know that.  Also, remember the relation OID so that
+	 * expandTableLikeClause is certain to open the same table.
 	 */
-	if ((table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS) &&
-		tupleDesc->constr)
+	if (table_like_clause->options &
+		(CREATE_TABLE_LIKE_DEFAULTS |
+		 CREATE_TABLE_LIKE_GENERATED |
+		 CREATE_TABLE_LIKE_CONSTRAINTS |
+		 CREATE_TABLE_LIKE_INDEXES))
 	{
-		TupleConstr *constr = tupleDesc->constr;
-		int			ccnum;
-
-		for (ccnum = 0; ccnum < constr->num_check; ccnum++)
-		{
-			char	   *ccname = constr->check[ccnum].ccname;
-			char	   *ccbin = constr->check[ccnum].ccbin;
-			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
-			Constraint *n = makeNode(Constraint);
-			Node	   *ccbin_node;
-			bool		found_whole_row;
-
-			ccbin_node = map_variable_attnos(stringToNode(ccbin),
-											 1, 0,
-											 attmap,
-											 InvalidOid, &found_whole_row);
-
-			/*
-			 * We reject whole-row variables because the whole point of LIKE
-			 * is that the new table's rowtype might later diverge from the
-			 * parent's.  So, while translation might be possible right now,
-			 * it wouldn't be possible to guarantee it would work in future.
-			 */
-			if (found_whole_row)
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("cannot convert whole-row table reference"),
-						 errdetail("Constraint \"%s\" contains a whole-row reference to table \"%s\".",
-								   ccname,
-								   RelationGetRelationName(relation))));
-
-			n->contype = CONSTR_CHECK;
-			n->conname = pstrdup(ccname);
-			n->location = -1;
-			n->is_no_inherit = ccnoinherit;
-			n->raw_expr = NULL;
-			n->cooked_expr = nodeToString(ccbin_node);
-			cxt->ckconstraints = lappend(cxt->ckconstraints, n);
-
-			/* Copy comment on constraint */
-			if ((table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS) &&
-				(comment = GetComment(get_relation_constraint_oid(RelationGetRelid(relation),
-																  n->conname, false),
-									  ConstraintRelationId,
-									  0)) != NULL)
-			{
-				CommentStmt *stmt = makeNode(CommentStmt);
-
-				stmt->objtype = OBJECT_TABCONSTRAINT;
-				stmt->object = (Node *) list_make3(makeString(cxt->relation->schemaname),
-												   makeString(cxt->relation->relname),
-												   makeString(n->conname));
-				stmt->comment = comment;
-
-				cxt->alist = lappend(cxt->alist, stmt);
-			}
-		}
+		table_like_clause->relationOid = RelationGetRelid(relation);
+		cxt->likeclauses = lappend(cxt->likeclauses, table_like_clause);
 	}
 
 	/*
-	 * Likewise, copy indexes if requested
-	 */
-	if ((table_like_clause->options & CREATE_TABLE_LIKE_INDEXES) &&
-		relation->rd_rel->relhasindex)
-	{
-		List	   *parent_indexes;
-		ListCell   *l;
-
-		parent_indexes = RelationGetIndexList(relation);
-
-		foreach(l, parent_indexes)
-		{
-			Oid			parent_index_oid = lfirst_oid(l);
-			Relation	parent_index;
-			IndexStmt  *index_stmt;
-
-			parent_index = index_open(parent_index_oid, AccessShareLock);
-
-			/* Build CREATE INDEX statement to recreate the parent_index */
-			index_stmt = generateClonedIndexStmt(cxt->relation,
-												 parent_index,
-												 attmap,
-												 NULL);
-
-			/* Copy comment on index, if requested */
-			if (table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS)
-			{
-				comment = GetComment(parent_index_oid, RelationRelationId, 0);
-
-				/*
-				 * We make use of IndexStmt's idxcomment option, so as not to
-				 * need to know now what name the index will have.
-				 */
-				index_stmt->idxcomment = comment;
-			}
-
-			/* Save it in the inh_indexes list for the time being */
-			cxt->inh_indexes = lappend(cxt->inh_indexes, index_stmt);
-
-			index_close(parent_index, AccessShareLock);
-		}
-	}
-
-	/*
-	 * Likewise, copy extended statistics if requested
+	 * We may copy extended statistics if requested, since the representation
+	 * of CreateStatsStmt doesn't depend on column numbers.
 	 */
 	if (table_like_clause->options & CREATE_TABLE_LIKE_STATISTICS)
 	{
@@ -1720,9 +1602,279 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	/*
 	 * Close the parent rel, but keep our AccessShareLock on it until xact
 	 * commit.  That will prevent someone else from deleting or ALTERing the
+	 * parent before we can run expandTableLikeClause.
+	 */
+	table_close(relation, NoLock);
+}
+
+/*
+ * expandTableLikeClause
+ *
+ * Process LIKE options that require knowing the final column numbers
+ * assigned to the new table's columns.  This executes after we have
+ * run DefineRelation for the new table.  It returns a list of utility
+ * commands that should be run to generate indexes etc.
+ */
+List *
+expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
+{
+	List	   *result = NIL;
+	List	   *atsubcmds = NIL;
+	AttrNumber	parent_attno;
+	Relation	relation;
+	Relation	childrel;
+	TupleDesc	tupleDesc;
+	TupleConstr *constr;
+	AttrMap    *attmap;
+	char	   *comment;
+
+	/*
+	 * Open the relation referenced by the LIKE clause.  We should still have
+	 * the table lock obtained by transformTableLikeClause (and this'll throw
+	 * an assertion failure if not).  Hence, no need to recheck privileges
+	 * etc.  We must open the rel by OID not name, to be sure we get the same
+	 * table.
+	 */
+	if (!OidIsValid(table_like_clause->relationOid))
+		elog(ERROR, "expandTableLikeClause called on untransformed LIKE clause");
+
+	relation = relation_open(table_like_clause->relationOid, NoLock);
+
+	tupleDesc = RelationGetDescr(relation);
+	constr = tupleDesc->constr;
+
+	/*
+	 * Open the newly-created child relation; we have lock on that too.
+	 */
+	childrel = relation_openrv(heapRel, NoLock);
+
+	/*
+	 * Construct a map from the LIKE relation's attnos to the child rel's.
+	 * This re-checks type match etc, although it shouldn't be possible to
+	 * have a failure since both tables are locked.
+	 */
+	attmap = build_attrmap_by_name(RelationGetDescr(childrel),
+								   tupleDesc);
+
+	/*
+	 * Process defaults, if required.
+	 */
+	if ((table_like_clause->options &
+		 (CREATE_TABLE_LIKE_DEFAULTS | CREATE_TABLE_LIKE_GENERATED)) &&
+		constr != NULL)
+	{
+		for (parent_attno = 1; parent_attno <= tupleDesc->natts;
+			 parent_attno++)
+		{
+			Form_pg_attribute attribute = TupleDescAttr(tupleDesc,
+														parent_attno - 1);
+
+			/*
+			 * Ignore dropped columns in the parent.
+			 */
+			if (attribute->attisdropped)
+				continue;
+
+			/*
+			 * Copy default, if present and it should be copied.  We have
+			 * separate options for plain default expressions and GENERATED
+			 * defaults.
+			 */
+			if (attribute->atthasdef &&
+				(attribute->attgenerated ?
+				 (table_like_clause->options & CREATE_TABLE_LIKE_GENERATED) :
+				 (table_like_clause->options & CREATE_TABLE_LIKE_DEFAULTS)))
+			{
+				Node	   *this_default = NULL;
+				AttrDefault *attrdef = constr->defval;
+				AlterTableCmd *atsubcmd;
+				bool		found_whole_row;
+
+				/* Find default in constraint structure */
+				for (int i = 0; i < constr->num_defval; i++)
+				{
+					if (attrdef[i].adnum == parent_attno)
+					{
+						this_default = stringToNode(attrdef[i].adbin);
+						break;
+					}
+				}
+				if (this_default == NULL)
+					elog(ERROR, "default expression not found for attribute %d of relation \"%s\"",
+						 parent_attno, RelationGetRelationName(relation));
+
+				atsubcmd = makeNode(AlterTableCmd);
+				atsubcmd->subtype = AT_CookedColumnDefault;
+				atsubcmd->num = attmap->attnums[parent_attno - 1];
+				atsubcmd->def = map_variable_attnos(this_default,
+													1, 0,
+													attmap,
+													InvalidOid,
+													&found_whole_row);
+
+				/*
+				 * Prevent this for the same reason as for constraints below.
+				 * Note that defaults cannot contain any vars, so it's OK that
+				 * the error message refers to generated columns.
+				 */
+				if (found_whole_row)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("cannot convert whole-row table reference"),
+							 errdetail("Generation expression for column \"%s\" contains a whole-row reference to table \"%s\".",
+									   NameStr(attribute->attname),
+									   RelationGetRelationName(relation))));
+
+				atsubcmds = lappend(atsubcmds, atsubcmd);
+			}
+		}
+	}
+
+	/*
+	 * Copy CHECK constraints if requested, being careful to adjust attribute
+	 * numbers so they match the child.
+	 */
+	if ((table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS) &&
+		constr != NULL)
+	{
+		int			ccnum;
+
+		for (ccnum = 0; ccnum < constr->num_check; ccnum++)
+		{
+			char	   *ccname = constr->check[ccnum].ccname;
+			char	   *ccbin = constr->check[ccnum].ccbin;
+			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
+			Node	   *ccbin_node;
+			bool		found_whole_row;
+			Constraint *n;
+			AlterTableCmd *atsubcmd;
+
+			ccbin_node = map_variable_attnos(stringToNode(ccbin),
+											 1, 0,
+											 attmap,
+											 InvalidOid, &found_whole_row);
+
+			/*
+			 * We reject whole-row variables because the whole point of LIKE
+			 * is that the new table's rowtype might later diverge from the
+			 * parent's.  So, while translation might be possible right now,
+			 * it wouldn't be possible to guarantee it would work in future.
+			 */
+			if (found_whole_row)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot convert whole-row table reference"),
+						 errdetail("Constraint \"%s\" contains a whole-row reference to table \"%s\".",
+								   ccname,
+								   RelationGetRelationName(relation))));
+
+			n = makeNode(Constraint);
+			n->contype = CONSTR_CHECK;
+			n->conname = pstrdup(ccname);
+			n->location = -1;
+			n->is_no_inherit = ccnoinherit;
+			n->raw_expr = NULL;
+			n->cooked_expr = nodeToString(ccbin_node);
+
+			/* We can skip validation, since the new table should be empty. */
+			n->skip_validation = true;
+			n->initially_valid = true;
+
+			atsubcmd = makeNode(AlterTableCmd);
+			atsubcmd->subtype = AT_AddConstraint;
+			atsubcmd->def = (Node *) n;
+			atsubcmds = lappend(atsubcmds, atsubcmd);
+
+			/* Copy comment on constraint */
+			if ((table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS) &&
+				(comment = GetComment(get_relation_constraint_oid(RelationGetRelid(relation),
+																  n->conname, false),
+									  ConstraintRelationId,
+									  0)) != NULL)
+			{
+				CommentStmt *stmt = makeNode(CommentStmt);
+
+				stmt->objtype = OBJECT_TABCONSTRAINT;
+				stmt->object = (Node *) list_make3(makeString(heapRel->schemaname),
+												   makeString(heapRel->relname),
+												   makeString(n->conname));
+				stmt->comment = comment;
+
+				result = lappend(result, stmt);
+			}
+		}
+	}
+
+	/*
+	 * If we generated any ALTER TABLE actions above, wrap them into a single
+	 * ALTER TABLE command.  Stick it at the front of the result, so it runs
+	 * before any CommentStmts we made above.
+	 */
+	if (atsubcmds)
+	{
+		AlterTableStmt *atcmd = makeNode(AlterTableStmt);
+
+		atcmd->relation = copyObject(heapRel);
+		atcmd->cmds = atsubcmds;
+		atcmd->objtype = OBJECT_TABLE;
+		atcmd->missing_ok = false;
+		result = lcons(atcmd, result);
+	}
+
+	/*
+	 * Process indexes if required.
+	 */
+	if ((table_like_clause->options & CREATE_TABLE_LIKE_INDEXES) &&
+		relation->rd_rel->relhasindex)
+	{
+		List	   *parent_indexes;
+		ListCell   *l;
+
+		parent_indexes = RelationGetIndexList(relation);
+
+		foreach(l, parent_indexes)
+		{
+			Oid			parent_index_oid = lfirst_oid(l);
+			Relation	parent_index;
+			IndexStmt  *index_stmt;
+
+			parent_index = index_open(parent_index_oid, AccessShareLock);
+
+			/* Build CREATE INDEX statement to recreate the parent_index */
+			index_stmt = generateClonedIndexStmt(heapRel,
+												 parent_index,
+												 attmap,
+												 NULL);
+
+			/* Copy comment on index, if requested */
+			if (table_like_clause->options & CREATE_TABLE_LIKE_COMMENTS)
+			{
+				comment = GetComment(parent_index_oid, RelationRelationId, 0);
+
+				/*
+				 * We make use of IndexStmt's idxcomment option, so as not to
+				 * need to know now what name the index will have.
+				 */
+				index_stmt->idxcomment = comment;
+			}
+
+			result = lappend(result, index_stmt);
+
+			index_close(parent_index, AccessShareLock);
+		}
+	}
+
+	/* Done with child rel */
+	table_close(childrel, NoLock);
+
+	/*
+	 * Close the parent rel, but keep our AccessShareLock on it until xact
+	 * commit.  That will prevent someone else from deleting or ALTERing the
 	 * parent before the child is committed.
 	 */
 	table_close(relation, NoLock);
+
+	return result;
 }
 
 static void
@@ -2015,7 +2167,7 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 										   attmap,
 										   InvalidOid, &found_whole_row);
 
-			/* As in transformTableLikeClause, reject whole-row variables */
+			/* As in expandTableLikeClause, reject whole-row variables */
 			if (found_whole_row)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2084,7 +2236,6 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 			char	   *attname;
 
 			attname = get_attname(indrelid, attnum, false);
-			keycoltype = get_atttype(indrelid, attnum);
 
 			iparam->name = attname;
 			iparam->expr = NULL;
@@ -2124,7 +2275,7 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 										attmap,
 										InvalidOid, &found_whole_row);
 
-		/* As in transformTableLikeClause, reject whole-row variables */
+		/* As in expandTableLikeClause, reject whole-row variables */
 		if (found_whole_row)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2191,6 +2342,9 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 			stat_types = lappend(stat_types, makeString("dependencies"));
 		else if (enabled[i] == STATS_EXT_MCV)
 			stat_types = lappend(stat_types, makeString("mcv"));
+		else if (enabled[i] == STATS_EXT_EXPRESSIONS)
+			/* expression stats are not exposed to users */
+			continue;
 		else
 			elog(ERROR, "unrecognized statistics kind %c", enabled[i]);
 	}
@@ -2198,14 +2352,47 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 	/* Determine which columns the statistics are on */
 	for (i = 0; i < statsrec->stxkeys.dim1; i++)
 	{
-		ColumnRef  *cref = makeNode(ColumnRef);
+		StatsElem  *selem = makeNode(StatsElem);
 		AttrNumber	attnum = statsrec->stxkeys.values[i];
 
-		cref->fields = list_make1(makeString(get_attname(heapRelid,
-														 attnum, false)));
-		cref->location = -1;
+		selem->name = get_attname(heapRelid, attnum, false);
+		selem->expr = NULL;
 
-		def_names = lappend(def_names, cref);
+		def_names = lappend(def_names, selem);
+	}
+
+	/*
+	 * Now handle expressions, if there are any. The order (with respect to
+	 * regular attributes) does not really matter for extended stats, so we
+	 * simply append them after simple column references.
+	 *
+	 * XXX Some places during build/estimation treat expressions as if they
+	 * are before attributes, but for the CREATE command that's entirely
+	 * irrelevant.
+	 */
+	datum = SysCacheGetAttr(STATEXTOID, ht_stats,
+							Anum_pg_statistic_ext_stxexprs, &isnull);
+
+	if (!isnull)
+	{
+		ListCell   *lc;
+		List	   *exprs = NIL;
+		char	   *exprsString;
+
+		exprsString = TextDatumGetCString(datum);
+		exprs = (List *) stringToNode(exprsString);
+
+		foreach(lc, exprs)
+		{
+			StatsElem  *selem = makeNode(StatsElem);
+
+			selem->name = NULL;
+			selem->expr = (Node *) lfirst(lc);
+
+			def_names = lappend(def_names, selem);
+		}
+
+		pfree(exprsString);
 	}
 
 	/* finally, build the output node */
@@ -2216,6 +2403,7 @@ generateClonedExtStatsStmt(RangeVar *heapRel, Oid heapRelid,
 	stats->relations = list_make1(heapRel);
 	stats->stxcomment = NULL;
 	stats->if_not_exists = false;
+	stats->transformed = true;	/* don't need transformStatsStmt again */
 
 	/* Clean up */
 	ReleaseSysCache(ht_stats);
@@ -2318,43 +2506,6 @@ transformIndexConstraints(CreateStmtContext *cxt)
 			   constraint->contype == CONSTR_EXCLUSION);
 
 		index = transformIndexConstraint(constraint, cxt);
-
-		indexlist = lappend(indexlist, index);
-	}
-
-	/* Add in any indexes defined by LIKE ... INCLUDING INDEXES */
-	foreach(lc, cxt->inh_indexes)
-	{
-		index = (IndexStmt *) lfirst(lc);
-
-	#ifdef USE_SEQ_ROWID
-		if(index)
-		{
-			ListCell	*indexlc;
-			foreach(indexlc, index->indexParams)
-			{
-				IndexElem  *attribute = (IndexElem *) lfirst_node(IndexElem,indexlc);
-
-				if (attribute->name && (strcmp(attribute->name,"rowid") == 0) && !default_with_rowids)
-				{
-					break;
-				}
-			}
-
-			if(indexlc != NULL)
-				continue;
-		}
-	#endif // USE_SEQ_ROWID
-
-		if (index->primary)
-		{
-			if (cxt->pkey != NULL)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						 errmsg("multiple primary keys for table \"%s\" are not allowed",
-								cxt->relation->relname)));
-			cxt->pkey = index;
-		}
 
 		indexlist = lappend(indexlist, index);
 	}
@@ -2968,7 +3119,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 
 		alterstmt->relation = copyObject(cxt->relation);
 		alterstmt->cmds = notnullcmds;
-		alterstmt->relkind = OBJECT_TABLE;
+		alterstmt->objtype = OBJECT_TABLE;
 		alterstmt->missing_ok = false;
 
 		cxt->alist = lappend(cxt->alist, alterstmt);
@@ -3089,7 +3240,7 @@ transformFKConstraints(CreateStmtContext *cxt,
 	 * Note: the ADD CONSTRAINT command must also execute after any index
 	 * creation commands.  Thus, this should run after
 	 * transformIndexConstraints, so that the CREATE INDEX commands are
-	 * already in cxt->alist.
+	 * already in cxt->alist.  See also the handling of cxt->likeclauses.
 	 */
 	if (!isAddConstraint)
 	{
@@ -3097,7 +3248,7 @@ transformFKConstraints(CreateStmtContext *cxt,
 
 		alterstmt->relation = cxt->relation;
 		alterstmt->cmds = NIL;
-		alterstmt->relkind = OBJECT_TABLE;
+		alterstmt->objtype = OBJECT_TABLE;
 
 		foreach(fkclist, cxt->fkconstraints)
 		{
@@ -3231,6 +3382,84 @@ transformIndexStmt(Oid relid, IndexStmt *stmt, const char *queryString)
 	}PG_END_TRY();
 	PopOverrideSearchPath();
 #endif
+	return stmt;
+}
+
+/*
+ * transformStatsStmt - parse analysis for CREATE STATISTICS
+ *
+ * To avoid race conditions, it's important that this function rely only on
+ * the passed-in relid (and not on stmt->relation) to determine the target
+ * relation.
+ */
+CreateStatsStmt *
+transformStatsStmt(Oid relid, CreateStatsStmt *stmt, const char *queryString)
+{
+	ParseState *pstate;
+	ParseNamespaceItem *nsitem;
+	ListCell   *l;
+	Relation	rel;
+
+	/* Nothing to do if statement already transformed. */
+	if (stmt->transformed)
+		return stmt;
+
+	/*
+	 * We must not scribble on the passed-in CreateStatsStmt, so copy it.
+	 * (This is overkill, but easy.)
+	 */
+	stmt = copyObject(stmt);
+
+	/* Set up pstate */
+	pstate = make_parsestate(NULL);
+	pstate->p_sourcetext = queryString;
+
+	/*
+	 * Put the parent table into the rtable so that the expressions can refer
+	 * to its fields without qualification.  Caller is responsible for locking
+	 * relation, but we still need to open it.
+	 */
+	rel = relation_open(relid, NoLock);
+	nsitem = addRangeTableEntryForRelation(pstate, rel,
+										   AccessShareLock,
+										   NULL, false, true);
+
+	/* no to join list, yes to namespaces */
+	addNSItemToQuery(pstate, nsitem, false, true, true);
+
+	/* take care of any expressions */
+	foreach(l, stmt->exprs)
+	{
+		StatsElem  *selem = (StatsElem *) lfirst(l);
+
+		if (selem->expr)
+		{
+			/* Now do parse transformation of the expression */
+			selem->expr = transformExpr(pstate, selem->expr,
+										EXPR_KIND_STATS_EXPRESSION);
+
+			/* We have to fix its collations too */
+			assign_expr_collations(pstate, selem->expr);
+		}
+	}
+
+	/*
+	 * Check that only the base rel is mentioned.  (This should be dead code
+	 * now that add_missing_from is history.)
+	 */
+	if (list_length(pstate->p_rtable) != 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+				 errmsg("statistics expressions can refer only to the table being indexed")));
+
+	free_parsestate(pstate);
+
+	/* Close relation */
+	table_close(rel, NoLock);
+
+	/* Mark statement as successfully transformed */
+	stmt->transformed = true;
+
 	return stmt;
 }
 
@@ -3627,7 +3856,7 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	cxt.ckconstraints = NIL;
 	cxt.fkconstraints = NIL;
 	cxt.ixconstraints = NIL;
-	cxt.inh_indexes = NIL;
+	cxt.likeclauses = NIL;
 	cxt.extstats = NIL;
 	cxt.blist = NIL;
 	cxt.alist = NIL;
@@ -4675,7 +4904,7 @@ validateInfiniteBounds(ParseState *pstate, List *blist)
 }
 
 /*
- * Transform one constant in a partition bound spec
+ * Transform one entry in a partition bound spec, producing a constant.
  */
 static Const *
 transformPartitionBoundValue(ParseState *pstate, Node *val,
@@ -4688,50 +4917,17 @@ transformPartitionBoundValue(ParseState *pstate, Node *val,
 	value = transformExpr(pstate, val, EXPR_KIND_PARTITION_BOUND);
 
 	/*
-	 * Check that the input expression's collation is compatible with one
-	 * specified for the parent's partition key (partcollation).  Don't throw
-	 * an error if it's the default collation which we'll replace with the
-	 * parent's collation anyway.
+	 * transformExpr() should have already rejected column references,
+	 * subqueries, aggregates, window functions, and SRFs, based on the
+	 * EXPR_KIND_ of a partition bound expression.
 	 */
-	if (IsA(value, CollateExpr))
-	{
-		Oid			exprCollOid = exprCollation(value);
+	Assert(!contain_var_clause(value));
 
-		/*
-		 * Check we have a collation iff it is a collatable type.  The only
-		 * expected failures here are (1) COLLATE applied to a noncollatable
-		 * type, or (2) partition bound expression had an unresolved
-		 * collation.  But we might as well code this to be a complete
-		 * consistency check.
-		 */
-		if (type_is_collatable(colType))
-		{
-			if (!OidIsValid(exprCollOid))
-				ereport(ERROR,
-						(errcode(ERRCODE_INDETERMINATE_COLLATION),
-						 errmsg("could not determine which collation to use for partition bound expression"),
-						 errhint("Use the COLLATE clause to set the collation explicitly.")));
-		}
-		else
-		{
-			if (OidIsValid(exprCollOid))
-				ereport(ERROR,
-						(errcode(ERRCODE_DATATYPE_MISMATCH),
-						 errmsg("collations are not supported by type %s",
-								format_type_be(colType))));
-		}
-
-		if (OidIsValid(exprCollOid) &&
-			exprCollOid != DEFAULT_COLLATION_OID &&
-			exprCollOid != partCollation)
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("collation of partition bound value for column \"%s\" does not match partition key collation \"%s\"",
-							colName, get_collation_name(partCollation)),
-					 parser_errposition(pstate, exprLocation(value))));
-	}
-
-	/* Coerce to correct type */
+	/*
+	 * Coerce to the correct type.  This might cause an explicit coercion step
+	 * to be added on top of the expression, which must be evaluated before
+	 * returning the result to the caller.
+	 */
 	value = coerce_to_target_type(pstate,
 								  value, exprType(value),
 								  colType,
@@ -4747,25 +4943,36 @@ transformPartitionBoundValue(ParseState *pstate, Node *val,
 						format_type_be(colType), colName),
 				 parser_errposition(pstate, exprLocation(val))));
 
-	/* Simplify the expression, in case we had a coercion */
+	/*
+	 * Evaluate the expression, if needed, assigning the partition key's data
+	 * type and collation to the resulting Const node.
+	 */
 	if (!IsA(value, Const))
+	{
+		assign_expr_collations(pstate, value);
 		value = (Node *) expression_planner((Expr *) value);
+		value = (Node *) evaluate_expr((Expr *) value, colType, colTypmod,
+									   partCollation);
+		if (!IsA(value, Const))
+			elog(ERROR, "could not evaluate partition bound expression");
+	}
+	else
+	{
+		/*
+		 * If the expression is already a Const, as is often the case, we can
+		 * skip the rather expensive steps above.  But we still have to insert
+		 * the right collation, since coerce_to_target_type doesn't handle
+		 * that.
+		 */
+		((Const *) value)->constcollid = partCollation;
+	}
 
 	/*
-	 * transformExpr() should have already rejected column references,
-	 * subqueries, aggregates, window functions, and SRFs, based on the
-	 * EXPR_KIND_ for a default expression.
+	 * Attach original expression's parse location to the Const, so that
+	 * that's what will be reported for any later errors related to this
+	 * partition bound.
 	 */
-	Assert(!contain_var_clause(value));
-
-	/*
-	 * Evaluate the expression, assigning the partition key's collation to the
-	 * resulting Const expression.
-	 */
-	value = (Node *) evaluate_expr((Expr *) value, colType, colTypmod,
-								   partCollation);
-	if (!IsA(value, Const))
-		elog(ERROR, "could not evaluate partition bound expression");
+	((Const *) value)->location = exprLocation(val);
 
 	return (Const *) value;
 }

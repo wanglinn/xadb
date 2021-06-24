@@ -27,6 +27,9 @@ CATALOG(monitor_job,9792,MjobRelationId)
  */
 typedef FormData_monitor_job *Form_monitor_job;
 
+DECLARE_UNIQUE_INDEX(monitor_job_oid_index, 9778, on monitor_job using btree(oid oid_ops));
+#define MonitorJobOidIndexId 9778
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define MACRO_STAND_FOR_ALL_JOB  "*"

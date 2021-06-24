@@ -4,7 +4,7 @@
  *	  POSTGRES relation descriptor (a/k/a relcache entry) definitions.
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/rel.h
@@ -130,6 +130,19 @@ typedef struct RelationData
 	/* data managed by RelationGetPartitionDesc: */
 	PartitionDesc rd_partdesc;	/* partition descriptor, or NULL */
 	MemoryContext rd_pdcxt;		/* private context for rd_partdesc, if any */
+
+	/* Same as above, for partdescs that omit detached partitions */
+	PartitionDesc rd_partdesc_nodetached;	/* partdesc w/o detached parts */
+	MemoryContext rd_pddcxt;	/* for rd_partdesc_nodetached, if any */
+
+	/*
+	 * pg_inherits.xmin of the partition that was excluded in
+	 * rd_partdesc_nodetached.  This informs a future user of that partdesc:
+	 * if this value is not in progress for the active snapshot, then the
+	 * partdesc can be used, otherwise they have to build a new one.  (This
+	 * matches what find_inheritance_children_extended would do).
+	 */
+	TransactionId rd_partdesc_nodetached_xmin;
 
 	/* data managed by RelationGetPartitionQual: */
 	List	   *rd_partcheck;	/* partition CHECK quals */
@@ -562,6 +575,13 @@ typedef struct ViewOptions
 	} while (0)
 
 /*
+ * RelationIsPermanent
+ *		True if relation is permanent.
+ */
+#define RelationIsPermanent(relation) \
+	((relation)->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT)
+
+/*
  * RelationNeedsWAL
  *		True if relation needs WAL.
  *
@@ -570,8 +590,7 @@ typedef struct ViewOptions
  * RelFileNode" in src/backend/access/transam/README.
  */
 #define RelationNeedsWAL(relation)										\
-	((relation)->rd_rel->relpersistence == RELPERSISTENCE_PERMANENT &&	\
-	 (XLogIsNeeded() ||													\
+	(RelationIsPermanent(relation) && (XLogIsNeeded() ||				\
 	  (relation->rd_createSubid == InvalidSubTransactionId &&			\
 	   relation->rd_firstRelfilenodeSubid == InvalidSubTransactionId)))
 
@@ -655,7 +674,8 @@ typedef struct ViewOptions
  *		WAL stream.
  *
  * We don't log information for unlogged tables (since they don't WAL log
- * anyway) and for system tables (their content is hard to make sense of, and
+ * anyway), for foreign tables (since they don't WAL log, either),
+ * and for system tables (their content is hard to make sense of, and
  * it would complicate decoding slightly for little gain). Note that we *do*
  * log information for user defined catalog tables since they presumably are
  * interesting to the user...
@@ -663,6 +683,7 @@ typedef struct ViewOptions
 #define RelationIsLogicallyLogged(relation) \
 	(XLogLogicalInfoActive() && \
 	 RelationNeedsWAL(relation) && \
+	 (relation)->rd_rel->relkind != RELKIND_FOREIGN_TABLE &&	\
 	 !IsCatalogRelation(relation))
 
 /* routines in utils/cache/relcache.c */

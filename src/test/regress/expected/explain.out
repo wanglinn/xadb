@@ -17,12 +17,15 @@ begin
     for ln in execute $1
     loop
         -- Replace any numeric word with just 'N'
-        ln := regexp_replace(ln, '\m\d+\M', 'N', 'g');
+        ln := regexp_replace(ln, '-?\m\d+\M', 'N', 'g');
         -- In sort output, the above won't match units-suffixed numbers
         ln := regexp_replace(ln, '\m\d+kB', 'NkB', 'g');
         -- Ignore text-mode buffers output because it varies depending
         -- on the system state
         CONTINUE WHEN (ln ~ ' +Buffers: .*');
+        -- Ignore text-mode "Planning:" line because whether it's output
+        -- varies depending on the system state
+        CONTINUE WHEN (ln = 'Planning:');
         return next ln;
     end loop;
 end;
@@ -84,6 +87,7 @@ select explain_filter('explain (analyze, buffers, format json) select * from int
      "Plan": {                     +
        "Node Type": "Seq Scan",    +
        "Parallel Aware": false,    +
+       "Async Capable": false,     +
        "Relation Name": "int8_tbl",+
        "Alias": "i8",              +
        "Startup Cost": N.N,        +
@@ -106,7 +110,6 @@ select explain_filter('explain (analyze, buffers, format json) select * from int
        "Temp Written Blocks": N    +
      },                            +
      "Planning": {                 +
-       "Planning Time": N.N,       +
        "Shared Hit Blocks": N,     +
        "Shared Read Blocks": N,    +
        "Shared Dirtied Blocks": N, +
@@ -118,6 +121,7 @@ select explain_filter('explain (analyze, buffers, format json) select * from int
        "Temp Read Blocks": N,      +
        "Temp Written Blocks": N    +
      },                            +
+     "Planning Time": N.N,         +
      "Triggers": [                 +
      ],                            +
      "Execution Time": N.N         +
@@ -133,6 +137,7 @@ select explain_filter('explain (analyze, buffers, format xml) select * from int8
      <Plan>                                            +
        <Node-Type>Seq Scan</Node-Type>                 +
        <Parallel-Aware>false</Parallel-Aware>          +
+       <Async-Capable>false</Async-Capable>            +
        <Relation-Name>int8_tbl</Relation-Name>         +
        <Alias>i8</Alias>                               +
        <Startup-Cost>N.N</Startup-Cost>                +
@@ -155,7 +160,6 @@ select explain_filter('explain (analyze, buffers, format xml) select * from int8
        <Temp-Written-Blocks>N</Temp-Written-Blocks>    +
      </Plan>                                           +
      <Planning>                                        +
-       <Planning-Time>N.N</Planning-Time>              +
        <Shared-Hit-Blocks>N</Shared-Hit-Blocks>        +
        <Shared-Read-Blocks>N</Shared-Read-Blocks>      +
        <Shared-Dirtied-Blocks>N</Shared-Dirtied-Blocks>+
@@ -167,6 +171,7 @@ select explain_filter('explain (analyze, buffers, format xml) select * from int8
        <Temp-Read-Blocks>N</Temp-Read-Blocks>          +
        <Temp-Written-Blocks>N</Temp-Written-Blocks>    +
      </Planning>                                       +
+     <Planning-Time>N.N</Planning-Time>                +
      <Triggers>                                        +
      </Triggers>                                       +
      <Execution-Time>N.N</Execution-Time>              +
@@ -180,6 +185,7 @@ select explain_filter('explain (analyze, buffers, format yaml) select * from int
  - Plan:                      +
      Node Type: "Seq Scan"    +
      Parallel Aware: false    +
+     Async Capable: false     +
      Relation Name: "int8_tbl"+
      Alias: "i8"              +
      Startup Cost: N.N        +
@@ -201,7 +207,6 @@ select explain_filter('explain (analyze, buffers, format yaml) select * from int
      Temp Read Blocks: N      +
      Temp Written Blocks: N   +
    Planning:                  +
-     Planning Time: N.N       +
      Shared Hit Blocks: N     +
      Shared Read Blocks: N    +
      Shared Dirtied Blocks: N +
@@ -212,8 +217,57 @@ select explain_filter('explain (analyze, buffers, format yaml) select * from int
      Local Written Blocks: N  +
      Temp Read Blocks: N      +
      Temp Written Blocks: N   +
+   Planning Time: N.N         +
    Triggers:                  +
    Execution Time: N.N
+(1 row)
+
+select explain_filter('explain (buffers, format text) select * from int8_tbl i8');
+                     explain_filter                      
+---------------------------------------------------------
+ Seq Scan on int8_tbl i8  (cost=N.N..N.N rows=N width=N)
+(1 row)
+
+select explain_filter('explain (buffers, format json) select * from int8_tbl i8');
+           explain_filter           
+------------------------------------
+ [                                 +
+   {                               +
+     "Plan": {                     +
+       "Node Type": "Seq Scan",    +
+       "Parallel Aware": false,    +
+       "Async Capable": false,     +
+       "Relation Name": "int8_tbl",+
+       "Alias": "i8",              +
+       "Startup Cost": N.N,        +
+       "Total Cost": N.N,          +
+       "Plan Rows": N,             +
+       "Plan Width": N,            +
+       "Shared Hit Blocks": N,     +
+       "Shared Read Blocks": N,    +
+       "Shared Dirtied Blocks": N, +
+       "Shared Written Blocks": N, +
+       "Local Hit Blocks": N,      +
+       "Local Read Blocks": N,     +
+       "Local Dirtied Blocks": N,  +
+       "Local Written Blocks": N,  +
+       "Temp Read Blocks": N,      +
+       "Temp Written Blocks": N    +
+     },                            +
+     "Planning": {                 +
+       "Shared Hit Blocks": N,     +
+       "Shared Read Blocks": N,    +
+       "Shared Dirtied Blocks": N, +
+       "Shared Written Blocks": N, +
+       "Local Hit Blocks": N,      +
+       "Local Read Blocks": N,     +
+       "Local Dirtied Blocks": N,  +
+       "Local Written Blocks": N,  +
+       "Temp Read Blocks": N,      +
+       "Temp Written Blocks": N    +
+     }                             +
+   }                               +
+ ]
 (1 row)
 
 -- SETTINGS option
@@ -243,9 +297,7 @@ rollback;
 -- actually get (maybe none at all), we can't examine the "Workers" output
 -- in any detail.  We can check that it parses correctly as JSON, and then
 -- remove it from the displayed results.
--- Serializable isolation would disable parallel query, so explicitly use an
--- arbitrary other level.
-begin isolation level repeatable read;
+begin;
 -- encourage use of parallel plans
 set parallel_setup_cost=0;
 set parallel_tuple_cost=0;
@@ -298,6 +350,7 @@ select jsonb_pretty(
                              "Actual Rows": 0,              +
                              "Actual Loops": 0,             +
                              "Startup Cost": 0.0,           +
+                             "Async Capable": false,        +
                              "Relation Name": "tenk1",      +
                              "Parallel Aware": true,        +
                              "Local Hit Blocks": 0,         +
@@ -343,6 +396,7 @@ select jsonb_pretty(
                      "Actual Rows": 0,                      +
                      "Actual Loops": 0,                     +
                      "Startup Cost": 0.0,                   +
+                     "Async Capable": false,                +
                      "Parallel Aware": false,               +
                      "Sort Space Used": 0,                  +
                      "Local Hit Blocks": 0,                 +
@@ -385,6 +439,7 @@ select jsonb_pretty(
              "Actual Rows": 0,                              +
              "Actual Loops": 0,                             +
              "Startup Cost": 0.0,                           +
+             "Async Capable": false,                        +
              "Parallel Aware": false,                       +
              "Workers Planned": 0,                          +
              "Local Hit Blocks": 0,                         +
@@ -402,7 +457,6 @@ select jsonb_pretty(
              "Shared Written Blocks": 0                     +
          },                                                 +
          "Planning": {                                      +
-             "Planning Time": 0.0,                          +
              "Local Hit Blocks": 0,                         +
              "Temp Read Blocks": 0,                         +
              "Local Read Blocks": 0,                        +
@@ -416,9 +470,19 @@ select jsonb_pretty(
          },                                                 +
          "Triggers": [                                      +
          ],                                                 +
+         "Planning Time": 0.0,                              +
          "Execution Time": 0.0                              +
      }                                                      +
  ]
 (1 row)
 
 rollback;
+set compute_query_id = on;
+select explain_filter('explain (verbose) select * from int8_tbl i8');
+                         explain_filter                         
+----------------------------------------------------------------
+ Seq Scan on public.int8_tbl i8  (cost=N.N..N.N rows=N width=N)
+   Output: q1, q2
+ Query Identifier: N
+(3 rows)
+

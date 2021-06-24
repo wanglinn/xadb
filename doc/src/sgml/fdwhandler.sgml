@@ -123,6 +123,15 @@ GetForeignRelSize(PlannerInfo *root,
      should be replaced if at all possible.  The function may also choose to
      update <literal>baserel-&gt;width</literal> if it can compute a better estimate
      of the average result row width.
+     (The initial value is based on column data types and on column
+     average-width values measured by the last <command>ANALYZE</command>.)
+     Also, this function may update <literal>baserel-&gt;tuples</literal> if
+     it can compute a better estimate of the foreign table's total row count.
+     (The initial value is
+     from <structname>pg_class</structname>.<structfield>reltuples</structfield>
+     which represents the total row count seen by the
+     last <command>ANALYZE</command>; it will be <literal>-1</literal> if
+     no <command>ANALYZE</command> has been done on this foreign table.)
     </para>
 
     <para>
@@ -415,7 +424,8 @@ GetForeignUpperPaths(PlannerInfo *root,
     <para>
 <programlisting>
 void
-AddForeignUpdateTargets(Query *parsetree,
+AddForeignUpdateTargets(PlannerInfo *root,
+                        Index rtindex,
                         RangeTblEntry *target_rte,
                         Relation target_relation);
 </programlisting>
@@ -431,27 +441,31 @@ AddForeignUpdateTargets(Query *parsetree,
     </para>
 
     <para>
-     To do that, add <structname>TargetEntry</structname> items to
-     <literal>parsetree-&gt;targetList</literal>, containing expressions for the
-     extra values to be fetched.  Each such entry must be marked
-     <structfield>resjunk</structfield> = <literal>true</literal>, and must have a distinct
-     <structfield>resname</structfield> that will identify it at execution time.
-     Avoid using names matching <literal>ctid<replaceable>N</replaceable></literal>,
-     <literal>wholerow</literal>, or
-     <literal>wholerow<replaceable>N</replaceable></literal>, as the core system can
-     generate junk columns of these names.
-     If the extra expressions are more complex than simple Vars, they
-     must be run through <function>eval_const_expressions</function>
-     before adding them to the targetlist.
-    </para>
-
-    <para>
-     Although this function is called during planning, the
-     information provided is a bit different from that available to other
-     planning routines.
-     <literal>parsetree</literal> is the parse tree for the <command>UPDATE</command> or
-     <command>DELETE</command> command, while <literal>target_rte</literal> and
-     <literal>target_relation</literal> describe the target foreign table.
+     To do that, construct a <structname>Var</structname> representing
+     an extra value you need, and pass it
+     to <function>add_row_identity_var</function>, along with a name for
+     the junk column.  (You can do this more than once if several columns
+     are needed.)  You must choose a distinct junk column name for each
+     different <structname>Var</structname> you need, except
+     that <structname>Var</structname>s that are identical except for
+     the <structfield>varno</structfield> field can and should share a
+     column name.
+     The core system uses the junk column names
+     <literal>tableoid</literal> for a
+     table's <structfield>tableoid</structfield> column,
+     <literal>ctid</literal>
+     or <literal>ctid<replaceable>N</replaceable></literal>
+     for <structfield>ctid</structfield>,
+     <literal>wholerow</literal>
+     for a whole-row <structname>Var</structname> marked with
+     <structfield>vartype</structfield> = <type>RECORD</type>,
+     and <literal>wholerow<replaceable>N</replaceable></literal>
+     for a whole-row <structname>Var</structname> with
+     <structfield>vartype</structfield> equal to the table's declared rowtype.
+     Re-use these names when you can (the planner will combine duplicate
+     requests for identical junk columns).  If you need another kind of
+     junk column besides these, it might be wise to choose a name prefixed
+     with your extension name, to avoid conflicts against other FDWs.
     </para>
 
     <para>
@@ -486,8 +500,8 @@ PlanForeignModify(PlannerInfo *root,
      <literal>resultRelation</literal> identifies the target foreign table by its
      range table index.  <literal>subplan_index</literal> identifies which target of
      the <structname>ModifyTable</structname> plan node this is, counting from zero;
-     use this if you want to index into <literal>plan-&gt;plans</literal> or other
-     substructure of the <literal>plan</literal> node.
+     use this if you want to index into per-target-relation substructures of the
+     <literal>plan</literal> node.
     </para>
 
     <para>
@@ -514,8 +528,9 @@ BeginForeignModify(ModifyTableState *mtstate,
      Begin executing a foreign table modification operation.  This routine is
      called during executor startup.  It should perform any initialization
      needed prior to the actual table modifications.  Subsequently,
-     <function>ExecForeignInsert</function>, <function>ExecForeignUpdate</function> or
-     <function>ExecForeignDelete</function> will be called for each tuple to be
+     <function>ExecForeignInsert/ExecForeignBatchInsert</function>,
+     <function>ExecForeignUpdate</function> or
+     <function>ExecForeignDelete</function> will be called for tuple(s) to be
      inserted, updated, or deleted.
     </para>
 
@@ -605,6 +620,80 @@ ExecForeignInsert(EState *estate,
 
     <para>
 <programlisting>
+TupleTableSlot **
+ExecForeignBatchInsert(EState *estate,
+                  ResultRelInfo *rinfo,
+                  TupleTableSlot **slots,
+                  TupleTableSlot **planSlots,
+                  int *numSlots);
+</programlisting>
+
+     Insert multiple tuples in bulk into the foreign table.
+     The parameters are the same for <function>ExecForeignInsert</function>
+     except <literal>slots</literal> and <literal>planSlots</literal> contain
+     multiple tuples and <literal>*numSlots</literal> specifies the number of
+     tuples in those arrays.
+    </para>
+
+    <para>
+     The return value is an array of slots containing the data that was
+     actually inserted (this might differ from the data supplied, for
+     example as a result of trigger actions.)
+     The passed-in <literal>slots</literal> can be re-used for this purpose.
+     The number of successfully inserted tuples is returned in
+     <literal>*numSlots</literal>.
+    </para>
+
+    <para>
+     The data in the returned slot is used only if the <command>INSERT</command>
+     statement involves a view
+     <literal>WITH CHECK OPTION</literal>; or if the foreign table has
+     an <literal>AFTER ROW</literal> trigger.  Triggers require all columns,
+     but the FDW could choose to optimize away returning some or all columns
+     depending on the contents of the
+     <literal>WITH CHECK OPTION</literal> constraints.
+    </para>
+
+    <para>
+     If the <function>ExecForeignBatchInsert</function> or
+     <function>GetForeignModifyBatchSize</function> pointer is set to
+     <literal>NULL</literal>, attempts to insert into the foreign table will
+     use <function>ExecForeignInsert</function>.
+     This function is not used if the <command>INSERT</command> has the
+     <literal>RETURNING</literal> clause.
+    </para>
+
+    <para>
+     Note that this function is also called when inserting routed tuples into
+     a foreign-table partition.  See the callback functions
+     described below that allow the FDW to support that.
+    </para>
+
+    <para>
+<programlisting>
+int
+GetForeignModifyBatchSize(ResultRelInfo *rinfo);
+</programlisting>
+
+     Report the maximum number of tuples that a single
+     <function>ExecForeignBatchInsert</function> call can handle for
+     the specified foreign table.  The executor passes at most
+     the given number of tuples to <function>ExecForeignBatchInsert</function>.
+     <literal>rinfo</literal> is the <structname>ResultRelInfo</structname> struct describing
+     the target foreign table.
+     The FDW is expected to provide a foreign server and/or foreign
+     table option for the user to set this value, or some hard-coded value.
+    </para>
+
+    <para>
+     If the <function>ExecForeignBatchInsert</function> or
+     <function>GetForeignModifyBatchSize</function> pointer is set to
+     <literal>NULL</literal>, attempts to insert into the foreign table will
+     use <function>ExecForeignInsert</function>.
+    </para>
+
+    <para>
+<programlisting>
 TupleTableSlot *
 ExecForeignUpdate(EState *estate,
                   ResultRelInfo *rinfo,
@@ -619,10 +708,14 @@ ExecForeignUpdate(EState *estate,
      <literal>slot</literal> contains the new data for the tuple; it will match the
      row-type definition of the foreign table.
      <literal>planSlot</literal> contains the tuple that was generated by the
-     <structname>ModifyTable</structname> plan node's subplan; it differs from
-     <literal>slot</literal> in possibly containing additional <quote>junk</quote>
-     columns.  In particular, any junk columns that were requested by
-     <function>AddForeignUpdateTargets</function> will be available from this slot.
+     <structname>ModifyTable</structname> plan node's subplan.  Unlike
+     <literal>slot</literal>, this tuple contains only the new values for
+     columns changed by the query, so do not rely on attribute numbers of the
+     foreign table to index into <literal>planSlot</literal>.
+     Also, <literal>planSlot</literal> typically contains
+     additional <quote>junk</quote> columns.  In particular, any junk columns
+     that were requested by <function>AddForeignUpdateTargets</function> will
+     be available from this slot.
     </para>
 
     <para>
@@ -732,8 +825,9 @@ BeginForeignInsert(ModifyTableState *mtstate,
      in both cases when it is the partition chosen for tuple routing and the
      target specified in a <command>COPY FROM</command> command.  It should
      perform any initialization needed prior to the actual insertion.
-     Subsequently, <function>ExecForeignInsert</function> will be called for
-     each tuple to be inserted into the foreign table.
+     Subsequently, <function>ExecForeignInsert</function> or
+     <function>ExecForeignBatchInsert</function> will be called for
+     tuple(s) to be inserted into the foreign table.
     </para>
 
     <para>
@@ -764,8 +858,8 @@ BeginForeignInsert(ModifyTableState *mtstate,
     <para>
      Note that if the FDW does not support routable foreign-table partitions
      and/or executing <command>COPY FROM</command> on foreign tables, this
-     function or <function>ExecForeignInsert</function> subsequently called
-     must throw error as needed.
+     function or <function>ExecForeignInsert/ExecForeignBatchInsert</function>
+     subsequently called must throw error as needed.
     </para>
 
     <para>
@@ -852,11 +946,15 @@ PlanDirectModify(PlannerInfo *root,
      To execute the direct modification on the remote server, this function
      must rewrite the target subplan with a <structname>ForeignScan</structname> plan
      node that executes the direct modification on the remote server.  The
-     <structfield>operation</structfield> field of the <structname>ForeignScan</structname> must
-     be set to the <literal>CmdType</literal> enumeration appropriately; that is,
+     <structfield>operation</structfield> and <structfield>resultRelation</structfield> fields
+     of the <structname>ForeignScan</structname> must be set appropriately.
+     <structfield>operation</structfield> must be set to the <literal>CmdType</literal>
+     enumeration corresponding to the statement kind (that is,
      <literal>CMD_UPDATE</literal> for <command>UPDATE</command>,
      <literal>CMD_INSERT</literal> for <command>INSERT</command>, and
-     <literal>CMD_DELETE</literal> for <command>DELETE</command>.
+     <literal>CMD_DELETE</literal> for <command>DELETE</command>), and the
+     <literal>resultRelation</literal> argument must be copied to the
+     <structfield>resultRelation</structfield> field.
     </para>
 
     <para>
@@ -916,9 +1014,8 @@ IterateDirectModify(ForeignScanState *node);
      needed for the <literal>RETURNING</literal> calculation, returning it in a
      tuple table slot (the node's <structfield>ScanTupleSlot</structfield> should be
      used for this purpose).  The data that was actually inserted, updated
-     or deleted must be stored in the
-     <literal>es_result_relation_info-&gt;ri_projectReturning-&gt;pi_exprContext-&gt;ecxt_scantuple</literal>
-     of the node's <structname>EState</structname>.
+     or deleted must be stored in
+     <literal>node->resultRelInfo->ri_projectReturning-&gt;pi_exprContext-&gt;ecxt_scantuple</literal>.
      Return NULL if no more rows are available.
      Note that this is called in a short-lived memory context that will be
      reset between invocations.  Create a memory context in
@@ -966,6 +1063,61 @@ EndDirectModify(ForeignScanState *node);
      remote server are taken.
     </para>
 
+   </sect2>
+
+   <sect2 id="fdw-callbacks-truncate">
+    <title>FDW Routines for <command>TRUNCATE</command></title>
+
+    <para>
+<programlisting>
+void
+ExecForeignTruncate(List *rels,
+                    DropBehavior behavior,
+                    bool restart_seqs);
+</programlisting>
+
+     Truncate foreign tables.  This function is called when
+     <xref linkend="sql-truncate"/> is executed on a foreign table.
+     <literal>rels</literal> is a list of <structname>Relation</structname>
+     data structures of foreign tables to truncate.
+    </para>
+
+    <para>
+     <literal>behavior</literal> is either <literal>DROP_RESTRICT</literal>
+     or <literal>DROP_CASCADE</literal> indicating that the
+     <literal>RESTRICT</literal> or <literal>CASCADE</literal> option was
+     requested in the original <command>TRUNCATE</command> command,
+     respectively.
+    </para>
+    
+    <para>
+     If <literal>restart_seqs</literal> is <literal>true</literal>,
+     the original <command>TRUNCATE</command> command requested the
+     <literal>RESTART IDENTITY</literal> behavior, otherwise the
+     <literal>CONTINUE IDENTITY</literal> behavior was requested.
+    </para>
+
+    <para>
+     Note that the <literal>ONLY</literal> options specified
+     in the original <command>TRUNCATE</command> command are not passed to
+     <function>ExecForeignTruncate</function>.  This behavior is similar to
+     the callback functions of <command>SELECT</command>,
+     <command>UPDATE</command> and <command>DELETE</command> on
+     a foreign table.
+    </para>
+
+    <para>
+     <function>ExecForeignTruncate</function> is invoked once per
+     foreign server for which foreign tables are to be truncated.
+     This means that all foreign tables included in <literal>rels</literal>
+     must belong to the same server.
+    </para>
+
+    <para>
+     If the <function>ExecForeignTruncate</function> pointer is set to
+     <literal>NULL</literal>, attempts to truncate foreign tables will
+     fail with an error message.
+    </para>
    </sect2>
 
    <sect2 id="fdw-callbacks-row-locking">
@@ -1393,6 +1545,96 @@ ShutdownForeignScan(ForeignScanState *node);
     wish to take some action before the DSM segment goes away should implement
     this method.
    </para>
+   </sect2>
+
+   <sect2 id="fdw-callbacks-async">
+    <title>FDW Routines for Asynchronous Execution</title>
+    <para>
+     A <structname>ForeignScan</structname> node can, optionally, support
+     asynchronous execution as described in
+     <filename>src/backend/executor/README</filename>.  The following
+     functions are all optional, but are all required if asynchronous
+     execution is to be supported.
+    </para>
+
+    <para>
+<programlisting>
+bool
+IsForeignPathAsyncCapable(ForeignPath *path);
+</programlisting>
+     Test whether a given <structname>ForeignPath</structname> path can scan
+     the underlying foreign relation asynchronously.
+     This function will only be called at the end of query planning when the
+     given path is a direct child of an <structname>AppendPath</structname>
+     path and when the planner believes that asynchronous execution improves
+     performance, and should return true if the given path is able to scan the
+     foreign relation asynchronously.
+    </para>
+
+    <para>
+     If this function is not defined, it is assumed that the given path scans
+     the foreign relation using <function>IterateForeignScan</function>.
+     (This implies that the callback functions described below will never be
+     called, so they need not be provided either.)
+    </para>
+
+    <para>
+<programlisting>
+void
+ForeignAsyncRequest(AsyncRequest *areq);
+</programlisting>
+     Produce one tuple asynchronously from the
+     <structname>ForeignScan</structname> node.  <literal>areq</literal> is
+     the <structname>AsyncRequest</structname> struct describing the
+     <structname>ForeignScan</structname> node and the parent
+     <structname>Append</structname> node that requested the tuple from it.
+     This function should store the tuple into the slot specified by
+     <literal>areq-&gt;result</literal>, and set
+     <literal>areq-&gt;request_complete</literal> to <literal>true</literal>;
+     or if it needs to wait on an event external to the core server such as
+     network I/O, and cannot produce any tuple immediately, set the flag to
+     <literal>false</literal>, and set
+     <literal>areq-&gt;callback_pending</literal> to <literal>true</literal>
+     for the <structname>ForeignScan</structname> node to get a callback from
+     the callback functions described below.  If no more tuples are available,
+     set the slot to NULL or an empty slot, and the
+     <literal>areq-&gt;request_complete</literal> flag to
+     <literal>true</literal>.  It's recommended to use
+     <function>ExecAsyncRequestDone</function> or
+     <function>ExecAsyncRequestPending</function> to set the output parameters
+     in the <literal>areq</literal>.
+    </para>
+
+    <para>
+<programlisting>
+void
+ForeignAsyncConfigureWait(AsyncRequest *areq);
+</programlisting>
+     Configure a file descriptor event for which the
+     <structname>ForeignScan</structname> node wishes to wait.
+     This function will only be called when the
+     <structname>ForeignScan</structname> node has the
+     <literal>areq-&gt;callback_pending</literal> flag set, and should add
+     the event to the <structfield>as_eventset</structfield> of the parent
+     <structname>Append</structname> node described by the
+     <literal>areq</literal>.  See the comments for
+     <function>ExecAsyncConfigureWait</function> in
+     <filename>src/backend/executor/execAsync.c</filename> for additional
+     information.  When the file descriptor event occurs,
+     <function>ForeignAsyncNotify</function> will be called.
+    </para>
+
+    <para>
+<programlisting>
+void
+ForeignAsyncNotify(AsyncRequest *areq);
+</programlisting>
+     Process a relevant event that has occurred, then produce one tuple
+     asynchronously from the <structname>ForeignScan</structname> node.
+     This function should set the output parameters in the
+     <literal>areq</literal> in the same way as
+     <function>ForeignAsyncRequest</function>.
+    </para>
    </sect2>
 
    <sect2 id="fdw-callbacks-reparameterize-paths">

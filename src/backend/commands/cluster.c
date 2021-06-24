@@ -6,7 +6,7 @@
  * There is hardly anything left of Paul Brown's original implementation...
  *
  *
- * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  *
@@ -35,6 +35,7 @@
 #include "catalog/pg_am.h"
 #include "catalog/toasting.h"
 #include "commands/cluster.h"
+#include "commands/defrem.h"
 #include "commands/progress.h"
 #include "commands/tablecmds.h"
 #include "commands/vacuum.h"
@@ -67,7 +68,7 @@
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq.h"
-#include "libpq/libpq-fe.h"
+#include "libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "libpq/pqformat.h"
 #include "nodes/makefuncs.h"
@@ -132,7 +133,7 @@ static int process_master_cluster_cmd(int *options, const char *data, int len)
 		tableOid = RangeVarGetRelid(range, AccessShareLock, true);
 		indexOid = get_relname_relid(indexname, get_rel_namespace(tableOid));
 
-		cluster_rel(tableOid, indexOid, *options);
+		cluster_rel(tableOid, indexOid, &(ClusterParams){.options = *options});
 
 		put_executor_end_msg(true);
 		break;
@@ -369,13 +370,32 @@ static List* send_cluster_cluster_rel(List *node_list, Oid tableOid, Oid indexOi
  *---------------------------------------------------------------------------
  */
 void
-cluster(ClusterStmt *stmt, bool isTopLevel)
+cluster(ParseState *pstate, ClusterStmt *stmt, bool isTopLevel)
 {
+	ListCell   *lc;
+	ClusterParams params = {0};
+	bool		verbose = false;
 #ifdef ADB
 	List *list_table_conns = NIL;
 	List *cur_list = NIL;
-	ListCell *lc;
 #endif /* ADB */
+
+	/* Parse option list */
+	foreach(lc, stmt->params)
+	{
+		DefElem    *opt = (DefElem *) lfirst(lc);
+
+		if (strcmp(opt->defname, "verbose") == 0)
+			verbose = defGetBoolean(opt);
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("unrecognized CLUSTER option \"%s\"",
+							opt->defname),
+					 parser_errposition(pstate, opt->location)));
+	}
+
+	params.options = (verbose ? CLUOPT_VERBOSE : 0);
 
 	if (stmt->relation != NULL)
 	{
@@ -450,13 +470,13 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 
 		send_cluster_cluster_function(cur_list,
 									  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
-									  stmt->options);
+									  params.options);
 		list_table_conns = send_cluster_cluster_rel(cur_list, tableOid, indexOid);
 		list_free(cur_list);
 #endif /* ADB */
 
 		/* Do the job. */
-		cluster_rel(tableOid, indexOid, stmt->options);
+		cluster_rel(tableOid, indexOid, &params);
 
 #ifdef ADB
 		if (list_table_conns)
@@ -511,6 +531,7 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		foreach(rv, rvs)
 		{
 			RelToCluster *rvtc = (RelToCluster *) lfirst(rv);
+			ClusterParams cluster_params = params;
 
 			/* Start a new transaction for each relation. */
 			StartTransactionCommand();
@@ -523,14 +544,15 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 			START_CLUSTER_OWNER_XACT_SECTION();
 			send_cluster_cluster_function(cur_list,
 										  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
-										  stmt->options);
+										  params.options);
 			list_table_conns = send_cluster_cluster_rel(cur_list, rvtc->tableOid, rvtc->indexOid);
 
 #endif /* ADB */
 
 			/* Do the job. */
+			cluster_params.options |= CLUOPT_RECHECK;
 			cluster_rel(rvtc->tableOid, rvtc->indexOid,
-						stmt->options | CLUOPT_RECHECK);
+						&cluster_params);
 #ifdef ADB
 			if (list_table_conns)
 			{
@@ -576,11 +598,11 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
  * and error messages should refer to the operation as VACUUM not CLUSTER.
  */
 void
-cluster_rel(Oid tableOid, Oid indexOid, int options)
+cluster_rel(Oid tableOid, Oid indexOid, ClusterParams *params)
 {
 	Relation	OldHeap;
-	bool		verbose = ((options & CLUOPT_VERBOSE) != 0);
-	bool		recheck = ((options & CLUOPT_RECHECK) != 0);
+	bool		verbose = ((params->options & CLUOPT_VERBOSE) != 0);
+	bool		recheck = ((params->options & CLUOPT_RECHECK) != 0);
 
 	/* Check for user-requested abort. */
 	CHECK_FOR_INTERRUPTS();
@@ -1661,6 +1683,7 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 	ObjectAddress object;
 	Oid			mapped_tables[4];
 	int			reindex_flags;
+	ReindexParams reindex_params = {0};
 	int			i;
 
 	/* Report that we are now swapping relation files */
@@ -1721,14 +1744,14 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 	pgstat_progress_update_param(PROGRESS_CLUSTER_PHASE,
 								 PROGRESS_CLUSTER_PHASE_REBUILD_INDEX);
 
-	reindex_relation(OIDOldHeap, reindex_flags, 0);
+	reindex_relation(OIDOldHeap, reindex_flags, &reindex_params);
 
 	/* Report that we are now doing clean up */
 	pgstat_progress_update_param(PROGRESS_CLUSTER_PHASE,
 								 PROGRESS_CLUSTER_PHASE_FINAL_CLEANUP);
 
 	/*
-	 * If the relation being rebuild is pg_class, swap_relation_files()
+	 * If the relation being rebuilt is pg_class, swap_relation_files()
 	 * couldn't update pg_class's own pg_class entry (check comments in
 	 * swap_relation_files()), thus relfrozenxid was not updated. That's
 	 * annoying because a potential reason for doing a VACUUM FULL is a

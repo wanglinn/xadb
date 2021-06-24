@@ -16,6 +16,9 @@ CATALOG(adb_proc,9018,AdbProcRelationId)
 
 typedef FormData_adb_proc *Form_adb_proc;
 
+DECLARE_UNIQUE_INDEX(adb_proc_owner_index, 9019, on adb_proc using btree(proowner oid_ops));
+#define AdbProcOwnerIndexId	9019
+
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 /* can run in coordinator or datanode */

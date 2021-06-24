@@ -11,6 +11,7 @@
 #include "storage/ipc.h"
 #include "storage/procarray.h"
 #include "storage/spin.h"
+#include "storage/latch.h"
 #include "executor/spi.h"
 #include "parser/parser.h"
 #include "utils/resowner.h"

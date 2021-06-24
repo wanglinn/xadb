@@ -37,4 +37,7 @@ CATALOG(monitor_mem,9794,MonitorMemRelationId)
  */
 typedef FormData_monitor_mem *Form_monitor_mem;
 
+DECLARE_UNIQUE_INDEX(monitor_mem_oid_index, 9769, on monitor_mem using btree(oid oid_ops));
+#define MonitorMemOidIndexId 9769
+
 #endif /* MONITOR_MEM_H */

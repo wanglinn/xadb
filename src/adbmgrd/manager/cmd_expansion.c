@@ -1480,7 +1480,7 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	Assert(cnpath);
 
 	namestrcpy(&pdn_status->node_status, "");
-	namecpy(&pdn_status->nodename, &mgr_node->nodename);
+	pdn_status->nodename = mgr_node->nodename;
 	pdn_status->tid = tuple_id;
 	pdn_status->nodemasternameoid = mgr_node->nodemasternameoid;
 	pdn_status->nodeincluster = mgr_node->nodeincluster;

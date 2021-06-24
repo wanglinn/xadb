@@ -5,6 +5,7 @@
 #include "storage/sinval.h"
 #include "storage/lwlock.h"
 #include "storage/lock.h"
+#include "storage/s_lock.h"
 #include "utils/snapshot.h"
 #include "lib/ilist.h"
 #include "utils/dsa.h"
