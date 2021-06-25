@@ -2355,20 +2355,20 @@ get_fn_oid(char *fn_name, Oid *p_rettype)
 	fn_name_list = list_make1(fn_nm);
 
 	fdc = func_get_detail(fn_name_list,
-				NULL,			/* argument expressions */
-				NULL,			/* argument names */
-				0,				/* argument numbers */
-				NULL,			/* argument types */
-				false,			/* expand variable number or args */
-				false,			/* expand defaults */
-				&func_oid,		/* oid of the function - returned detail*/
-				p_rettype,		/* function return type - returned detail */
-				&retset,		/*  - returned detail*/
-				&nvargs,		/*  - returned detail*/
-				&vatype,		/*  - returned detail*/
-				&true_typeids,	/*  - returned detail */
-				NULL			/* arguemnt defaults returned*/
-				);
+						  NULL,			/* argument expressions */
+						  NULL,			/* argument names */
+						  0,				/* argument numbers */
+						  NULL,			/* argument types */
+						  false,			/* expand variable number or args */
+						  false,			/* expand defaults */
+						  false,			/* not include arguments */
+						  &func_oid,		/* oid of the function - returned detail*/
+						  p_rettype,		/* function return type - returned detail */
+						  &retset,		/*  - returned detail*/
+						  &nvargs,		/*  - returned detail*/
+						  &vatype,		/*  - returned detail*/
+						  &true_typeids,	/*  - returned detail */
+						  NULL);			/* arguemnt defaults returned*/
 
 	pfree(fn_name_list);
 	if (fdc == FUNCDETAIL_NORMAL)

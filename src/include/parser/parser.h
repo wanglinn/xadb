@@ -104,7 +104,7 @@ extern RoleSpec *makeRoleSpec(RoleSpecType type, int location);
 extern void check_qualified_name(List *names, core_yyscan_t yyscanner);
 extern List *check_func_name(List *names, core_yyscan_t yyscanner);
 extern List *check_indirection(List *indirection, core_yyscan_t yyscanner);
-extern List *extractArgTypes(ObjectType objtype, List *parameters);
+extern List *extractArgTypes(List *parameters);
 extern List *extractAggrArgTypes(List *aggrargs);
 extern List *makeOrderedSetArgs(List *directargs, List *orderedargs,
 								core_yyscan_t yyscanner);

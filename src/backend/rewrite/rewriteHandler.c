@@ -4413,6 +4413,7 @@ QueryRewriteCTAS(Query *parsetree)
 	plannedStmt->stmt_location = cparsetree->stmt_location;
 	ProcessUtility(plannedStmt,
 				   cquery.data,
+				   false,
 				   PROCESS_UTILITY_TOPLEVEL, NULL, NULL, NULL,  /* Tentative fix.  Nedd a review.  K.Suzuki */
 				   false,
 				   NULL);

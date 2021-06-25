@@ -210,7 +210,7 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 %type <stmt>	stmt_return stmt_raise stmt_assert stmt_execsql
 %type <stmt>	stmt_dynexecute stmt_for stmt_perform stmt_call stmt_getdiag
 %type <stmt>	stmt_open stmt_fetch stmt_move stmt_close stmt_null
-%type <stmt>	stmt_commit stmt_rollback stmt_set
+%type <stmt>	stmt_commit stmt_rollback
 %type <stmt>	stmt_case stmt_foreach_a
 %type <stmt>	stmt_goto
 
@@ -343,7 +343,6 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 %token <keyword>	K_QUERY
 %token <keyword>	K_RAISE
 %token <keyword>	K_RELATIVE
-%token <keyword>	K_RESET
 %token <keyword>	K_RETURN
 %token <keyword>	K_RETURNED_SQLSTATE
 %token <keyword>	K_REVERSE
@@ -353,7 +352,6 @@ static	void			check_raise_parameters(PLpgSQL_stmt_raise *stmt);
 %token <keyword>	K_SCHEMA
 %token <keyword>	K_SCHEMA_NAME
 %token <keyword>	K_SCROLL
-%token <keyword>	K_SET
 %token <keyword>	K_SLICE
 %token <keyword>	K_SQLSTATE
 %token <keyword>	K_STACKED
@@ -936,8 +934,6 @@ proc_stmt		: pl_block ';'
 						{ $$ = $2; castStmt(commit, COMMIT, $$)->label = $1; plpgsql_ns_pop(); }
 				| opt_block_label stmt_rollback
 						{ $$ = $2; castStmt(rollback, ROLLBACK, $$)->label = $1; plpgsql_ns_pop(); }
-				| opt_block_label stmt_set
-						{ $$ = $2; castStmt(set, SET, $$)->label = $1; plpgsql_ns_pop(); }
 				| stmt_goto
 						{ $$ = $1; }
 				;
@@ -2314,34 +2310,6 @@ opt_transaction_chain:
 			| /* EMPTY */			{ $$ = false; }
 				;
 
-stmt_set	: K_SET
-					{
-						PLpgSQL_stmt_set *new;
-
-						new = palloc0(sizeof(PLpgSQL_stmt_set));
-						new->cmd_type = PLPGSQL_STMT_SET;
-						new->lineno = plpgsql_location_to_lineno(@1);
-						new->stmtid = ++plpgsql_curr_compile->nstatements;
-						plpgsql_push_back_token(K_SET);
-						new->expr = read_sql_stmt();
-
-						$$ = (PLpgSQL_stmt *)new;
-					}
-			| K_RESET
-					{
-						PLpgSQL_stmt_set *new;
-
-						new = palloc0(sizeof(PLpgSQL_stmt_set));
-						new->cmd_type = PLPGSQL_STMT_SET;
-						new->lineno = plpgsql_location_to_lineno(@1);
-						new->stmtid = ++plpgsql_curr_compile->nstatements;
-						plpgsql_push_back_token(K_RESET);
-						new->expr = read_sql_stmt();
-
-						$$ = (PLpgSQL_stmt *)new;
-					}
-			;
-
 stmt_goto		: opt_block_label K_GOTO any_identifier ';'
 					{
 						PLpgSQL_stmt_goto *new;
@@ -2644,7 +2612,6 @@ unreserved_keyword	:
 				| K_QUERY
 				| K_RAISE
 				| K_RELATIVE
-				| K_RESET
 				| K_RETURN
 				| K_RETURNED_SQLSTATE
 				| K_REVERSE
@@ -2654,7 +2621,6 @@ unreserved_keyword	:
 				| K_SCHEMA
 				| K_SCHEMA_NAME
 				| K_SCROLL
-				| K_SET
 				| K_SLICE
 				| K_SQLSTATE
 				| K_STACKED

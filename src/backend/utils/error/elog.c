@@ -476,11 +476,6 @@ errstart(int elevel, const char *domain)
 	edata->assoc_context = ErrorContext;
 
 	recursion_depth--;
-	if (elevel >= FATAL)
-	{
-		for (i=0;i>=0;++i)
-			pg_usleep(1000*1000);
-	}
 	return true;
 }
 

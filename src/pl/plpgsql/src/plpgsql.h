@@ -134,7 +134,6 @@ typedef enum PLpgSQL_stmt_type
 	PLPGSQL_STMT_CALL,
 	PLPGSQL_STMT_COMMIT,
 	PLPGSQL_STMT_ROLLBACK,
-	PLPGSQL_STMT_SET,
 	PLPGSQL_STMT_GOTO
 #ifdef ADB_GRAM_ORA
 	,PLPGSQL_STMT_FUNC
@@ -611,18 +610,6 @@ typedef struct PLpgSQL_stmt_rollback
 	bool		chain;
 	char	   *label;
 } PLpgSQL_stmt_rollback;
-
-/*
- * SET statement
- */
-typedef struct PLpgSQL_stmt_set
-{
-	PLpgSQL_stmt_type cmd_type;
-	int			lineno;
-	unsigned int stmtid;
-	PLpgSQL_expr *expr;
-	char	   *label;
-} PLpgSQL_stmt_set;
 
 /*
  * GET DIAGNOSTICS item

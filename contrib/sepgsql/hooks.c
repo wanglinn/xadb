@@ -313,6 +313,7 @@ sepgsql_exec_check_perms(List *rangeTabls, bool abort)
 static void
 sepgsql_utility_command(PlannedStmt *pstmt,
 						const char *queryString,
+						bool readOnlyTree,
 						ProcessUtilityContext context,
 						ParamListInfo params,
 						QueryEnvironment *queryEnv,
@@ -379,11 +380,11 @@ sepgsql_utility_command(PlannedStmt *pstmt,
 		}
 
 		if (next_ProcessUtility_hook)
-			(*next_ProcessUtility_hook) (pstmt, queryString,
+			(*next_ProcessUtility_hook) (pstmt, queryString, readOnlyTree,
 										 context, params, queryEnv,
 										 dest, ADB_ONLY_ARG_COMMA(sentToRemote) qc);
 		else
-			standard_ProcessUtility(pstmt, queryString,
+			standard_ProcessUtility(pstmt, queryString, readOnlyTree,
 									context, params, queryEnv,
 									dest, ADB_ONLY_ARG_COMMA(sentToRemote) qc);
 	}

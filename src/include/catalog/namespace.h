@@ -33,6 +33,7 @@ typedef struct _FuncCandidateList
 	Oid			nspoid;			/* the function or operator's namespace OID */
 #endif
 	Oid			oid;			/* the function or operator's OID */
+	int			nominalnargs;	/* either pronargs or length(proallargtypes) */
 	int			nargs;			/* number of arg types returned */
 	int			nvargs;			/* number of args to become variadic array */
 	int			ndargs;			/* number of defaulted args */
@@ -102,6 +103,7 @@ extern FuncCandidateList FuncnameGetCandidates(List *names,
 											   int nargs, List *argnames,
 											   bool expand_variadic,
 											   bool expand_defaults,
+											   bool include_out_arguments,
 											   bool missing_ok);
 extern bool FunctionIsVisible(Oid funcid);
 #ifdef ADB

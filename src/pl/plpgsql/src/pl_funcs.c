@@ -296,8 +296,6 @@ plpgsql_stmt_typename(PLpgSQL_stmt *stmt)
 			return "COMMIT";
 		case PLPGSQL_STMT_ROLLBACK:
 			return "ROLLBACK";
-		case PLPGSQL_STMT_SET:
-			return "SET";
 		case PLPGSQL_STMT_GOTO:
 			return "GOTO";
 #ifdef ADB_GRAM_ORA
@@ -388,7 +386,6 @@ static void free_perform(PLpgSQL_stmt_perform *stmt);
 static void free_call(PLpgSQL_stmt_call *stmt);
 static void free_commit(PLpgSQL_stmt_commit *stmt);
 static void free_rollback(PLpgSQL_stmt_rollback *stmt);
-static void free_set(PLpgSQL_stmt_set *stmt);
 static void free_goto(PLpgSQL_stmt_goto *stmt);
 #ifdef ADB_GRAM_ORA
 static void free_func(PLpgSQL_stmt_func * stmt);
@@ -483,9 +480,6 @@ free_stmt(PLpgSQL_stmt *stmt)
 			break;
 		case PLPGSQL_STMT_ROLLBACK:
 			free_rollback((PLpgSQL_stmt_rollback *) stmt);
-			break;
-		case PLPGSQL_STMT_SET:
-			free_set((PLpgSQL_stmt_set *) stmt);
 			break;
 		case PLPGSQL_STMT_GOTO:
 			free_goto((PLpgSQL_stmt_goto *) stmt);
@@ -687,12 +681,6 @@ free_rollback(PLpgSQL_stmt_rollback *stmt)
 }
 
 static void
-free_set(PLpgSQL_stmt_set *stmt)
-{
-	free_expr(stmt->expr);
-}
-
-static void
 free_exit(PLpgSQL_stmt_exit *stmt)
 {
 	free_expr(stmt->cond);
@@ -889,7 +877,6 @@ static void dump_perform(PLpgSQL_stmt_perform *stmt);
 static void dump_call(PLpgSQL_stmt_call *stmt);
 static void dump_commit(PLpgSQL_stmt_commit *stmt);
 static void dump_rollback(PLpgSQL_stmt_rollback *stmt);
-static void dump_set(PLpgSQL_stmt_set *stmt);
 static void dump_expr(PLpgSQL_expr *expr);
 
 
@@ -988,9 +975,6 @@ dump_stmt(PLpgSQL_stmt *stmt)
 			break;
 		case PLPGSQL_STMT_ROLLBACK:
 			dump_rollback((PLpgSQL_stmt_rollback *) stmt);
-			break;
-		case PLPGSQL_STMT_SET:
-			dump_set((PLpgSQL_stmt_set *) stmt);
 			break;
 		default:
 			elog(ERROR, "unrecognized cmd_type: %d", stmt->cmd_type);
@@ -1391,13 +1375,6 @@ dump_rollback(PLpgSQL_stmt_rollback *stmt)
 		printf("ROLLBACK AND CHAIN\n");
 	else
 		printf("ROLLBACK\n");
-}
-
-static void
-dump_set(PLpgSQL_stmt_set *stmt)
-{
-	dump_ind();
-	printf("%s\n", stmt->expr->query);
 }
 
 static void

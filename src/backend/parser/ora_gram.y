@@ -4994,7 +4994,7 @@ function_with_argtypes:
 				{
 					ObjectWithArgs *n = makeNode(ObjectWithArgs);
 					n->objname = $1;
-					n->objargs = extractArgTypes(OBJECT_FUNCTION, $2);
+					n->objargs = extractArgTypes($2);
 					$$ = n;
 				}
 			/*

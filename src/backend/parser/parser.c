@@ -820,7 +820,7 @@ check_indirection(List *indirection, core_yyscan_t yyscanner)
  * the productions that use this call.
  */
 List *
-extractArgTypes(ObjectType objtype, List *parameters)
+extractArgTypes(List *parameters)
 {
 	List	   *result = NIL;
 	ListCell   *i;
@@ -829,7 +829,7 @@ extractArgTypes(ObjectType objtype, List *parameters)
 	{
 		FunctionParameter *p = (FunctionParameter *) lfirst(i);
 
-		if ((p->mode != FUNC_PARAM_OUT || objtype == OBJECT_PROCEDURE) && p->mode != FUNC_PARAM_TABLE)
+		if (p->mode != FUNC_PARAM_OUT && p->mode != FUNC_PARAM_TABLE)
 			result = lappend(result, p->argType);
 	}
 	return result;
@@ -842,7 +842,7 @@ List *
 extractAggrArgTypes(List *aggrargs)
 {
 	Assert(list_length(aggrargs) == 2);
-	return extractArgTypes(OBJECT_AGGREGATE, (List *) linitial(aggrargs));
+	return extractArgTypes((List *) linitial(aggrargs));
 }
 
 /* makeOrderedSetArgs()
@@ -1148,7 +1148,9 @@ mergeTableFuncParameters(List *func_args, List *columns)
 	{
 		FunctionParameter *p = (FunctionParameter *) lfirst(lc);
 
-		if (p->mode != FUNC_PARAM_IN && p->mode != FUNC_PARAM_VARIADIC)
+		if (p->mode != FUNC_PARAM_DEFAULT &&
+			p->mode != FUNC_PARAM_IN &&
+			p->mode != FUNC_PARAM_VARIADIC)
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
 					 errmsg("OUT and INOUT arguments aren't allowed in TABLE functions")));
@@ -1222,6 +1224,43 @@ makeRangeVarFromAnyName(List *names, int position, core_yyscan_t yyscanner)
 	return r;
 }
 
+/* Separate Constraint nodes from COLLATE clauses in a ColQualList */
+void
+SplitColQualList(List *qualList,
+				 List **constraintList, CollateClause **collClause,
+				 core_yyscan_t yyscanner)
+{
+	ListCell   *cell;
+
+	*collClause = NULL;
+	foreach(cell, qualList)
+	{
+		Node   *n = (Node *) lfirst(cell);
+
+		if (IsA(n, Constraint))
+		{
+			/* keep it in list */
+			continue;
+		}
+		if (IsA(n, CollateClause))
+		{
+			CollateClause *c = (CollateClause *) n;
+
+			if (*collClause)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("multiple COLLATE clauses not allowed"),
+						 parser_errposition(c->location)));
+			*collClause = c;
+		}
+		else
+			elog(ERROR, "unexpected node type %d", (int) n->type);
+		/* remove non-Constraint nodes from qualList */
+		qualList = foreach_delete_current(qualList, cell);
+	}
+	*constraintList = qualList;
+}
+
 /*----------
  * Recursive view transformation
  *
@@ -1282,6 +1321,7 @@ makeRecursiveViewSelect(char *relname, List *aliases, Node *query)
 
 	return (Node *) s;
 }
+/* ADB end from gram.y */
 
 ResTarget* make_star_target(int location)
 {
@@ -1303,44 +1343,6 @@ ResTarget* make_star_target(int location)
 	return target;
 }
 
-/* Separate Constraint nodes from COLLATE clauses in a ColQualList */
-void
-SplitColQualList(List *qualList,
-				 List **constraintList, CollateClause **collClause,
-				 core_yyscan_t yyscanner)
-{
-	ListCell   *cell;
-
-	*collClause = NULL;
-	foreach(cell, qualList)
-	{
-		Node   *n = (Node *) lfirst(cell);
-
-		if (IsA(n, Constraint))
-		{
-			/* keep it in list */
-			continue;
-		}
-		if (IsA(n, CollateClause))
-		{
-			CollateClause *c = (CollateClause *) n;
-
-			if (*collClause)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("multiple COLLATE clauses not allowed"),
-						 parser_errposition(c->location)));
-			*collClause = c;
-		}
-		else
-			elog(ERROR, "unexpected node type %d", (int) n->type);
-		/* remove non-Constraint nodes from qualList */
-		qualList = foreach_delete_current(qualList, cell);
-	}
-	*constraintList = qualList;
-}
-
-/* ADB end from gram.y */
 #ifdef ADB_GRAM_ORA
 List *
 check_sequence_name(List *names, core_yyscan_t yyscanner, int location)

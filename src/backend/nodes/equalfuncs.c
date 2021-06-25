@@ -1257,6 +1257,7 @@ _equalObjectWithArgs(const ObjectWithArgs *a, const ObjectWithArgs *b)
 {
 	COMPARE_NODE_FIELD(objname);
 	COMPARE_NODE_FIELD(objargs);
+	COMPARE_NODE_FIELD(objfuncargs);
 	COMPARE_SCALAR_FIELD(args_unspecified);
 
 	return true;
@@ -1316,6 +1317,7 @@ _equalCallStmt(const CallStmt *a, const CallStmt *b)
 {
 	COMPARE_NODE_FIELD(funccall);
 	COMPARE_NODE_FIELD(funcexpr);
+	COMPARE_NODE_FIELD(outargs);
 
 	return true;
 }
@@ -1495,6 +1497,7 @@ _equalCreateStatsStmt(const CreateStatsStmt *a, const CreateStatsStmt *b)
 	COMPARE_NODE_FIELD(exprs);
 	COMPARE_NODE_FIELD(relations);
 	COMPARE_STRING_FIELD(stxcomment);
+	COMPARE_SCALAR_FIELD(transformed);
 	COMPARE_SCALAR_FIELD(if_not_exists);
 
 	return true;
@@ -2519,7 +2522,7 @@ _equalFuncCall(const FuncCall *a, const FuncCall *b)
 	COMPARE_SCALAR_FIELD(agg_star);
 	COMPARE_SCALAR_FIELD(agg_distinct);
 	COMPARE_SCALAR_FIELD(func_variadic);
-	COMPARE_SCALAR_FIELD(funcformat);
+	COMPARE_COERCIONFORM_FIELD(funcformat);
 #ifdef ADB_EXT
 	COMPARE_NODE_FIELD(agg_keep);
 #endif /* ADB_EXT */

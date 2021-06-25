@@ -576,7 +576,7 @@ BEGIN_STRUCT(StdRdOptions)
 	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
 	NODE_SCALAR(bool,user_catalog_table)
 	NODE_SCALAR(int,parallel_workers)
-	NODE_SCALAR(bool,vacuum_index_cleanup)
+	NODE_ENUM(StdRdOptIndexCleanup,vacuum_index_cleanup)
 	NODE_SCALAR(bool,vacuum_truncate)
 END_STRUCT(StdRdOptions)
 #endif /* NO_STRUCT_StdRdOptions */

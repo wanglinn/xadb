@@ -581,6 +581,7 @@
 					# -1 disables, 0 logs all temp files
 #log_timezone = 'GMT'
 
+
 #------------------------------------------------------------------------------
 # PROCESS TITLE
 #------------------------------------------------------------------------------
@@ -729,6 +730,7 @@
 #dynamic_library_path = '$libdir'
 #gin_fuzzy_search_limit = 0
 
+
 #------------------------------------------------------------------------------
 # LOCK MANAGEMENT
 #------------------------------------------------------------------------------
@@ -775,6 +777,7 @@
 					# data?
 					# (change requires restart)
 #recovery_init_sync_method = fsync	# fsync, syncfs (Linux 5.8+)
+					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # DATA NODES AND CONNECTION POOLING

@@ -3550,8 +3550,8 @@ BEGIN_NODE(CreateStatsStmt)
 	NODE_NODE(List,exprs)
 	NODE_NODE(List,relations)
 	NODE_STRING(stxcomment)
-	NODE_SCALAR(bool,if_not_exists)
 	NODE_SCALAR(bool,transformed)
+	NODE_SCALAR(bool,if_not_exists)
 END_NODE(CreateStatsStmt)
 #endif /* NO_NODE_CreateStatsStmt */
 
@@ -3565,6 +3565,7 @@ END_NODE(AlterCollationStmt)
 BEGIN_NODE(CallStmt)
 	NODE_NODE(FuncCall,funccall)
 	NODE_NODE(FuncExpr,funcexpr)
+	NODE_NODE(List,outargs)
 END_NODE(CallStmt)
 #endif /* NO_NODE_CallStmt */
 
@@ -4064,6 +4065,7 @@ END_NODE(WindowClause)
 BEGIN_NODE(ObjectWithArgs)
 	NODE_NODE(List,objname)
 	NODE_NODE(List,objargs)
+	NODE_NODE(List,objfuncargs)
 	NODE_SCALAR(bool,args_unspecified)
 END_NODE(ObjectWithArgs)
 #endif /* NO_NODE_ObjectWithArgs */
@@ -4286,7 +4288,6 @@ BEGIN_NODE(CreateReplicationSlotCmd)
 	NODE_ENUM(ReplicationKind,kind)
 	NODE_STRING(plugin)
 	NODE_SCALAR(bool,temporary)
-	NODE_SCALAR(bool,two_phase)
 	NODE_NODE(List,options)
 END_NODE(CreateReplicationSlotCmd)
 #endif /* NO_NODE_CreateReplicationSlotCmd */

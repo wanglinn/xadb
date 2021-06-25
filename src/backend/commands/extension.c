@@ -787,6 +787,7 @@ execute_sql_string(const char *sql)
 
 				ProcessUtility(stmt,
 							   sql,
+							   false,
 							   PROCESS_UTILITY_QUERY,
 							   NULL,
 							   NULL,
