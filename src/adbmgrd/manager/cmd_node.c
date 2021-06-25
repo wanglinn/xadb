@@ -530,7 +530,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 							errmsg("path to long \"%s\"", str));
 				datum[Anum_mgr_node_nodepath-1] = PointerGetDatum(cstring_to_text(str));
 				got[Anum_mgr_node_nodepath-1] = true;
-				StrNCpy(pathstr, str, lengthof(pathstr));
+				strlcpy(pathstr, str, lengthof(pathstr));
 			}else if(strcmp(def->defname, "sync_state") == 0)
 			{
 				if(got[Anum_mgr_node_nodesync-1])
