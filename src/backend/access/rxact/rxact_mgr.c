@@ -576,7 +576,7 @@ static void RemoteXactHtabInit(void)
 	htab_rxid = hash_create("RxactInfo",
 							512,
 							&hctl,
-							HASH_ELEM | HASH_CONTEXT);
+							HASH_ELEM | HASH_CONTEXT | HASH_STRINGS);
 }
 
 static void
