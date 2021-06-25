@@ -1328,7 +1328,7 @@ PQsendQueryInternal(PGconn *conn, const char *query, bool newQuery
 		if (pqPutMsgStart(msg_type, conn) < 0 ||
 			pqPuts(query, conn) < 0 ||
 #ifdef ADB
-			(query_tree == NULL || pqPutnchar(query_tree, tree_len, conn) < 0) ||
+			(query_tree && pqPutnchar(query_tree, tree_len, conn) < 0) ||
 #endif /* ADB */
 			pqPutMsgEnd(conn) < 0)
 		{
