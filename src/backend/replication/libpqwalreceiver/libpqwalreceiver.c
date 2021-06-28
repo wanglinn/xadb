@@ -214,6 +214,9 @@ libpqrcv_connect(const char *conninfo, bool logical, const char *appname,
 		return NULL;
 	}
 
+#ifdef ADB
+	if (conninfo && !strstr(conninfo, "snaprcv"))
+#endif
 	if (logical)
 	{
 		PGresult   *res;
