@@ -238,7 +238,7 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 		}else
 		{
 			resetStringInfo(&r->buf);
-			if(pq_getmessage(&r->buf, 0))
+			if(pq_getmessage(&r->buf, PQ_LARGE_MESSAGE_LIMIT))
 			{
 				ereport(COMMERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),

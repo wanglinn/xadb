@@ -1227,7 +1227,7 @@ static void wait_rdc_group_message(void)
 	}
 
 	initStringInfo(&msg);
-	if (pq_getmessage(&msg, 0))
+	if (pq_getmessage(&msg, PQ_LARGE_MESSAGE_LIMIT))
 	{
 		pfree(msg.data);
 		ereport(ERROR,

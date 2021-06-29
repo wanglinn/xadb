@@ -1366,7 +1366,7 @@ readmessage:
 	pq_startmsgread();
 	mtype = pq_getbyte();
 	if (mtype == EOF ||
-		pq_getmessage(buf, 0))
+		pq_getmessage(buf, PQ_LARGE_MESSAGE_LIMIT))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
