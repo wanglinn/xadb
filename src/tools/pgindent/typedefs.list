@@ -113,6 +113,7 @@ Append
 AppendPath
 AppendRelInfo
 AppendState
+ApplyExecutionData
 ApplySubXactData
 Archive
 ArchiveEntryPtrType
@@ -1166,6 +1167,7 @@ IpcSemaphoreKey
 IsForeignPathAsyncCapable_function
 IsForeignRelUpdatable_function
 IsForeignScanParallelSafe_function
+IsoConnInfo
 IspellDict
 Item
 ItemId
@@ -1686,7 +1688,6 @@ PLpgSQL_stmt_return
 PLpgSQL_stmt_return_next
 PLpgSQL_stmt_return_query
 PLpgSQL_stmt_rollback
-PLpgSQL_stmt_set
 PLpgSQL_stmt_type
 PLpgSQL_stmt_while
 PLpgSQL_trigtype
@@ -1875,6 +1876,9 @@ PerlInterpreter
 Perl_check_t
 Perl_ppaddr_t
 Permutation
+PermutationStep
+PermutationStepBlocker
+PermutationStepBlockerType
 PgArchData
 PgBackendGSSStatus
 PgBackendSSLStatus
@@ -2419,7 +2423,6 @@ SlabBlock
 SlabChunk
 SlabContext
 SlabSlot
-SlotAcquireBehavior
 SlotErrCallbackArg
 SlotNumber
 SlruCtl
@@ -2499,6 +2502,7 @@ StatsData
 StatsElem
 StatsExtInfo
 StdAnalyzeData
+StdRdOptIndexCleanup
 StdRdOptions
 Step
 StopList
@@ -2780,7 +2784,7 @@ UserOpts
 VacAttrStats
 VacAttrStatsP
 VacErrPhase
-VacOptTernaryValue
+VacOptValue
 VacuumParams
 VacuumRelation
 VacuumStmt
