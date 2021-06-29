@@ -22,28 +22,15 @@ SharedFileSet *dr_shared_fs = NULL;
 dsa_area	  *dr_dsa = NULL;
 static uint32 dr_shared_fs_num = 0U;
 
-#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
-static void dr_wait_latch(void)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
+static inline void
+dr_wait_latch(void)
 {
-	sigset_t	sigmask;
-	sigset_t	origmask;
-
-	if (MyLatch->is_set)
-		return;
-	pgstat_report_wait_start(WAIT_EVENT_MQ_INTERNAL);
-	sigprocmask(0, NULL, &sigmask);
-	sigaddset(&sigmask, SIGUSR1);
-	sigaddset(&sigmask, SIGINT);
-	sigaddset(&sigmask, SIGTERM);
-	sigprocmask(SIG_SETMASK, &sigmask, &origmask);
-	while(MyLatch->is_set == false)
+	while (MyLatch->is_set == false)
 	{
-		sigsuspend(&origmask);
+		WaitLatch(MyLatch, WL_LATCH_SET|WL_EXIT_ON_PM_DEATH, -1, WAIT_EVENT_MQ_INTERNAL);
 		CHECK_FOR_INTERRUPTS();
 	}
-
-	sigprocmask(SIG_SETMASK, &origmask, NULL);
-	pgstat_report_wait_end();
 }
 #endif
 
@@ -580,8 +567,8 @@ void ResetDynamicReduceWork(void)
 	static const char reset_msg[1] = {ADB_DR_MQ_MSG_RESET};
 	Size			size;
 	char		   *data;
-#ifndef DR_USING_EPOLL
-	//WaitEvent		event;
+#if !defined(WITH_REDUCE_RDMA) && !defined(DR_USING_EPOLL)
+	WaitEvent		event;
 #endif
 	shm_mq_result	result;
 	shm_mq_iovec	iov[2];

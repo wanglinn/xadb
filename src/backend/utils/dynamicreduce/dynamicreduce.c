@@ -74,12 +74,11 @@ static inline void DRSetupSignal(void)
 {
 	sigset_t	sigs;
 
-	/* block SIGUSR1 and SIGUSR2 */
+	/* block SIGURG */
 	if (sigemptyset(&sigs) < 0 ||
-		sigaddset(&sigs, SIGUSR1) < 0 ||
-		sigaddset(&sigs, SIGUSR2) < 0 ||
+		sigaddset(&sigs, SIGURG) < 0 ||
 		sigprocmask(SIG_SETMASK, &sigs, NULL) < 0 ||
-		raise(SIGUSR2) < 0)
+		raise(SIGURG) < 0)
 	{
 		elog(ERROR, "block signal failed: %m");
 	}
@@ -93,7 +92,7 @@ static inline int setup_signalfd(void)
 	sigset_t sigset;
 
 	sigemptyset(&sigset);
-	sigaddset(&sigset, SIGUSR1);
+	sigaddset(&sigset, SIGURG);
 
 	if (sigprocmask(SIG_SETMASK, &sigset, NULL) == -1)
 		elog(ERROR, "sigprocmask SIG_BLOCK failed: %m");
@@ -152,6 +151,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 #ifdef DR_USING_EPOLL
 	DRSetupSignal();
 	sigemptyset(&unblock_sigs);
+	CloseWaitSignalFD();
 #else
 	BackgroundWorkerUnblockSignals();
 #endif
@@ -329,6 +329,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			dr_wait_max = new_size;
 		}
 		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, 100, &unblock_sigs);
+		MyLatch->maybe_sleeping = false;
 		time_now = time(NULL);
 		if (nevent == 0 ||	/* timeout */
 			time_now != time_last_latch)
@@ -353,6 +354,19 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		{
 			OnLatchEvent(NULL, 0);
 			time_last_latch = time_now;
+#ifdef DR_USING_EPOLL
+			/*
+			 * we always block latch signal,
+			 * so need make other backends send a signal
+			 * before next check MyLatch->is_set,
+			 * because we don't check it again except epoll_pwait return
+			 * an EINTR error or timeout.
+			 */
+			MyLatch->maybe_sleeping = true;
+			pg_memory_barrier();
+			if (unlikely(MyLatch->is_set))
+				raise(SIGURG);
+#endif /* DR_USING_EPOLL */
 		}
 #else /* DR_USING_EPOLL */
 		for (nevent=dr_wait_count;nevent>0;)
@@ -601,16 +615,15 @@ void DRCheckStarted(void)
 
 static void dr_start_event(void)
 {
-	MemoryContext oldcontext;
 #ifdef WITH_REDUCE_RDMA
-	oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
+	MemoryContext oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
 	poll_max = START_POOL_ALLOC;
 	poll_count = 0;
 	poll_fd = MemoryContextAlloc(DrTopMemoryContext,
 								 sizeof(struct pollfd) * poll_max);
 	dr_create_rhandle_list();
 #elif defined DR_USING_EPOLL
-	oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
+	MemoryContext oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
 	if (dr_epoll_fd == PGINVALID_SOCKET &&
 		(dr_epoll_fd = epoll_create1(EPOLL_CLOEXEC)) == PGINVALID_SOCKET)
 	{
@@ -669,7 +682,9 @@ static void dr_start_event(void)
 	++dr_wait_count;
 #endif /* DR_USING_EPOLL */
 
+#if defined(WITH_REDUCE_RDMA) || defined(DR_USING_EPOLL)
 	MemoryContextSwitchTo(oldcontext);
+#endif
 }
 
 /* event functions */

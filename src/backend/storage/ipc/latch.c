@@ -1591,7 +1591,11 @@ int WaitEventSetWaitSignal(WaitEventSet *set, long timeout,
 		rc = WaitEventSetWaitBlock(set, cur_timeout,
 								   occurred_events, nevents);
 
-		if (set->latch)
+		if (set->latch
+#ifdef ADB_EXT
+			&& set->pre_check_latch
+#endif
+			)
 		{
 			Assert(set->latch->maybe_sleeping);
 			set->latch->maybe_sleeping = false;
@@ -2343,3 +2347,15 @@ drain(void)
 }
 
 #endif
+
+void
+CloseWaitSignalFD(void)
+{
+#ifdef WAIT_USE_EPOLL
+	if (signal_fd >= 0)
+	{
+		close(signal_fd);
+		signal_fd = -1;
+	}
+#endif
+}
