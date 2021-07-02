@@ -1894,7 +1894,7 @@ readmessage:
 		ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				 errmsg("unexpected EOF on client connection with an open transaction")));
-	if (pq_getmessage(&buf, 0))
+	if (pq_getmessage(&buf, PQ_SMALL_MESSAGE_LIMIT))
 		ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
 				 errmsg("unexpected EOF on client connection with an open transaction")));
