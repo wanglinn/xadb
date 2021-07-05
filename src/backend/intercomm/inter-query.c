@@ -824,7 +824,6 @@ HandleRowDescriptionMsg(PGconn *conn, int msgLength)
 {
 	Assert(conn);
 	conn->inCursor += msgLength;
-	conn->inStart = conn->inCursor;
 	return 0;
 }
 
