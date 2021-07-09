@@ -2192,9 +2192,8 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			{
 				/* Remote query planning on DMLs */
 				ModifyTable *mt = (ModifyTable *)plan;
-				ListCell *elt;
-				foreach(elt, mt->remote_plans)
-					ExplainRemoteQuery((RemoteQuery *) lfirst(elt), planstate, ancestors, es);
+				if (mt->remote_plan)
+					ExplainRemoteQuery(mt->remote_plan, planstate, ancestors, es);
 			}
 #else
 			show_modifytable_info(castNode(ModifyTableState, planstate), ancestors,

@@ -333,8 +333,6 @@ static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subpath, List **exec_nodes);
 static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify);
-static char get_rel_distribute_type(PlannerInfo *root, Index relid);
-#define is_remote_relation(root, relid) (get_rel_distribute_type(root, relid) != LOCATOR_TYPE_INVALID)
 static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
@@ -352,7 +350,6 @@ static int create_cluster_window_internal(PlannerInfo *root, Path *path, void *c
 static PathTarget* update_window_target(PathTarget *input_target,
 										WindowFuncLists *wflists,
 										WindowClause *wc);
-static bool rti_is_base_rel(PlannerInfo *root, Index rti);
 static bool get_path_rewind_subplan_ids(Path *path, Bitmapset **pbms);
 static Path *apply_volatile_tlist_cluster_path(PlannerInfo *root, PathTarget *target, Path *path, RelOptInfo *rel);
 static bool get_query_tree_cluster_info(Node *node, PlannerGlobal *glob);
@@ -9945,7 +9942,8 @@ failed_:
 	return false;
 }
 
-static char get_rel_distribute_type(PlannerInfo *root, Index relid)
+char
+get_rel_distribute_type(PlannerInfo *root, Index relid)
 {
 	if (relid < root->simple_rel_array_size &&
 		root->simple_rel_array[relid] != NULL)
@@ -10396,7 +10394,8 @@ final_cluster_path(Path *path, List *remote_nodes)
 	return path_tree_walker(path, final_cluster_path, remote_nodes);
 }
 
-static bool rti_is_base_rel(PlannerInfo *root, Index rti)
+bool
+rti_is_base_rel(PlannerInfo *root, Index rti)
 {
 	RangeTblEntry *rte = planner_rt_fetch(rti, root);
 	return rte->rtekind == RTE_RELATION &&

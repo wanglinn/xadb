@@ -2792,3 +2792,56 @@ ReduceExprState* ExecInitReduceExpr(Expr *expr)
 
 	return result;
 }
+
+typedef struct ReduceParamCompileContext
+{
+	ExecEvalSubroutine callback;
+	void *data;
+}ReduceParamCompileContext;
+
+static void
+ReduceParamCompile(ParamListInfo params, struct Param *param,
+				   struct ExprState *state,
+				   Datum *resv, bool *resnull)
+{
+	ExprEvalStep	scratch;
+	ReduceParamCompileContext *context = params->paramCompileArg;
+
+	scratch.opcode = EEOP_PARAM_CALLBACK;
+	scratch.resvalue = resv;
+	scratch.resnull = resnull;
+	scratch.d.cparam.paramfunc = context->callback;
+	scratch.d.cparam.paramarg = context->data;
+	scratch.d.cparam.paramid = param->paramid;
+	scratch.d.cparam.paramtype = param->paramtype;
+	ExprEvalPushStep(state, &scratch);
+}
+
+ReduceExprState*
+ExecInitNodeOidReduceExpr(ExecEvalSubroutine callback, void *data)
+{
+	Param		   *param;
+	ParamListInfo	params;
+	ReduceExprState *result;
+	ReduceParamCompileContext
+					context;
+
+	context.callback = callback;
+	context.data = data;
+
+	param = makeNode(Param);
+	param->paramkind = PARAM_EXTERN;
+	param->paramcollid = InvalidOid;
+	param->paramtype = OIDOID;
+	param->paramtypmod = -1;
+
+	params = makeParamList(0);
+	params->paramCompile = ReduceParamCompile;
+	params->paramCompileArg = &context;
+
+	result = palloc(sizeof(*result));
+	result->state = ExecInitExprWithParams((Expr*)param, params);
+	result->evalfunc = (Datum(*)(void*, ExprContext*, bool*,ExprDoneCond*))ExecReduceExpr;
+
+	return result;
+}

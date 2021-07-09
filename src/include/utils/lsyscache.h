@@ -232,6 +232,7 @@ extern int cmp_pgxc_nodename(Oid a, Oid b);
 extern char *get_pgxc_groupname(Oid groupid);
 extern void get_pgxc_node_name_and_host(Oid nodeoid, Name name, Name host);
 extern Oid get_pgxc_nodeoid(const char *nodename);
+extern Oid get_pgxc_nodeoid_with_id(int32 nodeid);
 extern uint32 get_pgxc_node_id(Oid nodeid);
 extern char get_pgxc_nodetype(Oid nodeid);
 extern int get_pgxc_nodeport(Oid nodeid);

@@ -109,9 +109,10 @@ static void pgxc_add_returning_list(RemoteQuery *rq,
 									Oid reltype,
 									List *need_attno);
 static void pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
-									Index resultRelationIndex,
-									RemoteQuery *rqplan,
-									List *sourceTargetList);
+									 Index resultRelationIndex,
+									 RemoteQuery *rqplan,
+									 List *sourceTargetList,
+									 bool include_tableoid_param);
 static void pgxc_dml_add_qual_to_query(Query *query, int param_num,
 									AttrNumber sys_col_attno, Index varno);
 static Param *pgxc_make_param(int param_num, Oid param_type);
@@ -1090,8 +1091,9 @@ pgxc_dml_add_qual_to_query(Query *query, int param_num,
  */
 static void
 pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
-						Index resultRelationIndex, RemoteQuery *rqplan,
-						List *sourceTargetList)
+						 Index resultRelationIndex, RemoteQuery *rqplan,
+						 List *sourceTargetList,
+						 bool include_tableoid_param)
 {
 	Query			*query_to_deparse;
 	RangeTblRef		*target_table_ref;
@@ -1323,9 +1325,6 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 		 */
 		if (!can_use_pk_for_rep_change)
 		{
-			if (!ctid_found)
-				elog(ERROR, "Source data plan's target list does not contain ctid colum");
-
 			/*
 			 * Beware, the ordering of ctid and node_id is important ! ctid should
 			 * be followed by node_id, not vice-versa, so as to be consistent with
@@ -1333,13 +1332,11 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 			 * update statement.
 			 */
 			pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num,
-							SelfItemPointerAttributeNumber, resultRelationIndex);
+									   SelfItemPointerAttributeNumber, resultRelationIndex);
 
-			if (node_id_found)
-			{
-				pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num + 1,
-								XC_NodeIdAttributeNumber, resultRelationIndex);
-			}
+			if (include_tableoid_param)
+				pgxc_dml_add_qual_to_query(query_to_deparse, ctid_param_num + 2,
+										   TableOidAttributeNumber, resultRelationIndex);
 		}
 		else
 		{
@@ -1413,6 +1410,33 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 	pgxc_rqplan_build_statement(rqplan);
 }
 
+static bool
+RelationListIncludeRemote(List *rtable, List *resultRelations)
+{
+	ListCell	   *lc;
+	RangeTblEntry  *rte;
+	Relation		rel;
+	bool			have_remote;
+
+	foreach (lc, resultRelations)
+	{
+		rte = rt_fetch(lfirst_int(lc), rtable);
+
+		/* Bad relation ? */
+		if (rte == NULL || rte->rtekind != RTE_RELATION)
+			continue;
+
+		rel = table_open(rte->relid, NoLock);
+		have_remote = (RelationGetLocInfo(rel) != 0);
+		table_close(rel, NoLock);
+
+		if (have_remote)
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * create_remotedml_plan()
  *
@@ -1422,15 +1446,22 @@ pgxc_build_dml_statement(PlannerInfo *root, CmdType cmdtype,
 Plan *
 create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTablePath *mtp)
 {
-	ModifyTable			*mt = (ModifyTable *)topplan;
-	ListCell			*rel;
-	ListCell			*lc_subpath;
-	int					relcount = -1;
+	ModifyTable		   *mt = (ModifyTable *)topplan;
+	ListCell		   *lc;
+	RemoteQuery		   *fstep;
+	RangeTblEntry	   *dummy_rte;
+	RangeTblEntry	   *res_rte;
+	RelationLocInfo	   *rel_loc_info;
+	Relation			res_rel;
 	RelationAccessType	accessType;
 
 	/* We expect to work only on ModifyTable node */
 	if (!IsA(topplan, ModifyTable))
 		elog(ERROR, "Unexpected node type: %d", topplan->type);
+
+	if (have_cluster_plan_walker(outerPlan(topplan), (Node*)root->glob, NULL) ||
+		RelationListIncludeRemote(root->parse->rtable, mt->resultRelations) == false)
+		return topplan;
 
 	switch(cmdtyp)
 	{
@@ -1448,113 +1479,51 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			return NULL;
 	}
 
-#warning TODO create remotedml_plan
-#if 0
+	res_rte = rt_fetch(mt->nominalRelation, root->parse->rtable);
+	res_rel = table_open(res_rte->relid, NoLock);
+	rel_loc_info = RelationGetLocInfo(res_rel);
+
+	fstep = make_remotequery(NIL, NIL, mt->nominalRelation);
+
 	/*
-	 * For every result relation, build a remote plan to execute remote DML.
+	 * DML planning generates its own parameters that refer to the source
+	 * data plan.
 	 */
-	forboth(rel, mt->resultRelations, lc_subpath, mtp->subpaths)
+	fstep->rq_params_internal = true;
+	fstep->is_temp = false;		/* remote table always not temp */
+	fstep->read_only = false;
+
+	if (mt->returningLists != NIL)
+		(res_rel->rd_auxlist && (cmdtyp == CMD_UPDATE || cmdtyp == CMD_INSERT)))
+		pgxc_add_returning_list(fstep,
+								mt->returningLists ? linitial(mt->returningLists) : NIL,
+								RelationGetDescr(res_rel),
+								linitial_int(mt->resultRelations),
+								RelationGetForm(res_rel)->reltype,
+								mt->resultAttnos ? linitial(mt->resultAttnos) : NIL);
+
+	pgxc_build_dml_statement(root, cmdtyp, mt->nominalRelation, fstep,
+							 outerPlan(topplan)->targetlist,
+							 mt->rootRelation != 0);
+
+	if (cmdtyp == CMD_INSERT)
 	{
-		Index			resultRelationIndex = lfirst_int(rel);
-		Relation		res_rel;
-		RangeTblEntry  *res_rte;
-		RelationLocInfo*rel_loc_info;
-		RemoteQuery	   *fstep;
-		RangeTblEntry  *dummy_rte;			/* RTE for the remote query node */
-		Plan		   *sourceDataPlan;	/* plan producing source data */
-		char		   *relname;
-		ListCell	   *lc;
-
-		relcount++;
-		if (have_cluster_path(lfirst(lc_subpath)))
-			continue;
-
-		res_rte = rt_fetch(resultRelationIndex, root->parse->rtable);
-
-		/* Bad relation ? */
-		if (res_rte == NULL || res_rte->rtekind != RTE_RELATION)
-			continue;
-
-		res_rel = table_open(res_rte->relid, NoLock);
-		relname = RelationGetRelationName(res_rel);
-		rel_loc_info = RelationGetLocInfo(res_rel);
-		if (rel_loc_info == NULL)
-		{
-			table_close(res_rel, NoLock);
-			continue;
-		}
-
-		/* Get the plan that is supposed to supply source data to this plan */
-		sourceDataPlan = list_nth(mt->plans, relcount);
-
-		if(have_cluster_plan_walker(sourceDataPlan, (Node*)(root->glob), NULL))
-			continue;
-
-		fstep = make_remotequery(NIL, NIL, resultRelationIndex);
-
-		/*
-		 * DML planning generates its own parameters that refer to the source
-		 * data plan.
-		 */
-		fstep->rq_params_internal = true;
-		fstep->is_temp = RelationUsesLocalBuffers(res_rel);
-		fstep->read_only = false;
-
-		if (mt->returningLists ||
-			(res_rel->rd_auxlist && (cmdtyp == CMD_UPDATE || cmdtyp == CMD_INSERT)))
-			pgxc_add_returning_list(fstep,
-									mt->returningLists ? list_nth(mt->returningLists, relcount) : NIL,
-									RelationGetDescr(res_rel),
-									resultRelationIndex,
-									RelationGetForm(res_rel)->reltype,
-									mt->resultAttnos ? list_nth(mt->resultAttnos, relcount) : NIL);
-
-		pgxc_build_dml_statement(root, cmdtyp, resultRelationIndex, fstep,
-									sourceDataPlan->targetlist);
-
-		fstep->combine_type = get_plan_combine_type(cmdtyp,
-													rel_loc_info->locatorType);
-
-		if (cmdtyp == CMD_INSERT)
-		{
-			ReduceInfo *rinfo = MakeReduceInfoFromLocInfo(rel_loc_info, NIL, res_rte->relid, resultRelationIndex);
-			fstep->reduce_expr = CreateExprUsingReduceInfo(rinfo);
-			fstep->exec_nodes = makeNode(ExecNodes);
-			fstep->exec_nodes->accesstype = accessType;
-			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-			fstep->exec_nodes->nodeids = NIL;
-			/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
-			if (rel_loc_info->nodeids)
-				foreach (lc, rel_loc_info->nodeids)
-					fstep->exec_nodes->nodeids  = list_append_unique_oid(fstep->exec_nodes->nodeids, lfirst_oid(lc));
-		}
-		else
-		{
-			Datum value = (Datum)0;
-			bool null = true;
-			Oid type = UNKNOWNOID;
-			fstep->exec_nodes = GetRelationNodes(rel_loc_info,
-												 1,
-												 &value,
-												 &null,
-												 &type,
-												 accessType);
-		}
-		fstep->exec_nodes->en_relid = res_rte->relid;
-
-		if (cmdtyp != CMD_DELETE)
-			fstep->exec_nodes->en_expr = pgxc_set_en_expr(res_rte->relid,
-														resultRelationIndex);
-
-		dummy_rte = make_dummy_remote_rte(relname,
-										  makeAlias("REMOTE_DML_QUERY", NIL));
-		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
-		fstep->scan.scanrelid = list_length(root->parse->rtable);
-
-		mt->remote_plans = lappend(mt->remote_plans, fstep);
-		table_close(res_rel, NoLock);
+		ReduceInfo *rinfo = MakeReduceInfoFromLocInfo(rel_loc_info, NIL, res_rte->relid, mt->nominalRelation);
+		fstep->reduce_expr = CreateExprUsingReduceInfo(rinfo);
 	}
-#endif
+	else
+	{
+		/* for UPDATE and DELETE InitRemoteDML() will create reduce expr state */
+	}
+
+	dummy_rte = make_dummy_remote_rte(RelationGetRelationName(res_rel),
+									  makeAlias("REMOTE_DML_QUERY", NIL));
+	root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
+	fstep->scan.scanrelid = list_length(root->parse->rtable);
+
+	mt->remote_plan = fstep;
+	table_close(res_rel, NoLock);
+
 	return (Plan *)mt;
 }
 

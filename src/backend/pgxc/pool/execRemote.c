@@ -21,11 +21,14 @@
 #include "miscadmin.h"
 
 #include "access/xact.h"
+#include "catalog/heap.h"
 #include "commands/prepare.h"
 #include "commands/trigger.h"
+#include "optimizer/reduceinfo.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/poolmgr.h"
 #include "utils/lsyscache.h"
+#include "utils/rel.h"
 #include "access/rxact_mgr.h"
 #include "executor/clusterReceiver.h"
 #include "intercomm/inter-comm.h"
@@ -41,6 +44,32 @@ typedef struct
 	xact_callback function;
 	void *fparams;
 } abort_callback_type;
+
+typedef struct OutFuncCallData
+{
+	FmgrInfo	flinfo;
+	union
+	{
+		FunctionCallInfoBaseData	fcinfo;
+		char fcinfo_data[SizeForFunctionCallInfo(1)];
+	};
+}OutFuncCallData;
+
+/* remote modify table state */
+typedef struct RemoteDMLState
+{
+	TupleTableSlot *root_slot;
+	TupleTableSlot *result_slot;
+	StringInfoData	param_buf;
+	int				max_attnum;			/* for update/delete */
+	uint16			net_param_count;	/* from htons() */
+	AttrNumber		nodeIdAttNo;		/* for update/delete */
+	AttrNumber		wholeAttNo;			/* for update/delete */
+	bool 			returning_on_replicated;
+	OutFuncCallData	outFuncs[FLEXIBLE_ARRAY_MEMBER];
+}RemoteDMLState;
+#define	SizeForRemoteDML(n)	\
+	(offsetof(RemoteDMLState, outFuncs) + sizeof(OutFuncCallData) * (n))
 
 /*
  * List of PGXCNodeHandle to track readers and writers involved in the
@@ -61,6 +90,8 @@ static void pgxc_append_param_val(StringInfo buf, Datum val, Oid valtype);
 static void pgxc_append_param_junkval(TupleTableSlot *slot, AttrNumber attno, Oid valtype, StringInfo buf);
 static void pgxc_rq_fire_bstriggers(RemoteQueryState *node);
 static void pgxc_rq_fire_astriggers(RemoteQueryState *node);
+static void InitOutFuncCallData(OutFuncCallData *out, Oid typoid);
+static inline void AppendDatumParam(StringInfo buf, OutFuncCallData *out, Datum datum, bool isnull);
 
 /*
  * Create a structure to store parameters needed to combine responses from
@@ -455,16 +486,6 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 #endif
 	}
 
-	/*
-	 * Clean up parameters if they were set
-	 */
-	if (node->paramval_data)
-	{
-		pfree(node->paramval_data);
-		node->paramval_data = NULL;
-		node->paramval_len = 0;
-	}
-
 	/* Free the param types if they are newly allocated */
 	if (node->rqs_param_types &&
 		node->rqs_param_types != ((RemoteQuery*)node->ss.ps.plan)->rq_param_types)
@@ -760,90 +781,149 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 	PoolManagerDisconnect();
 }
 
-/*
- * ExecProcNodeDMLInXC
- *
- * This function is used by ExecInsert/Update/Delete to execute the
- * Insert/Update/Delete on the datanode using RemoteQuery plan.
- *
- * In XC, a non-FQSed UPDATE/DELETE is planned as a two step process
- * The first step selects the ctid & node id of the row to be modified and the
- * second step creates a parameterized query that is supposed to take the data
- * row returned by the lower plan node as the parameters to modify the affected
- * row. In case of an INSERT however the first step is used to get the new
- * column values to be inserted in the target table and the second step uses
- * those values as parameters of the INSERT query.
- *
- * We use extended query protocol to avoid repeated planning of the query and
- * pass the column values(in case of an INSERT) and ctid & xc_node_id
- * (in case of UPDATE/DELETE) as parameters while executing the query.
- *
- * Parameters:
- * resultRemoteRel:  The RemoteQueryState containing DML statement to be
- *					 executed
- * sourceDataSlot: The tuple returned by the first step (described above)
- *					 to be used as parameters in the second step.
- * newDataSlot: This has all the junk attributes stripped off from
- *				sourceDataSlot, plus BEFORE triggers may have modified the
- *				originally fetched data values. In other words, this has
- *				the final values that are to be sent to datanode through BIND.
- *
- * Returns the result of RETURNING clause if any
- */
-TupleTableSlot *
-ExecProcNodeDMLInXC(EState *estate,
-					TupleTableSlot *sourceDataSlot,
-					TupleTableSlot *newDataSlot)
+static inline int
+GetPlanUsingMaxAttno(RemoteDMLState *rdml, int ctid, int tableoid)
 {
-#warning TODO rewrite function ExecProcNodeDMLInXC
-	ereport(ERROR,
-			errmsg("not finish yet fro remote DML"));
-#if 0
-	ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
-	RemoteQueryState *resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
-	ExprContext	*econtext = resultRemoteRel->ss.ps.ps_ExprContext;
-	TupleTableSlot	*returningResultSlot = NULL;	/* RETURNING clause result */
-	TupleTableSlot	*temp_slot;
-	bool			dml_returning_on_replicated = false;
-	RemoteQuery		*step = (RemoteQuery *) resultRemoteRel->ss.ps.plan;
-	uint32			save_rqs_processed = 0;
+	int max_attnum;
+	Assert(AttributeNumberIsValid(ctid));
 
-	/*
-	 * If the tuple returned by the previous step was null,
-	 * simply return null tuple, no need to execute the DML
-	 */
-	if (TupIsNull(sourceDataSlot))
-		return NULL;
+	max_attnum = ctid;
+	if (AttributeNumberIsValid(tableoid) &&
+		tableoid > max_attnum)
+		max_attnum = tableoid;
 
-	/*
-	 * The current implementation of DMLs with RETURNING when run on replicated
-	 * tables returns row from one of the datanodes. In order to achieve this
-	 * ExecProcNode is repeatedly called saving one tuple and rejecting the rest.
-	 * Do we have a DML on replicated table with RETURNING?
-	 */
-	dml_returning_on_replicated = IsReturningDMLOnReplicatedTable(step);
+	if (AttributeNumberIsValid(rdml->wholeAttNo) &&
+		rdml->wholeAttNo > max_attnum)
+		max_attnum = rdml->wholeAttNo;
+	
+	if (AttributeNumberIsValid(rdml->nodeIdAttNo) &&
+		rdml->nodeIdAttNo > max_attnum)
+		max_attnum = rdml->nodeIdAttNo;
 
-	/*
-	 * Use data row returned by the previous step as parameter for
-	 * the DML to be executed in this step.
-	 */
-	SetDataRowForIntParams(resultRelInfo->ri_junkFilter,
-						   sourceDataSlot, newDataSlot, resultRemoteRel);
+	return max_attnum;
+}
 
-	/*
-	 * do_query calls get_exec_connections to determine target nodes
-	 * at execution time. The function get_exec_connections can decide
-	 * to evaluate en_expr to determine the target nodes. To evaluate en_expr,
-	 * ExecEvalVar is called which picks up values from ecxt_scantuple if Var
-	 * does not refer either OUTER or INNER varno. Hence we should copy the
-	 * tuple returned by previous step in ecxt_scantuple if econtext is set.
-	 * The econtext is set only when en_expr is set for execution time
-	 * determination of the target nodes.
-	 */
+Datum
+ExecGetRemoteModifyWholeRow(ModifyTableState *node, ResultRelInfo *resultRelInfo,
+							TupleTableSlot *planSlot, bool *isNull)
+{
+	int					index;
+	RemoteDMLState	   *rdml = node->rootResultRelInfo->ri_FdwState;
 
-	if (econtext)
-		econtext->ecxt_scantuple = newDataSlot;
+	if (!AttributeNumberIsValid(rdml->wholeAttNo))
+	{
+		*isNull = true;
+		return (Datum)0;
+	}
 
+	if (unlikely(rdml->max_attnum == InvalidAttrNumber))
+	{
+		rdml->max_attnum = GetPlanUsingMaxAttno(rdml,
+												resultRelInfo->ri_RowIdAttNo,
+												node->mt_resultOidAttno);
+	}
+	slot_getsomeattrs(planSlot, rdml->max_attnum);
+
+	index = rdml->wholeAttNo - 1;
+	*isNull = planSlot->tts_isnull[index];
+	return planSlot->tts_values[index];
+}
+
+static void
+GetRemoteOidUsingId(ExprState *state, ExprEvalStep *op, ExprContext *context)
+{
+	RemoteDMLState *rdml = op->d.cparam.paramarg;
+	TupleTableSlot *slot = context->ecxt_outertuple;
+	uint32			index = rdml->nodeIdAttNo - 1;
+
+	Assert(slot->tts_nvalid > index);
+	Assert(slot->tts_isnull[index] == false);
+	Assert(TupleDescAttr(slot->tts_tupleDescriptor, index)->atttypid == INT4OID);
+	*op->resvalue = get_pgxc_nodeoid_with_id(DatumGetInt32(slot->tts_values[index]));
+	*op->resnull = false;
+}
+
+TupleTableSlot*
+ExecRemoteModifyTable(ModifyTableState *node, ResultRelInfo *resultRelInfo,
+					  TupleTableSlot *slot, TupleTableSlot *planSlot)
+{
+	RemoteQueryState   *rqs = castNode(RemoteQueryState, node->mt_remoterel);
+	ExprContext		   *econtext = rqs->ss.ps.ps_ExprContext;
+	RemoteDMLState	   *rdml = node->rootResultRelInfo->ri_FdwState;
+	TupleConversionMap *map;
+	TupleTableSlot	   *temp_slot;
+	TupleTableSlot	   *returningResultSlot = rdml->result_slot;	/* RETURNING clause result */
+	int					i;
+	bool				returning_on_replicated = rdml->returning_on_replicated;
+
+	if (slot != NULL &&
+		(map = ExecGetChildToRootMap(resultRelInfo)) != NULL)
+	{
+		slot = execute_attr_map_slot(map->attrMap,
+									 slot,
+									 rdml->root_slot);
+	}
+
+	resetStringInfo(&rdml->param_buf);
+	appendBinaryStringInfoNT(&rdml->param_buf, &rdml->net_param_count, sizeof(rdml->net_param_count));
+	if (node->operation == CMD_INSERT ||
+		node->operation == CMD_UPDATE)
+	{
+		TupleDesc	desc = slot->tts_tupleDescriptor;
+		int			attr;
+
+		slot_getallattrs(slot);
+		for (i=attr=0;i<slot->tts_nvalid;++attr)
+		{
+			if (likely(TupleDescAttr(desc, attr)->attisdropped == false))
+			{
+				Assert(i < rqs->rqs_num_params);
+				Assert(TupleDescAttr(desc, attr)->atttypid == rqs->rqs_param_types[i]);
+				AppendDatumParam(&rdml->param_buf,
+								 &rdml->outFuncs[i++],
+								 slot->tts_values[attr],
+								 slot->tts_isnull[attr]);
+			}
+		}
+	}
+	if (node->operation == CMD_UPDATE ||
+		node->operation == CMD_DELETE)
+	{
+		if (unlikely(rdml->max_attnum == InvalidAttrNumber))
+		{
+			rdml->max_attnum = GetPlanUsingMaxAttno(rdml,
+													resultRelInfo->ri_RowIdAttNo,
+													node->mt_resultOidAttno);
+		}
+		slot_getsomeattrs(planSlot, rdml->max_attnum);
+
+		/* ctid */
+		Assert(i < rqs->rqs_num_params);
+		Assert(TupleDescAttr(planSlot->tts_tupleDescriptor, resultRelInfo->ri_RowIdAttNo-1)->atttypid == rqs->rqs_param_types[i]);
+		Assert(planSlot->tts_isnull[resultRelInfo->ri_RowIdAttNo-1] == false);
+		AppendDatumParam(&rdml->param_buf,
+						 &rdml->outFuncs[i++],
+						 planSlot->tts_values[resultRelInfo->ri_RowIdAttNo-1],
+						 false);
+
+		/* tableoid */
+		if (AttributeNumberIsValid(node->mt_resultOidAttno))
+		{
+			Assert(i < rqs->rqs_num_params);
+			Assert(TupleDescAttr(planSlot->tts_tupleDescriptor, node->mt_resultOidAttno-1)->atttypid == rqs->rqs_param_types[i]);
+			Assert(planSlot->tts_isnull[node->mt_resultOidAttno-1] == false);
+			AppendDatumParam(&rdml->param_buf,
+							 &rdml->outFuncs[i++],
+							 planSlot->tts_values[node->mt_resultOidAttno-1],
+							 false);
+		}
+	}
+	Assert(i == rqs->rqs_num_params);
+	rqs->paramval_data = rdml->param_buf.data;
+	rqs->paramval_len = rdml->param_buf.len;
+
+	econtext->ecxt_scantuple = slot;
+	econtext->ecxt_outertuple = planSlot;
 
 	/*
 	 * This loop would be required to reject tuples received from datanodes
@@ -855,44 +935,28 @@ ExecProcNodeDMLInXC(EState *estate,
 	 */
 	do
 	{
-		temp_slot = ExecProcNode((PlanState *)resultRemoteRel);
+		temp_slot = ExecProcNode((PlanState *)rqs);
 		if (!TupIsNull(temp_slot))
 		{
-			/* Have we already copied the returned tuple? */
-			if (returningResultSlot == NULL)
+			if (unlikely(returningResultSlot == NULL))
 			{
-				/* Copy the received tuple to be returned later */
-				returningResultSlot = MakeSingleTupleTableSlot(temp_slot->tts_tupleDescriptor, temp_slot->tts_ops);
-				returningResultSlot = ExecCopySlot(returningResultSlot, temp_slot);
+				EState		   *estate = node->ps.state;
+				MemoryContext	context = MemoryContextSwitchTo(GetMemoryChunkContext(estate));
+				returningResultSlot = ExecAllocTableSlot(&estate->es_tupleTable,
+														 temp_slot->tts_tupleDescriptor,
+														 temp_slot->tts_ops);
+				MemoryContextSwitchTo(context);
+				rdml->result_slot = returningResultSlot;
 			}
-			/* Clear the received tuple, the copy required has already been saved */
+			ExecCopySlot(returningResultSlot, temp_slot);
 			ExecClearTuple(temp_slot);
 		}
 		else
 		{
 			/* Null tuple received, so break the loop */
-			ExecClearTuple(temp_slot);
 			break;
 		}
-
-		/*
-		 * If we don't save rqs_processed, it will be assigned to 0 when enter
-		 * RemoteQueryNext(see more details) again, and when break the loop,
-		 * the caller will nerver get correct rqs_processed. See ExecInsert.
-		 *
-		 * eg.
-		 *		create table t1(id int, value int) distribute by replication.
-		 *		insert into t1 values(1,1),(2,2),(3,3) returning id;
-		 */
-		if (dml_returning_on_replicated &&
-			save_rqs_processed == 0 &&
-			resultRemoteRel->rqs_processed > 0)
-			save_rqs_processed = resultRemoteRel->rqs_processed;
-
-	} while (dml_returning_on_replicated);
-
-	if (dml_returning_on_replicated)
-		resultRemoteRel->rqs_processed = save_rqs_processed;
+	} while (returning_on_replicated);
 
 	/*
 	 * A DML can impact more than one row, e.g. an update without any where
@@ -901,10 +965,12 @@ ExecProcNodeDMLInXC(EState *estate,
 	 * the flag here and finish the DML being executed only when we return
 	 * NULL from ExecModifyTable
 	 */
-	resultRemoteRel->query_Done = false;
+	rqs->query_Done = false;
+
+	if (slot == rdml->root_slot)
+		ExecClearTuple(slot);
 
 	return returningResultSlot;
-#endif
 }
 
 /*
@@ -1188,8 +1254,16 @@ pgxc_rq_fire_bstriggers(RemoteQueryState *node)
 	{
 		Assert(rq->remote_query);
 		#warning TODO fire trigger
-		ereport(ERROR,
-				errmsg("TODO fire trigger"));
+		switch (rq->remote_query->commandType)
+		{
+		case CMD_INSERT:
+		case CMD_UPDATE:
+		case CMD_DELETE:
+			ereport(ERROR,
+					errmsg("TODO fire trigger"));
+		default:
+			break;
+		}
 #if 0
 		switch (rq->remote_query->commandType)
 		{
@@ -1225,8 +1299,16 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 	{
 		Assert(rq->remote_query);
 		#warning TODO fire trigger
-		ereport(ERROR,
-				errmsg("TODO fire trigger"));
+		switch (rq->remote_query->commandType)
+		{
+		case CMD_INSERT:
+		case CMD_UPDATE:
+		case CMD_DELETE:
+			ereport(ERROR,
+					errmsg("TODO fire trigger"));
+		default:
+			break;
+		}
 #if 0
 		switch (rq->remote_query->commandType)
 		{
@@ -1243,5 +1325,161 @@ pgxc_rq_fire_astriggers(RemoteQueryState *node)
 				break;
 		}
 #endif
+	}
+}
+
+void
+InitRemoteDML(ModifyTableState *node, ResultRelInfo *resultRelInfo)
+{
+	RemoteQueryState   *rqs = castNode(RemoteQueryState, node->mt_remoterel);
+	TupleDesc			desc = RelationGetDescr(resultRelInfo->ri_RelationDesc);
+	RemoteDMLState	   *rdml;
+	int					i;
+
+	if (resultRelInfo != node->rootResultRelInfo)
+		return;
+
+	rqs->rqs_num_params = 0;
+	switch (node->operation)
+	{
+	case CMD_INSERT:
+	case CMD_UPDATE:
+		rqs->rqs_num_params = desc->natts;
+		for (i=0;i<desc->natts;++i)
+		{
+			if (unlikely(TupleDescAttr(desc, i)->attisdropped))
+				--(rqs->rqs_num_params);
+		}
+		if (node->operation == CMD_INSERT)
+			break;
+		/* FALL THRU */
+	case CMD_DELETE:
+		++(rqs->rqs_num_params);		/* ctid */
+		if (AttributeNumberIsValid(node->mt_resultOidAttno))	/* for partiton table */
+			++(rqs->rqs_num_params);	/* tableoid */
+		break;
+	default:
+		ereport(ERROR,
+				errmsg("unknown DML operation %d", (int)node->operation));
+		break;
+	}
+	if (rqs->rqs_num_params > MaxAttrNumber)
+		ereport(ERROR,
+				errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+				errmsg("too many params fro remote DML"));
+
+	rqs->rqs_param_types = palloc(sizeof(rqs->rqs_param_types[0]) * rqs->rqs_num_params);
+	rdml = palloc0(SizeForRemoteDML(rqs->rqs_num_params));
+	rdml->net_param_count = htons((uint16)rqs->rqs_num_params);
+	i = 0;
+	if (node->operation == CMD_INSERT ||
+		node->operation == CMD_UPDATE)
+	{
+		int n = 0;
+		for (i=n=0;i<desc->natts;++n)
+		{
+			Form_pg_attribute attr = TupleDescAttr(desc, n);
+			if (!attr->attisdropped)
+				rqs->rqs_param_types[i++] = attr->atttypid;
+		}
+	}
+	if (node->operation == CMD_UPDATE ||
+		node->operation == CMD_DELETE)
+	{
+		rqs->rqs_param_types[i++] = SystemAttributeDefinition(SelfItemPointerAttributeNumber)->atttypid;
+		if (AttributeNumberIsValid(node->mt_resultOidAttno))
+			rqs->rqs_param_types[i++] = REGCLASSOID;/* partition table */
+
+		rdml->nodeIdAttNo = ExecFindJunkAttributeInTlist(outerPlan(node->ps.plan)->targetlist,
+														 "xc_node_id");
+		if (!AttributeNumberIsValid(rdml->nodeIdAttNo))
+			elog(ERROR, "could not find junk xc_node_id column");
+
+		rdml->wholeAttNo = ExecFindJunkAttributeInTlist(outerPlan(node->ps.plan)->targetlist,
+														 "wholerow");
+		if (node->operation == CMD_UPDATE &&
+			!AttributeNumberIsValid(rdml->nodeIdAttNo))
+			elog(ERROR, "could not find junk wholerow column");
+
+		rdml->max_attnum = InvalidAttrNumber;
+
+		/* init reduce expr state */
+		rqs->reduce_state = ExecInitNodeOidReduceExpr(GetRemoteOidUsingId, rdml);
+	}
+	Assert(i == rqs->rqs_num_params);
+
+	while (i>0)
+	{
+		--i;
+		InitOutFuncCallData(&rdml->outFuncs[i], rqs->rqs_param_types[i]);
+	}
+
+	rdml->root_slot = ExecAllocTableSlot(&node->ps.state->es_tupleTable,
+										 RelationGetDescr(resultRelInfo->ri_RelationDesc),
+										 &TTSOpsVirtual);
+	initStringInfo(&rdml->param_buf);
+
+	/*
+	 * The current implementation of DMLs with RETURNING when run on replicated
+	 * tables returns row from one of the datanodes. In order to achieve this
+	 * ExecProcNode is repeatedly called saving one tuple and rejecting the rest.
+	 * Do we have a DML on replicated table with RETURNING?
+	 */
+	if (castNode(ModifyTable, node->ps.plan)->returningLists != NIL &&
+		IsRelationReplicated(RelationGetLocInfo(resultRelInfo->ri_RelationDesc)))
+		rdml->returning_on_replicated = true;
+	else
+		rdml->returning_on_replicated = false;
+
+	resultRelInfo->ri_FdwState = rdml;
+}
+
+void
+EndRemoteDML(ModifyTableState *node, ResultRelInfo *resultRelInfo)
+{
+	if (resultRelInfo->ri_FdwState)
+	{
+		RemoteDMLState *rdml = resultRelInfo->ri_FdwState;
+		pfree(rdml->param_buf.data);
+		pfree(resultRelInfo->ri_FdwState);
+		resultRelInfo->ri_FdwState = NULL;
+	}
+}
+
+void
+InitOutFuncCallData(OutFuncCallData *out, Oid typoid)
+{
+	Oid		typOutput;
+	bool	isVarlean;
+
+	getTypeOutputInfo(typoid, &typOutput, &isVarlean);
+	fmgr_info(typOutput, &out->flinfo);
+	InitFunctionCallInfoData(out->fcinfo, &out->flinfo, 1, InvalidOid, NULL, NULL);
+	out->fcinfo.args[0].isnull = false;
+}
+
+static inline void
+AppendDatumParam(StringInfo buf, OutFuncCallData *out, Datum datum, bool isnull)
+{
+	uint32	n32,len;
+	char   *str;
+	if (isnull)
+	{
+		n32 = htonl(-1);
+		appendBinaryStringInfoNT(buf, (char*)&n32, sizeof(n32));
+	}else
+	{
+		out->fcinfo.args[0].value = datum;
+		Assert(out->fcinfo.args[0].isnull == false);
+		str = (char*)FunctionCallInvoke(&out->fcinfo);
+		if (unlikely(out->fcinfo.isnull))
+			ereport(ERROR,
+					errmsg("function %u returned NULL", out->flinfo.fn_oid));
+
+		len = strlen(str);
+		n32 = htonl(len);
+		appendBinaryStringInfoNT(buf, (char*)&n32, sizeof(n32));
+		appendBinaryStringInfoNT(buf, str, len);
+		pfree(str);
 	}
 }

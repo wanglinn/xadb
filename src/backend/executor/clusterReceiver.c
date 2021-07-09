@@ -17,6 +17,7 @@
 #include "nodes/nodeFuncs.h"
 #include "storage/ipc.h"
 #include "tcop/dest.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
 #include <time.h>
@@ -500,7 +501,9 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 			buf.cursor += sizeof(int32);
 			/* load oid type */
 			oid = load_oid_type(&buf);
-			if(oid != TupleDescAttr(desc, i)->atttypid)
+			if (oid != TupleDescAttr(desc, i)->atttypid &&
+				!(TupleDescAttr(desc, i)->atttypid == RECORDOID &&
+				  get_typtype(oid) == TYPTYPE_COMPOSITE))
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_DATA_CORRUPTED),

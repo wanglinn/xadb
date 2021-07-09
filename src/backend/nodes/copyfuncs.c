@@ -229,7 +229,7 @@ _copyModifyTable(const ModifyTable *from)
 	COPY_SCALAR_FIELD(exclRelRTI);
 	COPY_NODE_FIELD(exclRelTlist);
 #ifdef ADB
-	COPY_NODE_FIELD(remote_plans);
+	COPY_NODE_FIELD(remote_plan);
 	COPY_NODE_FIELD(resultAttnos);
 	COPY_NODE_FIELD(param_new);
 	COPY_NODE_FIELD(param_old);

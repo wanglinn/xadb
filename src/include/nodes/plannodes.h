@@ -241,7 +241,7 @@ typedef struct ModifyTable
 	Index		exclRelRTI;		/* RTI of the EXCLUDED pseudo relation */
 	List	   *exclRelTlist;	/* tlist of the EXCLUDED pseudo relation */
 #ifdef ADB
-	List	   *remote_plans;	/* per-target-table remote node */
+	struct RemoteQuery *remote_plan;	/* per-target-table remote node */
 	List	   *resultAttnos;	/* IntList(s) for tuplestore save */
 	List	   *param_new;		/* tuplesave to param for new tuple */
 	List	   *param_old;		/* tuplesave to param for old tuple */

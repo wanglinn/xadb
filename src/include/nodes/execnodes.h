@@ -1270,7 +1270,7 @@ typedef struct ModifyTableState
 	/* controls transition table population for INSERT...ON CONFLICT UPDATE */
 	struct TransitionCaptureState *mt_oc_transition_capture;
 #ifdef ADB
-	PlanState **mt_remoterels;	/* per-target remote query node */
+	PlanState *mt_remoterel;	/* per-target remote query node */
 #endif
 } ModifyTableState;
 

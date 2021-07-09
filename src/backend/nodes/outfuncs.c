@@ -426,7 +426,7 @@ _outModifyTable(StringInfo str, const ModifyTable *node)
 	WRITE_UINT_FIELD(exclRelRTI);
 	WRITE_NODE_FIELD(exclRelTlist);
 #ifdef ADB
-	WRITE_NODE_FIELD(remote_plans);
+	WRITE_NODE_FIELD(remote_plan);
 	WRITE_NODE_FIELD(resultAttnos);
 	WRITE_NODE_FIELD(param_new);
 	WRITE_NODE_FIELD(param_old);

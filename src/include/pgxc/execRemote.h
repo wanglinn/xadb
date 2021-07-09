@@ -115,8 +115,13 @@ extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt)
 
 extern void SetDataRowForExtParams(ParamListInfo params, RemoteQueryState *rq_state);
 
-/* Flags related to temporary objects included in query */
-extern TupleTableSlot * ExecProcNodeDMLInXC(EState *estate, TupleTableSlot *sourceDataSlot, TupleTableSlot *newDataSlot);
+extern void InitRemoteDML(ModifyTableState *node, ResultRelInfo *resultRelInfo);
+extern void EndRemoteDML(ModifyTableState *node, ResultRelInfo *resultRelInfo);
+
+extern Datum ExecGetRemoteModifyWholeRow(ModifyTableState *node, ResultRelInfo *resultRelInfo,
+										 TupleTableSlot *planSlot, bool *isNull);
+extern TupleTableSlot* ExecRemoteModifyTable(ModifyTableState *node, ResultRelInfo *resultRelInfo,
+											 TupleTableSlot *slot, TupleTableSlot *planSlot);
 
 extern void AtEOXact_DBCleanup(bool isCommit);
 

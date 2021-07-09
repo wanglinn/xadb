@@ -878,6 +878,33 @@ add_row_identity_columns(PlannerInfo *root, Index rtindex,
 					  InvalidOid,
 					  0);
 		add_row_identity_var(root, var, rtindex, "ctid");
+#ifdef ADB
+		if (RelationGetLocInfo(target_relation) != NULL)
+		{
+			var = makeVar(rtindex,
+						  XC_NodeIdAttributeNumber,
+						  INT4OID,
+						  -1,
+						  InvalidOid,
+						  0);
+			add_row_identity_var(root, var, rtindex, "xc_node_id");
+
+			/* like foreign table, we need wholerow */
+			if (commandType == CMD_UPDATE ||
+				(target_relation->trigdesc &&
+				 (target_relation->trigdesc->trig_delete_after_row ||
+				  target_relation->trigdesc->trig_delete_before_row)))
+			{
+				var = makeVar(rtindex,
+							  InvalidAttrNumber,
+							  RECORDOID,
+							  -1,
+							  InvalidOid,
+							  0);
+				add_row_identity_var(root, var, rtindex, "wholerow");
+			}
+		}
+#endif /* ADB */
 	}
 	else if (relkind == RELKIND_FOREIGN_TABLE)
 	{

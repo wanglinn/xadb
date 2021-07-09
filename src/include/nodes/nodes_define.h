@@ -262,7 +262,7 @@ BEGIN_NODE(ModifyTable)
 	NODE_SCALAR(Index,exclRelRTI)
 	NODE_NODE(List,exclRelTlist)
 #ifdef ADB
-	NODE_NODE(List,remote_plans)
+	NODE_NODE(RemoteQuery,remote_plan)
 	NODE_NODE(List,resultAttnos)
 	NODE_NODE(List,param_new)
 	NODE_NODE(List,param_old)

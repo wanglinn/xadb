@@ -660,10 +660,6 @@ ExecInsert(ModifyTableState *mtstate,
 	OnConflictAction onconflict = node->onConflictAction;
 	PartitionTupleRouting *proute = mtstate->mt_partition_tuple_routing;
 	MemoryContext oldContext;
-#ifdef ADB
-	TupleTableSlot *parentSlot = NULL;
-	RemoteQueryState  *resultRemoteRel = NULL;
-#endif
 
 	/*
 	 * If the input result relation is a partitioned table, find the leaf
@@ -692,7 +688,6 @@ ExecInsert(ModifyTableState *mtstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					errmsg("cannot route inserted tuples to a has auxiliary table")));
-	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 #endif
 
 	/*
@@ -881,75 +876,12 @@ ExecInsert(ModifyTableState *mtstate,
 			ExecPartitionCheck(resultRelInfo, slot, estate, true);
 
 #ifdef ADB
-		#warning TODO change code
-#if 0
-		if (IsCnNode() && resultRemoteRel)
+		if (mtstate->mt_remoterel &&
+			RelationGetLocInfo(resultRelationDesc) != NULL)
 		{
-			TupleTableSlot *saveSlot = NULL;
-			TupleTableSlot *tmpSlot = NULL;
-
-			saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
-			saveSlot = ExecCopySlot(saveSlot, slot);
-
-			/* get the top partition relation slot */
-			if (resultRelInfo->ri_PartitionInfo &&
-				resultRelInfo->ri_PartitionInfo->pi_RootToPartitionMap)
-			{
-				PartitionRoutingInfo *partrouteinfo = resultRelInfo->ri_PartitionInfo;
-				/* maybe not create */
-				if (partrouteinfo->pi_PartitionToRootMap == NULL)
-				{
-					/* like ExecInitRoutingInfo */
-					MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(partrouteinfo->pi_RootToPartitionMap));
-					partrouteinfo->pi_PartitionToRootMap = convert_tuples_by_name(RelationGetDescr(resultRelInfo->ri_RelationDesc),
-																				  RelationGetDescr(resultRelInfo->ri_PartitionRoot));
-					MemoryContextSwitchTo(oldcontext);
-				}
-
-				parentSlot = MakeSingleTupleTableSlot(RelationGetDescr(resultRelInfo->ri_PartitionRoot), &TTSOpsVirtual);
-				execute_attr_map_slot(partrouteinfo->pi_PartitionToRootMap->attrMap,
-									  slot,
-									  parentSlot);
-			}
-
-			if (parentSlot)
-			{
-				tmpSlot = ExecProcNodeDMLInXC(estate, planSlot, parentSlot);
-				ExecDropSingleTupleTableSlot(parentSlot);
-			}
-			else
-				tmpSlot = ExecProcNodeDMLInXC(estate, planSlot, slot);
-
-			if (TupIsNull(tmpSlot))
-				slot = ExecCopySlot(slot, saveSlot);
-			else
-			{
-				Form_pg_attribute	atts = slot->tts_tupleDescriptor->attrs;
-				int					natts = slot->tts_tupleDescriptor->natts;
-				slot				= tmpSlot;
-
-				ItemPointerSetInvalid(&slot->tts_tid);
-				/* Make sure the tuple is fully deconstructed */
-				slot_getallattrs(slot);
-
-				/* we have returning slot, try to find "ctid" and "xc_node_id" */
-				while (natts-- > 0)
-				{
-					/* mark "ctid" of tuple */
-					if (namestrcmp(&(atts[natts].attname), "ctid") == 0 &&
-						!slot->tts_isnull[natts])
-					{
-						ItemPointerCopy(DatumGetItemPointer(slot->tts_values[natts]),
-										&(slot->tts_tid));
-						break;
-					}
-				}
-			}
-			if (saveSlot)
-				ExecDropSingleTupleTableSlot(saveSlot);
+			slot = ExecRemoteModifyTable(mtstate, resultRelInfo, slot, planSlot);
 		}
 		else
-#endif /* change code */
 		{
 #endif
 		if (onconflict != ONCONFLICT_NONE && resultRelInfo->ri_NumIndices > 0)
@@ -1087,14 +1019,7 @@ ExecInsert(ModifyTableState *mtstate,
 	}
 
 	if (canSetTag)
-	{
-#ifdef ADB
-		if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
-		else
-#endif
 		(estate->es_processed)++;
-	}
 
 #ifdef ADB
 	if (resultRelInfo->ri_new_proj_ts)
@@ -1262,15 +1187,11 @@ ExecDelete(ModifyTableState *mtstate,
 	TM_FailureData tmfd;
 	TupleTableSlot *slot = NULL;
 	TransitionCaptureState *ar_delete_trig_tcs;
-#ifdef ADB
-	RemoteQueryState  *resultRemoteRel;
-#endif
 
 	if (tupleDeleted)
 		*tupleDeleted = false;
 
 #ifdef ADB
-	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 	if (resultRelationDesc == NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -1341,7 +1262,8 @@ ExecDelete(ModifyTableState *mtstate,
 		 */
 ldelete:;
 #ifdef ADB
-		if (IsCnNode() && resultRemoteRel)
+		if (mtstate->mt_remoterel &&
+			RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
 		{
 			/*
 			* Pass in the source plan slot, we may attributes other than ctid
@@ -1354,7 +1276,7 @@ ldelete:;
 			* delete from t2 where a = 1;
 			* ERROR:  operator does not exist: tid = integer
 			*/
-			slot = ExecProcNodeDMLInXC(estate, planSlot, pslot);
+			slot = ExecRemoteModifyTable(mtstate, resultRelInfo, NULL, planSlot);
 		}
 		else
 		{
@@ -1530,16 +1452,7 @@ ldelete:;
 	}
 
 	if (canSetTag)
-#ifdef ADB
-	{
-	if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
-		else
-#endif
 		(estate->es_processed)++;
-#ifdef ADB
-	}
-#endif
 
 #ifdef ADB
 	if (resultRelInfo->ri_old_proj_ts)
@@ -1615,12 +1528,9 @@ ldelete:;
 			Assert(!TupIsNull(slot));
 		}
 #ifdef ADB
-		else if (IsCnNode() && resultRemoteRel)
+		else if (mtstate->mt_remoterel && RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
 		{
-			if (TupIsNull(slot))
-				return NULL;
-
-			return ExecProcessReturning(resultRelInfo, slot, planSlot);
+			Assert(!TupIsNull(slot));
 		}
 #endif
 		else
@@ -1857,9 +1767,6 @@ ExecUpdate(ModifyTableState *mtstate,
 	TM_Result	result;
 	TM_FailureData tmfd;
 	List	   *recheckIndexes = NIL;
-#ifdef ADB
-	RemoteQueryState  *resultRemoteRel = NULL;
-#endif
 
 	/*
 	 * abort the operation if not running transactions
@@ -1872,8 +1779,6 @@ ExecUpdate(ModifyTableState *mtstate,
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("can not update for a not exist relation")));
-
-	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
 
 	/*
 	* For remote tables, the plan slot does not have all NEW tuple values in
@@ -2017,8 +1922,8 @@ lreplace:;
 			bool		retry;
 
 #ifdef ADB
-			if (IsCnNode() &&
-				resultRemoteRel)
+			if (mtstate->mt_remoterel &&
+				RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2056,22 +1961,10 @@ lreplace:;
 			ExecConstraints(resultRelInfo, slot, estate);
 
 #ifdef ADB
-		if (IsCnNode() && resultRemoteRel)
+		if (mtstate->mt_remoterel &&
+			RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
 		{
-			TupleTableSlot *saveSlot = NULL;
-
-			saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
-			saveSlot = ExecCopySlot(saveSlot, slot);
-
-			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
-
-			if (TupIsNull(slot))
-				slot = saveSlot;
-			else
-			{
-				if (saveSlot)
-					ExecDropSingleTupleTableSlot(saveSlot);
-			}
+			slot = ExecRemoteModifyTable(mtstate, resultRelInfo, slot, planSlot);
 		}
 		else
 		{
@@ -2244,16 +2137,7 @@ lreplace:;
 	}
 
 	if (canSetTag)
-#ifdef ADB
-	{
-	if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
-		else
-#endif
-			(estate->es_processed)++;
-#ifdef ADB
-	}
-#endif
+		(estate->es_processed)++;
 
 #ifdef ADB
 	if (resultRelInfo->ri_old_proj_ts)
@@ -2722,8 +2606,6 @@ ExecModifyTable(PlanState *pstate)
 	List	   *relinfos = NIL;
 	ListCell   *lc;
 #ifdef ADB
-	PlanState  *remoterelstate;
-	PlanState  *saved_resultRemoteRel;
 	RemoteQuery*step = NULL;
 	uint32		oldtupxcid = 0;
 	#warning TODO change code
@@ -2871,6 +2753,32 @@ ExecModifyTable(PlanState *pstate)
 				tupleid = (ItemPointer) DatumGetPointer(datum);
 				tuple_ctid = *tupleid;	/* be sure we don't free ctid!! */
 				tupleid = &tuple_ctid;
+#ifdef ADB
+				if (node->mt_remoterel &&
+					RelationGetLocatorType(resultRelInfo->ri_RelationDesc))
+				{
+					TriggerDesc *trigdesc = resultRelInfo->ri_RelationDesc->trigdesc;
+					datum = ExecGetRemoteModifyWholeRow(node, resultRelInfo, slot, &isNull);
+					if (isNull == false)
+					{
+						oldtupdata.t_data = DatumGetHeapTupleHeader(datum);
+						oldtupdata.t_len = HeapTupleHeaderGetDatumLength(oldtupdata.t_data);
+						oldtupdata.t_self = tuple_ctid;
+						/* Historically, view triggers see invalid t_tableOid. */
+						oldtupdata.t_tableOid =
+							(relkind == RELKIND_VIEW) ? InvalidOid :
+							RelationGetRelid(resultRelInfo->ri_RelationDesc);
+
+						oldtuple = &oldtupdata;
+					}else if(operation == CMD_UPDATE ||
+							 (trigdesc &&
+							 (trigdesc->trig_delete_after_row ||
+							  trigdesc->trig_delete_before_row)))
+					{
+						elog(ERROR, "wholerow is NULL from remote");
+					}
+				}
+#endif /* ADB */
 			}
 
 			/*
@@ -2915,10 +2823,6 @@ ExecModifyTable(PlanState *pstate)
 				Assert(relkind == RELKIND_FOREIGN_TABLE);
 			}
 		}
-
-#ifdef ADB
-		estate->es_result_remoterel = remoterelstate;
-#endif
 
 		switch (operation)
 		{
@@ -3125,6 +3029,11 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	mtstate->resultRelInfo = (ResultRelInfo *)
 		palloc(nrels * sizeof(ResultRelInfo));
 
+#ifdef ADB
+	if (node->remote_plan)
+		mtstate->mt_remoterel = ExecInitNode((Plan*)node->remote_plan, estate, eflags);
+#endif /* ADB */
+
 	/*----------
 	 * Resolve the target relation. This is the same as:
 	 *
@@ -3144,6 +3053,10 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		mtstate->rootResultRelInfo = makeNode(ResultRelInfo);
 		ExecInitResultRelation(estate, mtstate->rootResultRelInfo,
 							   node->rootRelation);
+#ifdef ADB
+		if (mtstate->mt_remoterel)
+			InitRemoteDML(mtstate, mtstate->rootResultRelInfo);
+#endif /* ADB */
 	}
 	else
 	{
@@ -3272,6 +3185,14 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 					elog(ERROR, "could not find junk wholerow column");
 			}
 		}
+#ifdef ADB
+		if (mtstate->mt_remoterel &&
+			RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
+		{
+			Assert(mtstate->mt_remoterel != NULL);
+			InitRemoteDML(mtstate, resultRelInfo);
+		}
+#endif /* ADB */
 	}
 
 	/*
@@ -3299,9 +3220,6 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		mtstate->mt_partition_tuple_routing =
 			ExecSetupPartitionTupleRouting(estate, rel);
 
-#ifdef ADB
-not_exists_rel_:
-#endif /* ADB */
 	/*
 	 * Initialize any WITH CHECK OPTION constraints if needed.
 	 */
@@ -3591,6 +3509,12 @@ ExecEndModifyTable(ModifyTableState *node)
 			resultRelInfo->ri_FdwRoutine->EndForeignModify != NULL)
 			resultRelInfo->ri_FdwRoutine->EndForeignModify(node->ps.state,
 														   resultRelInfo);
+
+#ifdef ADB
+		if (node->mt_remoterel &&
+			RelationGetLocInfo(resultRelInfo->ri_RelationDesc) != NULL)
+			EndRemoteDML(node, resultRelInfo);
+#endif /* ADB */
 
 		/*
 		 * Cleanup the initialized batch slots. This only matters for FDWs

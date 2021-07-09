@@ -456,8 +456,8 @@ HandleStartRemoteQuery(NodeHandle *handle, RemoteQueryState *node)
 		bool	send_desc = false;
 
 		if (step->base_tlist != NULL ||
-			step->exec_nodes->accesstype == RELATION_ACCESS_READ ||
-			step->has_row_marks)
+			step->has_row_marks ||
+			(step->exec_nodes && step->exec_nodes->accesstype == RELATION_ACCESS_READ))
 			send_desc = true;
 
 		/* if prepared statement is referenced see if it is already exist */

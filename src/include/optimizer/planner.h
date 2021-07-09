@@ -58,4 +58,11 @@ extern Path *get_cheapest_fractional_path(RelOptInfo *rel,
 
 extern Expr *preprocess_phv_expression(PlannerInfo *root, Expr *expr);
 
+#ifdef ADB
+extern char get_rel_distribute_type(PlannerInfo *root, Index relid);
+#define is_remote_relation(root, relid) \
+	(get_rel_distribute_type(root, relid) != LOCATOR_TYPE_INVALID)
+extern bool rti_is_base_rel(PlannerInfo *root, Index rti);
+#endif /* ADB */
+
 #endif							/* PLANNER_H */

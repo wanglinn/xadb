@@ -3922,6 +3922,13 @@ get_pgxc_nodeoid(const char *nodename)
 						   PointerGetDatum(nodename));
 }
 
+Oid
+get_pgxc_nodeoid_with_id(int32 nodeid)
+{
+	return GetSysCacheOid1(PGXCNODEIDENTIFIER, Anum_pgxc_node_oid,
+						   Int32GetDatum(nodeid));
+}
+
 /*
  * get_pgxc_nodename
  *		Get node name for given Oid

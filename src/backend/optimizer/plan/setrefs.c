@@ -30,6 +30,7 @@
 #ifdef ADB
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/planner.h"
 #endif
 
 
@@ -1028,7 +1029,6 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			{
 				ModifyTable *splan = (ModifyTable *) plan;
 #ifdef ADB
-				int n = 0;
 				List	*firstRetList = NULL;	/* First returning list required for
 												 * setting up visible plan target list
 												 */
@@ -1047,6 +1047,37 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 					Plan	   *subplan = outerPlan(splan);
 					ListCell   *lcrl,
 							   *lcrr;
+#ifdef ADB
+					List	   *remote_rlist;
+
+					if (splan->remote_plan != NULL)
+					{
+						/*
+						 * Set references of returning clause by adjusting
+						 * varno/varattno according to target list in
+						 * remote query node
+						 */
+						remote_rlist = set_remote_returning_refs(root,
+																 linitial(splan->returningLists),
+																 (Plan *)splan->remote_plan,
+																 splan->remote_plan->scan.scanrelid,
+																 rtoffset);
+						remote_rlist = set_returning_clause_references(root,
+																	   remote_rlist,
+																	   subplan,
+																	   splan->remote_plan->scan.scanrelid,
+																	   rtoffset);
+						/*
+						 * Set up first returning list before we change
+						 * var references to point to RTE_REMOTE_DUMMY
+						 */
+						firstRetList = set_returning_clause_references(root,
+																	   linitial(splan->returningLists),
+																	   subplan,
+																	   linitial_int(splan->resultRelations),
+																	   rtoffset);
+					}
+#endif /* ADB */
 
 					/*
 					 * Pass each per-resultrel returningList through
@@ -1060,49 +1091,14 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 						Index		resultrel = lfirst_int(lcrr);
 
 #ifdef ADB
-#warning TODO change rmote ModifyTable
-#if 0
-						RemoteQuery	*rq = NULL;
-
-						if (n == 0)
+						if (IsCnMaster() &&
+							splan->remote_plan &&
+							rti_is_base_rel(root, resultrel) &&
+							is_remote_relation(root, resultrel))
 						{
-							/*
-							 * Set up first returning list before we change
-							 * var references to point to RTE_REMOTE_DUMMY
-							 */
-							firstRetList = set_returning_clause_references(root,
-																	rlist,
-																	subplan,
-																	resultrel,
-																	rtoffset);
-							/* Restore the returning list changed by the above call */
-							rlist = (List *) lfirst(lcrl);
+							newRL = lappend(newRL, copyObject(remote_rlist));
+							continue;
 						}
-
-						if (splan->remote_plans)
-							rq = (RemoteQuery *)list_nth(splan->remote_plans, n);
-						n++;
-
-						if(rq != NULL && IsCnMaster())
-						{
-							/*
-							 * Set references of returning clause by adjusting
-							 * varno/varattno according to target list in
-							 * remote query node
-							 */
-							rlist = set_remote_returning_refs(root,
-											rlist,
-											(Plan *)rq,
-											rq->scan.scanrelid,
-											rtoffset);
-							/*
-							 * The next call to set_returning_clause_references
-							 * should skip the vars already taken care of by
-							 * the above call to set_remote_returning_refs
-							 */
-							resultrel = rq->scan.scanrelid;
-						}
-#endif
 #endif /* ADB */
 
 						rlist = set_returning_clause_references(root,
@@ -1122,7 +1118,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 					 * We therefore create a list before fixing
 					 * remote returning references and use that here.
 					 */
-					splan->plan.targetlist = copyObject(firstRetList);
+					splan->plan.targetlist = firstRetList ? firstRetList : copyObject(linitial(newRL));
 #else
 					/*
 					 * Set up the visible plan targetlist as being the same as
@@ -1199,42 +1195,36 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 									splan->rootRelation);
 				}
 #ifdef ADB
-#warning TODO change remote ModifyTable
-#if 0
 				/* Adjust references of remote query nodes in ModifyTable node */
-				if(IsCnMaster())
+				if(splan->remote_plan)
 				{
-					ListCell *elt;
-					RemoteQuery *rq;
+					RemoteQuery *rq = splan->remote_plan;
 
-					foreach(elt, splan->remote_plans)
+					/*
+					 * If base_tlist is set, it means that we have a reduced remote
+					 * query plan. So need to set the var references accordingly.
+					 */
+					if (rq->base_tlist)
+						set_remote_references(root, rq, rtoffset);
+					rq->scan.plan.targetlist = fix_scan_list(root,
+															 rq->scan.plan.targetlist,
+															 rtoffset,
+															 1);
+					rq->scan.plan.qual = fix_scan_list(root,
+													   rq->scan.plan.qual,
+													   rtoffset,
+													   1);
+					rq->base_tlist = fix_scan_list(root, rq->base_tlist, rtoffset, 1);
+					rq->scan.scanrelid += rtoffset;
+
+					/* If en_expr is set, it means that we have a remote query plan without reduced.
+					*  So need to set the var refereneces accordingly.
+					*/
+					if(rq->exec_nodes)
 					{
-						rq = (RemoteQuery *) lfirst(elt);
-						/*
-						 * If base_tlist is set, it means that we have a reduced remote
-						 * query plan. So need to set the var references accordingly.
-						 */
-						if (rq->base_tlist)
-							set_remote_references(root, rq, rtoffset);
-						rq->scan.plan.targetlist = fix_scan_list(root,
-													rq->scan.plan.targetlist,
-													rtoffset);
-						rq->scan.plan.qual = fix_scan_list(root,
-															rq->scan.plan.qual,
-															rtoffset);
-						rq->base_tlist = fix_scan_list(root, rq->base_tlist, rtoffset);
-						rq->scan.scanrelid += rtoffset;
-
-						/* If en_expr is set, it means that we have a remote query plan without reduced.
-						*  So need to set the var refereneces accordingly.
-						*/
-						if(rq->exec_nodes)
-						{
-							rq->exec_nodes->en_expr = fix_scan_list(root, rq->exec_nodes->en_expr, rtoffset);
-						}
+						rq->exec_nodes->en_expr = fix_scan_list(root, rq->exec_nodes->en_expr, rtoffset, 1);
 					}
 				}
-#endif
 #endif /* ADB */
 			}
 			break;
@@ -3687,21 +3677,21 @@ set_remote_references(PlannerInfo *root, RemoteQuery *rscan, int rtoffset)
 
 static List *
 set_remote_returning_refs(PlannerInfo *root,
-				List *rlist,
-				Plan *topplan,
-				Index relid,
-				int rtoffset)
+						  List *rlist,
+						  Plan *topplan,
+						  Index relid,
+						  int rtoffset)
 {
 	indexed_tlist	*base_itlist;
 
 	base_itlist = build_tlist_index(topplan->targetlist);
 
 	rlist = fix_remote_expr(root,
-				rlist,
-				base_itlist,
-				relid,
-				rtoffset,
-				true);
+							rlist,
+							base_itlist,
+							relid,
+							rtoffset,
+							true);
 
 	pfree(base_itlist);
 

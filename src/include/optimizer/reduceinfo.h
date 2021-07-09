@@ -1,6 +1,7 @@
 #ifndef REDUCEINFO_H
 #define REDUCEINFO_H
 
+#include "executor/execExpr.h"
 #include "nodes/pathnodes.h"
 
 #define REDUCE_TYPE_NONE		'\0'
@@ -249,6 +250,8 @@ extern Expr *CreateNodeOidEqualOid(Oid nodeoid);
 extern Expr *CreateNodeOidEqualExpr(Expr *expr);
 extern Expr *CreateNodeOidNotEqualOid(Oid nodeoid);
 extern bool EqualReduceExpr(Expr *left, Expr *right);
+
+extern struct ReduceExprState* ExecInitNodeOidReduceExpr(ExecEvalSubroutine callback, void *data);
 
 /* in outobject.c */
 extern char *printReduceInfo(ReduceInfo *rinfo);

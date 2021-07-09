@@ -1732,7 +1732,7 @@ _readModifyTable(void)
 	READ_NODE_FIELD(exclRelTlist);
 
 #ifdef ADB
-	READ_NODE_FIELD(remote_plans);
+	READ_NODE_FIELD(remote_plan);
 	READ_NODE_FIELD(resultAttnos);
 	READ_NODE_FIELD(param_new);
 	READ_NODE_FIELD(param_old);
