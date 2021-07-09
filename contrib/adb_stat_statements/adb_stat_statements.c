@@ -1152,71 +1152,80 @@ static void adbssStoreToDsa(QueryDesc *queryDesc)
 
 		SpinLockAcquire(&e->mutex);
 
-		e->counters.calls += 1;
-		e->counters.rows += queryDesc->estate->es_processed;
-		if (queryDesc->totaltime)
+		PG_TRY();
 		{
-			totalTime = queryDesc->totaltime->total * 1000.0; /* convert to msec */
-			e->counters.total_time += totalTime;
-			if (e->counters.calls == 1)
+			e->counters.calls += 1;
+			e->counters.rows += queryDesc->estate->es_processed;
+			if (queryDesc->totaltime)
 			{
-				e->counters.min_time = totalTime;
-				e->counters.max_time = totalTime;
-				e->counters.mean_time = totalTime;
-			}
-			else
-			{
-				/* calculate min and max time */
-				if (e->counters.min_time > totalTime)
-					e->counters.min_time = totalTime;
-				if (e->counters.max_time < totalTime)
+				totalTime = queryDesc->totaltime->total * 1000.0; /* convert to msec */
+				e->counters.total_time += totalTime;
+				if (e->counters.calls == 1)
 				{
+					e->counters.min_time = totalTime;
 					e->counters.max_time = totalTime;
-					updateSavedPlan = true;
+					e->counters.mean_time = totalTime;
 				}
-				tempTime = e->counters.mean_time;
-				e->counters.mean_time +=
-					(totalTime - tempTime) / e->counters.calls;
-			}
-		}
-		else
-		{
-			if (e->counters.calls == 1)
-			{
-				e->counters.total_time = 0;
-				e->counters.min_time = 0;
-				e->counters.max_time = 0;
-				e->counters.mean_time = 0;
-			}
-		}
-
-		e->counters.last_execution = GetCurrentTimestamp();
-
-		if (updateSavedPlan && !omitSavePlan)
-		{
-			TupleDesc textTupleDesc;
-			MinimalTuple textTuple;
-			dsa_pointer dp;
-
-			textTupleDesc = form_adbss_text_tuple_desc();
-			textTuple = form_adbss_text_tuple(textTupleDesc, queryDesc, planString, omitSavePlan);
-
-			/* try to allocate dsa */
-			dp = dsa_allocate_extended(adbssDsaArea,
-									   textTuple->t_len,
-									   DSA_ALLOC_NO_OOM);
-			if (dp == InvalidDsaPointer)
-			{
-				/* out of memory */
+				else
+				{
+					/* calculate min and max time */
+					if (e->counters.min_time > totalTime)
+						e->counters.min_time = totalTime;
+					if (e->counters.max_time < totalTime)
+					{
+						e->counters.max_time = totalTime;
+						updateSavedPlan = true;
+					}
+					tempTime = e->counters.mean_time;
+					e->counters.mean_time +=
+						(totalTime - tempTime) / e->counters.calls;
+				}
 			}
 			else
 			{
-				freeTupleInDsa(entry);
-				saveTupleToDsa(entry, textTuple, dp);
+				if (e->counters.calls == 1)
+				{
+					e->counters.total_time = 0;
+					e->counters.min_time = 0;
+					e->counters.max_time = 0;
+					e->counters.mean_time = 0;
+				}
 			}
-			FreeTupleDesc(textTupleDesc);
-			heap_free_minimal_tuple(textTuple);
+
+			e->counters.last_execution = GetCurrentTimestamp();
+
+			if (updateSavedPlan && !omitSavePlan)
+			{
+				TupleDesc textTupleDesc;
+				MinimalTuple textTuple;
+				dsa_pointer dp;
+
+				textTupleDesc = form_adbss_text_tuple_desc();
+				textTuple = form_adbss_text_tuple(textTupleDesc, queryDesc, planString, omitSavePlan);
+
+				/* try to allocate dsa */
+				dp = dsa_allocate_extended(adbssDsaArea,
+										textTuple->t_len,
+										DSA_ALLOC_NO_OOM);
+				if (dp == InvalidDsaPointer)
+				{
+					/* out of memory */
+				}
+				else
+				{
+					freeTupleInDsa(entry);
+					saveTupleToDsa(entry, textTuple, dp);
+				}
+				FreeTupleDesc(textTupleDesc);
+				heap_free_minimal_tuple(textTuple);
+			}
 		}
+		PG_CATCH();
+		{
+			SpinLockRelease(&e->mutex);
+			PG_RE_THROW();
+		}
+		PG_END_TRY();
 
 		SpinLockRelease(&e->mutex);
 	}
@@ -1441,10 +1450,19 @@ static Datum ParamList2TextArr(const ParamListInfo from)
 		nulls[i] = prm->isnull;
 		if (prm->isnull == false)
 		{
-			getTypeOutputInfo(prm->ptype, &output, &isvarlean);
-			str = OidOutputFunctionCall(output, prm->value);
-			datums[i] = PointerGetDatum(cstring_to_text(str));
-			pfree(str);
+			PG_TRY();
+			{
+				getTypeOutputInfo(prm->ptype, &output, &isvarlean);
+				str = OidOutputFunctionCall(output, prm->value);
+				datums[i] = PointerGetDatum(cstring_to_text(str));
+				pfree(str);
+			}
+			PG_CATCH();
+			{
+				FlushErrorState();
+				nulls[i] = true;
+			}
+			PG_END_TRY();
 		}
 	}
 
@@ -1460,7 +1478,7 @@ static Datum ParamList2TextArr(const ParamListInfo from)
 							 'i');	/* typalign, see pg_type.h */
 	for (i = 0; i < from->numParams; ++i)
 	{
-		if (from->params[i].isnull == false)
+		if (nulls[i] == false)
 			pfree(DatumGetPointer(datums[i]));
 	}
 	pfree(datums);

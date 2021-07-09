@@ -4,7 +4,7 @@ This plugin requires plugin pg_stat_statement, and plugin **pg_stat_statement** 
 If you need to work in an AntDB cluster, first make sure that the plugin **adb_global_views** is installed.
 
 # How to use
-1. Configure postgresql.conf, shared_preload_libraries = 'pg_stat_statement,adb_stat_statements'.  
+1. Configure postgresql.conf, shared_preload_libraries = 'pg_stat_statements,adb_stat_statements'.  
 2. Restart PostgreSQL.  
 3. Login PostgreSQL as super user. Execute some commands like:  
 ```shell
