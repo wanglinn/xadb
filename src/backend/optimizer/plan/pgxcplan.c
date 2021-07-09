@@ -1447,7 +1447,6 @@ Plan *
 create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTablePath *mtp)
 {
 	ModifyTable		   *mt = (ModifyTable *)topplan;
-	ListCell		   *lc;
 	RemoteQuery		   *fstep;
 	RangeTblEntry	   *dummy_rte;
 	RangeTblEntry	   *res_rte;
@@ -1493,7 +1492,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 	fstep->is_temp = false;		/* remote table always not temp */
 	fstep->read_only = false;
 
-	if (mt->returningLists != NIL)
+	if (mt->returningLists != NIL ||
 		(res_rel->rd_auxlist && (cmdtyp == CMD_UPDATE || cmdtyp == CMD_INSERT)))
 		pgxc_add_returning_list(fstep,
 								mt->returningLists ? linitial(mt->returningLists) : NIL,
