@@ -2099,9 +2099,9 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 	}
 	else
 	{
-		Oid 		heap_relid;
-		Oid 		toast_relid;
-		//MultiXactId minmulti;
+		Oid			heap_relid;
+		Oid			toast_relid;
+		ReindexParams reindex_params = {0};
 
 		/*
 		 * This effectively deletes all rows in the table, and may be done
@@ -2110,8 +2110,6 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 		 * holding a predicate lock on the table.
 		 */
 		CheckTableForSerializableConflictIn(rel);
-
-		//minmulti = GetOldestMultiXactId();
 
 		/*
 		 * Need the full transaction-safe pushups.
@@ -2123,22 +2121,25 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 		RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence);
 
 		heap_relid = RelationGetRelid(rel);
-		toast_relid = rel->rd_rel->reltoastrelid;
 
 		/*
 		 * The same for the toast table, if any.
 		 */
+		toast_relid = rel->rd_rel->reltoastrelid;
 		if (OidIsValid(toast_relid))
 		{
-			rel = relation_open(toast_relid, AccessExclusiveLock);
-			RelationSetNewRelfilenode(rel, rel->rd_rel->relpersistence);
-			relation_close(rel, NoLock);
+			Relation	toastrel = relation_open(toast_relid,
+												 AccessExclusiveLock);
+			RelationSetNewRelfilenode(toastrel,
+									  toastrel->rd_rel->relpersistence);
+			table_close(toastrel, NoLock);
 		}
 
 		/*
 		 * Reconstruct the indexes to match, and we're done.
 		 */
-		reindex_relation(heap_relid, REINDEX_REL_PROCESS_TOAST, 0);
+		reindex_relation(heap_relid, REINDEX_REL_PROCESS_TOAST,
+						 &reindex_params);
 	}
 
 	pgstat_count_truncate(rel);
