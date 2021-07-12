@@ -1439,11 +1439,13 @@ static Datum ParamList2TextArr(const ParamListInfo from)
 	int lb;
 	Oid output;
 	bool isvarlean;
+	MemoryContext oldContext;
 	Assert(from->numParams > 0);
 
 	datums = palloc((sizeof(datums[0]) * from->numParams) + (sizeof(nulls[0]) * from->numParams) /* for nulls */);
 	nulls = (bool *)((char *)datums + (sizeof(datums[0]) * from->numParams));
 
+	oldContext = CurrentMemoryContext;
 	for (i = 0; i < from->numParams; ++i)
 	{
 		ParamExternData *prm = &from->params[i];
@@ -1459,8 +1461,11 @@ static Datum ParamList2TextArr(const ParamListInfo from)
 			}
 			PG_CATCH();
 			{
-				FlushErrorState();
+				/* Prevent interrupts while cleaning up */
+				HOLD_INTERRUPTS();
 				nulls[i] = true;
+				MemoryContextSwitchTo(oldContext);
+				FlushErrorState();
 			}
 			PG_END_TRY();
 		}
