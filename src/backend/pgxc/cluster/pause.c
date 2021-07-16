@@ -454,7 +454,6 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	char *node_host = NULL;
 	char		node_type, node_type_old;
 	bool		is_preferred;
-	bool		is_primary;
 	bool		is_gtm;
 	Oid			nodeOid;
 	Relation	rel;
@@ -465,7 +464,6 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	uint32		node_id;
 	uint32		node_port = 0;
 	NameData node_name_data;
-	NodeHandle *node_handle;
 
 	node_name_old = PG_GETARG_CSTRING(0);
 	node_name_new = PG_GETARG_CSTRING(1);
@@ -505,23 +503,9 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	if (!node_port)
 		node_port = get_pgxc_nodeport(nodeOid);
 	//is_preferred = is_pgxc_nodepreferred(nodeOid);
-	is_primary = is_pgxc_nodeprimary(nodeOid);
 	node_type = get_pgxc_nodetype(nodeOid);
 	node_type_old = node_type;
 	node_id = get_pgxc_node_id(nodeOid);
-
-	/*
-	 * Two nodes cannot be primary at the same time. If the primary
-	 * node is this node itself, well there is no point in having an
-	 * error.
-	 */
-	if (is_primary &&
-		((node_handle=GetPrimaryNodeHandle()) != NULL) &&
-		nodeOid != node_handle->node_id)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: two nodes cannot be primary",
-						node_name_new)));
 
 	/* Check type dependency */
 	if (node_type_old == PGXC_NODE_COORDINATOR &&
@@ -552,8 +536,6 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	new_record_repl[Anum_pgxc_node_node_host - 1] = true;
 	new_record[Anum_pgxc_node_node_type - 1] = CharGetDatum(node_type);
 	new_record_repl[Anum_pgxc_node_node_type - 1] = true;
-	new_record[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
-	new_record_repl[Anum_pgxc_node_nodeis_primary - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	new_record_repl[Anum_pgxc_node_nodeis_preferred - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);

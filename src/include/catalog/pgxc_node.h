@@ -30,10 +30,9 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(9
 	NameData	node_name;
 
 	/*
-	 * Possible node types are defined as follows
-	 * Types are defined below PGXC_NODES_XXXX
+	 * Host name of IP address of the node to connect to
 	 */
-	char		node_type;
+	NameData	node_host;
 
 	/*
 	 * Port number of the node to connect to
@@ -41,14 +40,10 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(9
 	int32 		node_port;
 
 	/*
-	 * Host name of IP address of the node to connect to
+	 * Possible node types are defined as follows
+	 * Types are defined below PGXC_NODES_XXXX
 	 */
-	NameData	node_host;
-
-	/*
-	 * Is this node primary
-	 */
-	bool		nodeis_primary;
+	char		node_type;
 
 	/*
 	 * Is this node preferred

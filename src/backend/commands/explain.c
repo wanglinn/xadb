@@ -5274,31 +5274,22 @@ ExplainSeparatePlans(ExplainState *es)
 static void
 ExplainExecNodes(ExecNodes *en, ExplainState *es)
 {
-	int pr_node_cnt;
 	int node_cnt;
 
 	if (!es->num_nodes)
 		return ;
 
-	pr_node_cnt = node_cnt = 0;
+	node_cnt = 0;
 	if (en)
 	{
 		node_cnt = list_length(en->nodeids);
-		if (HasPrimaryNode(en->nodeids))
-		{
-			pr_node_cnt = 1;
-			node_cnt--;
-		}
 	}
 
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 	{
-		appendStringInfo(es->str,
-						 " (primary node count=%d, node count=%d)",
-						 pr_node_cnt, node_cnt);
+		appendStringInfo(es->str, " (node count=%d)", node_cnt);
 	} else
 	{
-		ExplainPropertyInteger("Primary node count", NULL, pr_node_cnt, es);
 		ExplainPropertyInteger("Node count", NULL, node_cnt, es);
 	}
 }
@@ -5340,9 +5331,6 @@ ExplainRemoteQuery(RemoteQuery *plan, PlanState *planstate, List *ancestors, Exp
 	/* add names of the nodes if they exist */
 	if (en && es->nodes)
 	{
-		if (HasPrimaryNode(en->nodeids))
-			ExplainPropertyText("Primary node/s", GetPrimaryNodeName(), es);
-
 		if (en->nodeids)
 		{
 			StringInfoData node_names;

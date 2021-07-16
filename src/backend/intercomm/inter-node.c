@@ -43,9 +43,6 @@
 Oid SelfNodeID = InvalidOid;
 Oid GtmMasterNodeID = InvalidOid;
 
-/* The primary NodeHandle */
-static NodeHandle *PrimaryHandle = NULL;
-
 /* The NodeHandle cache hashtable */
 static HTAB *NodeHandleCacheHash = NULL;
 
@@ -58,7 +55,6 @@ static void RebuildNodeHandleCacheHash(void);
 static void InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 hashvalue);
 static NodeHandle *MakeNodeHandleEntry(Oid node_id, Name node_name,
 									   NodeType node_type,
-									   bool node_primary,
 									   bool node_preferred,
 									   bool nodeis_gtm);
 static NodeHandle *MakeNodeHandleEntryByTuple(HeapTuple htup);
@@ -167,7 +163,6 @@ BuildNodeHandleCacheHash(void)
  * CleanNodeHandleCacheHash
  *
  * Remove invalid entry of NodeHandle cache hashtable
- * and reset PrimaryHandle if necessary.
  */
 static void
 CleanNodeHandleCacheHash(void)
@@ -186,9 +181,6 @@ CleanNodeHandleCacheHash(void)
 								(void *) &(handle->node_id),
 								HASH_REMOVE, NULL) == NULL)
 					elog(ERROR, "hash table corrupted");
-
-				if (handle == PrimaryHandle)
-					PrimaryHandle = NULL;
 			}
 		}
 	}
@@ -223,9 +215,6 @@ InvalidateNodeHandleEntry(uint32 hashvalue)
 		if (handle->hashvalue == hashvalue)
 		{
 			handle->isvalid = false;
-
-			if (handle == PrimaryHandle)
-				PrimaryHandle = NULL;
 		}
 	}
 }
@@ -242,7 +231,7 @@ InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
 
 static NodeHandle *
 MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
-					bool node_primary, bool node_preferred, bool nodeis_gtm)
+					bool node_preferred, bool nodeis_gtm)
 {
 	NodeHandle *handle = NULL;
 	bool		found = false;
@@ -254,7 +243,6 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 	/* Should I change this value to pgxc_node_name if I am a gtmcoord slave node? */
 	handle->node_name = *node_name;
 	handle->node_type = node_type;
-	handle->node_primary = node_primary;
 	handle->node_preferred = node_preferred;
 	handle->isvalid = true;
 	if (!found)
@@ -265,9 +253,6 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 		handle->node_context = NULL;
 		handle->node_owner = NULL;
 	}
-
-	if (node_primary)
-		PrimaryHandle = handle;
 
 	if (pg_strcasecmp(PGXCNodeName, NameStr(*node_name)) == 0){
 		SelfNodeID = PGXCNodeOid = node_id;
@@ -332,7 +317,6 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 	return MakeNodeHandleEntry(tuple->oid,
 							   &(tuple->node_name),
 							   node_type,
-							   tuple->nodeis_primary,
 							   tuple->nodeis_preferred,
 							   tuple->nodeis_gtm);
 }
@@ -624,8 +608,6 @@ GetMixedHandles(const List *node_list, void *context)
 			elog(ERROR, "Invalid node \"%u\"", node_id);
 		cur_handle->mix_types |= handle->node_type;
 		cur_handle->handles = lappend(cur_handle->handles, handle);
-		if (handle->node_primary)
-			cur_handle->pr_handle = handle;
 		if (PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
@@ -650,7 +632,6 @@ CopyMixhandle(NodeMixHandle *src)
 	{
 		dst = (NodeMixHandle *) palloc0(sizeof(NodeMixHandle));
 		dst->mix_types = src->mix_types;
-		dst->pr_handle = src->pr_handle;
 		dst->handles = list_copy(src->handles);
 	}
 
@@ -666,11 +647,6 @@ ConcatMixHandle(NodeMixHandle *mix1, NodeMixHandle *mix2)
 		return mix1;
 	if (mix1 == mix2)
 		elog(ERROR, "cannot ConcatMixHandle() a NodeMixHandle to itself");
-
-	if (mix1->pr_handle == NULL)
-		mix1->pr_handle = mix2->pr_handle;
-	else if (mix2->pr_handle != NULL)
-		Assert(mix1->pr_handle == mix2->pr_handle);
 
 	mix1->mix_types |= mix2->mix_types;
 	mix1->handles = list_concat_unique(mix1->handles, mix2->handles);
@@ -772,58 +748,6 @@ GetNodeName(const Oid node_id)
 		return (const char *) NameStr(handle->node_name);
 
 	return NULL;
-}
-
-const char *
-GetPrimaryNodeName(void)
-{
-	NodeHandle *handle = GetPrimaryNodeHandle();
-
-	if (handle)
-		return (const char *) NameStr(handle->node_name);
-
-	return NULL;
-}
-
-NodeHandle *
-GetPrimaryNodeHandle(void)
-{
-	RebuildNodeHandleCacheHash();
-
-	return PrimaryHandle;
-}
-
-Oid
-GetPrimaryNodeID(void)
-{
-	NodeHandle *handle = GetPrimaryNodeHandle();
-
-	if (handle)
-		return handle->node_id;
-
-	return InvalidOid;
-}
-
-bool
-IsPrimaryNode(Oid node_id)
-{
-	Oid pr_node_id = GetPrimaryNodeID();
-
-	if (OidIsValid(pr_node_id))
-		return node_id == pr_node_id;
-
-	return false;
-}
-
-bool
-HasPrimaryNode(const List *node_list)
-{
-	Oid pr_node_id = GetPrimaryNodeID();
-
-	if (!OidIsValid(pr_node_id))
-		return false;
-
-	return list_member_oid(node_list, pr_node_id);
 }
 
 List *

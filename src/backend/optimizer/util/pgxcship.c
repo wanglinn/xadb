@@ -1712,8 +1712,7 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 
 	/* Following cases are not handled in this routine */
 	/* PGXC_FQS_TODO how should we handle table usage type? */
-	if (HasPrimaryNode(en1->nodeids) || HasPrimaryNode(en2->nodeids) ||
-		en1->en_expr || en2->en_expr ||
+	if (en1->en_expr || en2->en_expr ||
 		OidIsValid(en1->en_relid) || OidIsValid(en2->en_relid) ||
 		en1->accesstype != RELATION_ACCESS_READ || en2->accesstype != RELATION_ACCESS_READ)
 		return NULL;

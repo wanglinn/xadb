@@ -339,7 +339,7 @@ void adb_get_all_node_oid_list(List **list_coord, List **list_datanode, bool ord
 static void
 check_node_options(const char *node_name, List *options, char **node_host,
 			int *node_port, char *node_type,
-			bool *is_primary, bool *is_preferred,
+			bool *is_preferred,
 			bool *is_gtm, char **new_node_name)
 {
 	ListCell   *option;
@@ -388,10 +388,6 @@ check_node_options(const char *node_name, List *options, char **node_host,
 			else
 				*node_type = PGXC_NODE_DATANODESLAVE;
 		}
-		else if (strcmp(defel->defname, "primary") == 0)
-		{
-			*is_primary = defGetBoolean(defel);
-		}
 		else if (strcmp(defel->defname, "preferred") == 0)
 		{
 			*is_preferred = defGetBoolean(defel);
@@ -412,13 +408,6 @@ check_node_options(const char *node_name, List *options, char **node_host,
 					 errmsg("incorrect option: %s", defel->defname)));
 		}
 	}
-
-	/* A primary node has to be a Datanode */
-	if (*is_primary && *node_type != PGXC_NODE_DATANODE)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: cannot be a primary node, it has to be a Datanode",
-						node_name)));
 
 	/* A preferred node has to be a Datanode */
 	if (*is_preferred && *node_type != PGXC_NODE_DATANODE)
@@ -513,7 +502,6 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	char	   *node_host = NULL;
 	char		node_type = PGXC_NODE_NONE;
 	int			node_port = 0;
-	bool		is_primary = false;
 	bool		is_preferred = false;
 	bool		is_gtm = false;
 	Datum		node_id;
@@ -563,21 +551,11 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	/* Filter options */
 	check_node_options(node_name, stmt->options, &node_host,
 				&node_port, &node_type,
-				&is_primary, &is_preferred,
+				&is_preferred,
 				&is_gtm, NULL);
 
 	/* Compute node identifier */
 	node_id = generate_node_id(node_name);
-
-	/*
-	 * Check that this node is not created as a primary if one already
-	 * exists.
-	 */
-	if (is_primary && GetPrimaryNodeHandle() != NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: two nodes cannot be primary",
-						node_name)));
 
 	/*
 	 * Then assign default values if necessary
@@ -618,7 +596,6 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_node_type - 1] = CharGetDatum(node_type);
 	values[Anum_pgxc_node_node_port - 1] = Int32GetDatum(node_port);
 	values[Anum_pgxc_node_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
-	values[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
 	values[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	values[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);
 	values[Anum_pgxc_node_node_id - 1] = node_id;
@@ -732,7 +709,6 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	char	   *new_node_name = NULL;
 	int			node_port_old, node_port_new;
 	char		node_type_old, node_type_new;
-	bool		is_primary;
 	bool		is_preferred = false;
 	bool		is_gtm = false;
 	HeapTuple	oldtup, newtup;
@@ -765,7 +741,6 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	node_host_old = pstrdup(NameStr(node_form->node_host));
 	node_port_old = node_port_new = node_form->node_port;
 	node_type_old = node_type_new = node_form->node_type;
-	is_primary = node_form->nodeis_primary;
 	is_preferred = node_form->nodeis_preferred;
 	is_gtm = node_form->nodeis_gtm;
 	node_id = node_form->node_id;
@@ -775,7 +750,6 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 					   &node_host_new,
 					   &node_port_new,
 					   &node_type_new,
-					   &is_primary,
 					   &is_preferred,
 					   &is_gtm,
 					   &new_node_name);
@@ -798,19 +772,6 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 				 		node_type_old == PGXC_NODE_COORDINATOR ? "Coordinator" : "Datanode",
 				 		node_type_new == PGXC_NODE_COORDINATOR ? "Coordinator" : "Datanode")));
 
-	/*
-	 * Two nodes cannot be primary at the same time. If the primary
-	 * node is this node itself, well there is no point in having an
-	 * error.
-	 */
-	if (is_primary &&
-		(node_handle=GetPrimaryNodeHandle()) != NULL &&
-		node_oid != node_handle->node_id)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("PGXC node %s: two nodes cannot be primary",
-						node_name)));
-
 	/* Update values for catalog entry */
 	MemSet(new_record, 0, sizeof(new_record));
 	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
@@ -830,8 +791,6 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	new_record_repl[Anum_pgxc_node_node_host - 1] = true;
 	new_record[Anum_pgxc_node_node_type - 1] = CharGetDatum(node_type_new);
 	new_record_repl[Anum_pgxc_node_node_type - 1] = true;
-	new_record[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
-	new_record_repl[Anum_pgxc_node_nodeis_primary - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	new_record_repl[Anum_pgxc_node_nodeis_preferred - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);

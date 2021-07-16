@@ -4162,29 +4162,6 @@ Oid get_preferred_nodeoid(List *oid_list)
 }
 
 /*
- * is_pgxc_nodeprimary
- *		Determine if node is a primary one
- */
-bool
-is_pgxc_nodeprimary(Oid nodeid)
-{
-	HeapTuple		tuple;
-	Form_pgxc_node	nodeForm;
-	bool			result;
-
-	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeid));
-
-	if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for node %u", nodeid);
-
-	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
-	result = nodeForm->nodeis_primary;
-	ReleaseSysCache(tuple);
-
-	return result;
-}
-
-/*
  * get_pgxc_groupoid
  *		Obtain PGXC Group Oid for given group name
  *		Return Invalid Oid if group does not exist

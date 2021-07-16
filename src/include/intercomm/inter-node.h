@@ -30,7 +30,6 @@ typedef struct NodeHandle
 	Oid					node_id;
 	NameData			node_name;
 	NodeType			node_type;
-	bool				node_primary;
 	bool				node_preferred;
 	bool				is_gtm;
 
@@ -47,7 +46,6 @@ typedef struct NodeHandle
 typedef struct NodeMixHandle
 {
 	NodeType			mix_types;	/* current mixed NodeType(s) */
-	NodeHandle		   *pr_handle;	/* primary NodeHandle */
 	List			   *handles;	/* list of NodeHandle */
 } NodeMixHandle;
 
@@ -88,11 +86,6 @@ extern Oid *GetAllDnIDA(bool include_self, int *dn_num);
 extern Oid *GetAllNodeIDA(bool include_self, int *node_num);
 
 extern const char *GetNodeName(const Oid node_id);
-extern const char *GetPrimaryNodeName(void);
-extern NodeHandle *GetPrimaryNodeHandle(void);
-extern Oid GetPrimaryNodeID(void);
-extern bool IsPrimaryNode(Oid node_id);
-extern bool HasPrimaryNode(const List *node_list);
 
 extern List *GetPreferredRepNodes(const List *src_nodes);
 

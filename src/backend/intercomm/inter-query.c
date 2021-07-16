@@ -317,7 +317,6 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 {
 	NodeMixHandle	   *cur_handle;
 	NodeHandle		   *handle;
-	NodeHandle		   *pr_handle;
 	ListCell		   *lc_handle;
 	bool				need_xact_block;
 	bool				already_begin;
@@ -327,7 +326,6 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 	Assert(state && node);
 	cur_handle = state->cur_handle;
 	need_xact_block = state->need_xact_block;
-	pr_handle = cur_handle->pr_handle;
 
 	if (need_xact_block)
 	{
@@ -337,44 +335,9 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 
 	PG_TRY();
 	{
-		if (pr_handle)
-		{
-			Tuplestorestate	   *tuplestorestate = node->tuplestorestate;
-			bool				eof_tuplestore;
-
-			Assert(tuplestorestate);
-
-			if (!HandleBegin(state, pr_handle, gxid, timestamp, need_xact_block, &already_begin) ||
-				!HandleStartRemoteQuery(pr_handle, node))
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to start query on primary node"),
-						 errnode(NameStr(pr_handle->node_name)),
-						 errhint("%s", HandleGetError(pr_handle))));
-			}
-
-			/*
-			 * Here we must check eof of the tuplestore, otherwise
-			 * the first tuple slot of the primary handle will be
-			 * got once again from the tuplestore.
-			 */
-			eof_tuplestore = tuplestore_ateof(tuplestorestate);
-			if (!eof_tuplestore)
-			{
-				if (!tuplestore_get_remotetupleslot(tuplestorestate, true, false, destslot))
-					eof_tuplestore = true;
-			}
-			/* try to get the first no-null slot */
-			if (eof_tuplestore)
-				destslot = HandleFetchRemote(pr_handle, node, destslot, true, false);
-		}
-
 		foreach (lc_handle, cur_handle->handles)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
-			if (handle == pr_handle)
-				continue;
 
 			if (!HandleBegin(state, handle, gxid, timestamp, need_xact_block, &already_begin) ||
 				!HandleStartRemoteQuery(handle, node))
