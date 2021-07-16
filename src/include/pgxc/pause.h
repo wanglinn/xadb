@@ -36,5 +36,4 @@ extern void ReleaseClusterLock(bool exclusive);
 extern Datum pg_pause_cluster(PG_FUNCTION_ARGS);
 extern Datum pg_unpause_cluster(PG_FUNCTION_ARGS);
 extern void PGXCCleanClusterLock(int code, Datum arg);
-extern Datum pg_alter_node(PG_FUNCTION_ARGS);
 #endif
