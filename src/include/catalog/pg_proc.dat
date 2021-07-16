@@ -12612,6 +12612,9 @@
   descr => 'explain infomask of each heap tuple',
   proname => 'pg_explain_infomask', prorettype => 'text', proargtypes => 'int4',
   prosrc => 'pg_explain_infomask' },
+{ oid => '9320', row_macros => 'ADB', descr => 'dump node create SQL',
+  proname => 'adb_dump_node', provolatile => 's', prorettype => 'text',
+  proargtypes => 'oid bool', prosrc => 'adb_dump_node' },
 
 # ADBMGRD
 { oid => '9872', row_macros => 'ADBMGRD', descr => 'start agent all',

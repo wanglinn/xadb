@@ -1043,3 +1043,69 @@ InitPGXCNodeIdentifier(void)
 			PGXCNodeIdentifier = get_pgxc_node_id(PGXCNodeOid);
 	}
 }
+
+Datum
+adb_dump_node(PG_FUNCTION_ARGS)
+{
+	StringInfoData	buf;
+	HeapTuple		tuple;
+	Form_pgxc_node	node;
+
+	/* initialize text buffer */
+	initStringInfo(&buf);
+	enlargeStringInfo(&buf, VARHDRSZ);
+	buf.len = VARHDRSZ;
+
+	tuple = SearchSysCache1(PGXCNODEOID, PG_GETARG_DATUM(0));
+	if (!HeapTupleIsValid(tuple))
+		goto end_dump_;
+
+	node = (Form_pgxc_node)GETSTRUCT(tuple);
+	appendStringInfo(&buf, "CREATE NODE %s",
+					 quote_identifier(NameStr(node->node_name)));
+
+	if (OidIsValid(node->node_master_oid))
+	{
+		HeapTuple	master_tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(node->node_master_oid));
+		if (HeapTupleIsValid(master_tuple))
+		{
+			Form_pgxc_node master_node = (Form_pgxc_node)GETSTRUCT(master_tuple);
+			appendStringInfo(&buf, " FOR %s",
+							 quote_identifier(NameStr(master_node->node_name)));
+			ReleaseSysCache(master_tuple);
+		}
+	}
+
+	appendStringInfo(&buf, " WITH (host = '%s', port = '%d', type = '",
+					 NameStr(node->node_host), node->node_port);
+
+	switch (node->node_type)
+	{
+	case PGXC_NODE_COORDINATOR:
+		appendStringInfoString(&buf, "coordinator'");
+		if (node->nodeis_gtm)
+			appendStringInfo(&buf, ", gtm = 'true'");
+		break;
+	case PGXC_NODE_DATANODE:
+		appendStringInfoString(&buf, "datanode'");
+		if (node->nodeis_preferred &&
+			PG_GETARG_BOOL(1))
+			appendStringInfo(&buf, ", preferred = 'true'");
+		break;
+	case PGXC_NODE_DATANODESLAVE:
+		appendStringInfoString(&buf, "datanode slave'");
+		break;
+
+	default:
+		ereport(ERROR,
+				errmsg("unknown node type %d", node->node_type));
+		break;
+	}
+
+	appendStringInfoString(&buf, ")");
+
+	ReleaseSysCache(tuple);
+end_dump_:
+	SET_VARSIZE(buf.data, buf.len);
+	PG_RETURN_TEXT_P(buf.data);
+}

@@ -2025,14 +2025,7 @@ dumpNodes(PGconn *conn)
 
 	query = createPQExpBuffer();
 
-	appendPQExpBuffer(query, "select 'CREATE NODE \"' || node_name || '\"' || '"
-					" WITH (TYPE = ' || chr(39) || (case when node_type='C'"
-					" then 'coordinator' else 'datanode' end) || chr(39)"
-					" || ' , HOST = ' || chr(39) || node_host || chr(39)"
-					" || ', PORT = ' || node_port || (case when nodeis_preferred"
-					" then ', PREFERRED' else ' ' end) "
-					" || ' , GTM = ' || chr(39) || (case when nodeis_gtm then 'true' else 'false' end) || chr(39) "
-					" || ');' "
+	appendPQExpBuffer(query, "select adb_dump_node(oid,false) || ';'"
 					" as node_query from pg_catalog.pgxc_node order by oid");
 
 	res = executeQuery(conn, query->data);
