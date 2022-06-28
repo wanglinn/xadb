@@ -23,6 +23,3 @@ grammars and oci7)
 
 [简体中文](https://github.com/ADBSQL/docs/blob/master/AntDB/how-to-use-AntDB-manger.md).
 
-
-## Follow us
-QQ Group: 496464280
